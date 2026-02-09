@@ -1,0 +1,228 @@
+/**
+ * TaskFSM — pure state-driven task execution model.
+ *
+ * The FSM performs NO I/O.  It only:
+ *   1. Validates transitions
+ *   2. Updates state
+ *   3. Records history
+ */
+import type { Event } from "../events/types.ts";
+import { EventType } from "../events/types.ts";
+import { InvalidStateTransition } from "../infra/errors.ts";
+import { getLogger } from "../infra/logger.ts";
+import type { TaskContext } from "./context.ts";
+import { createTaskContext } from "./context.ts";
+import { TaskState, TERMINAL_STATES, SUSPENDABLE_STATES } from "./states.ts";
+
+const logger = getLogger("task_fsm");
+
+// ── StateTransition record ──────────────────────────
+
+export interface StateTransition {
+  fromState: TaskState;
+  toState: TaskState;
+  triggerEventType: EventType;
+  triggerEventId: string;
+  timestamp: number;
+  metadata: Record<string, unknown>;
+}
+
+// ── Transition table ────────────────────────────────
+// (currentState, eventType) → targetState
+// null means "resolve dynamically at runtime"
+
+type TransitionKey = `${TaskState}:${EventType}`;
+
+const TRANSITION_TABLE = new Map<TransitionKey, TaskState | null>([
+  // Create → Perceive
+  [`${TaskState.IDLE}:${EventType.TASK_CREATED}`, TaskState.PERCEIVING],
+
+  // Perceive → Think
+  [`${TaskState.PERCEIVING}:${EventType.PERCEIVE_DONE}`, TaskState.THINKING],
+
+  // Think → Plan / Suspended
+  [`${TaskState.THINKING}:${EventType.THINK_DONE}`, TaskState.PLANNING],
+  [`${TaskState.THINKING}:${EventType.NEED_MORE_INFO}`, TaskState.SUSPENDED],
+
+  // Plan → Act
+  [`${TaskState.PLANNING}:${EventType.PLAN_DONE}`, TaskState.ACTING],
+
+  // Act → Act (tool chain) / Reflect
+  [`${TaskState.ACTING}:${EventType.TOOL_CALL_COMPLETED}`, null], // dynamic
+  [`${TaskState.ACTING}:${EventType.TOOL_CALL_FAILED}`, null],    // dynamic
+  [`${TaskState.ACTING}:${EventType.ACT_DONE}`, TaskState.REFLECTING],
+
+  // Reflect → Complete / Think / Plan (dynamic)
+  [`${TaskState.REFLECTING}:${EventType.REFLECT_DONE}`, null],
+
+  // Suspended → Resume
+  [`${TaskState.SUSPENDED}:${EventType.TASK_RESUMED}`, null],     // dynamic
+  [`${TaskState.SUSPENDED}:${EventType.MESSAGE_RECEIVED}`, TaskState.THINKING],
+]);
+
+// ── TaskFSM ─────────────────────────────────────────
+
+export class TaskFSM {
+  readonly taskId: string;
+  state: TaskState;
+  context: TaskContext;
+  history: StateTransition[];
+  createdAt: number;
+  updatedAt: number;
+  priority: number;
+  metadata: Record<string, unknown>;
+
+  constructor(opts?: {
+    taskId?: string;
+    state?: TaskState;
+    context?: TaskContext;
+    priority?: number;
+    metadata?: Record<string, unknown>;
+  }) {
+    this.taskId = opts?.taskId ?? crypto.randomUUID();
+    this.state = opts?.state ?? TaskState.IDLE;
+    this.context = opts?.context ?? createTaskContext();
+    this.history = [];
+    this.createdAt = Date.now();
+    this.updatedAt = Date.now();
+    this.priority = opts?.priority ?? 100;
+    this.metadata = opts?.metadata ?? {};
+  }
+
+  /** Factory: create TaskFSM from an external input event. */
+  static fromEvent(event: Event): TaskFSM {
+    const task = new TaskFSM({
+      context: createTaskContext({
+        inputText: (event.payload["text"] as string) ?? "",
+        inputMetadata: (event.payload["metadata"] as Record<string, unknown>) ?? {},
+        source: event.source,
+      }),
+      priority: event.priority ?? event.type,
+    });
+    logger.info({ taskId: task.taskId, source: event.source }, "task_created");
+    return task;
+  }
+
+  /** Execute a state transition. Returns the new state. Throws on invalid. */
+  transition(event: Event): TaskState {
+    if (TERMINAL_STATES.has(this.state)) {
+      throw new InvalidStateTransition(
+        `Task ${this.taskId} is in terminal state ${this.state}, cannot process ${event.type}`,
+      );
+    }
+
+    // Any state → Suspended (special)
+    if (event.type === EventType.TASK_SUSPENDED && SUSPENDABLE_STATES.has(this.state)) {
+      return this._doTransition(TaskState.SUSPENDED, event, { suspendedFrom: this.state });
+    }
+
+    // Any state → Failed (special)
+    if (event.type === EventType.TASK_FAILED) {
+      return this._doTransition(TaskState.FAILED, event);
+    }
+
+    // Lookup table
+    const key: TransitionKey = `${this.state}:${event.type}`;
+    const target = TRANSITION_TABLE.get(key);
+
+    if (target === undefined) {
+      throw new InvalidStateTransition(
+        `No transition defined for (${this.state}, ${event.type})`,
+      );
+    }
+
+    const resolved = target ?? this._resolveDynamicTarget(event);
+    return this._doTransition(resolved, event);
+  }
+
+  /** Check if a transition is possible without executing it. */
+  canTransition(eventType: EventType): boolean {
+    if (TERMINAL_STATES.has(this.state)) return false;
+    if (eventType === EventType.TASK_SUSPENDED) return SUSPENDABLE_STATES.has(this.state);
+    if (eventType === EventType.TASK_FAILED) return true;
+    const key: TransitionKey = `${this.state}:${eventType}`;
+    return TRANSITION_TABLE.has(key);
+  }
+
+  get isTerminal(): boolean {
+    return TERMINAL_STATES.has(this.state);
+  }
+
+  get isActive(): boolean {
+    return (
+      this.state !== TaskState.IDLE &&
+      this.state !== TaskState.SUSPENDED &&
+      !TERMINAL_STATES.has(this.state)
+    );
+  }
+
+  // ── Internal ──
+
+  private _doTransition(
+    toState: TaskState,
+    event: Event,
+    meta?: Record<string, unknown>,
+  ): TaskState {
+    const oldState = this.state;
+
+    if (toState === TaskState.SUSPENDED) {
+      this.context.suspendedState = oldState;
+      this.context.suspendReason = (event.payload["reason"] as string) ?? "";
+    }
+
+    this.history.push({
+      fromState: oldState,
+      toState,
+      triggerEventType: event.type,
+      triggerEventId: event.id,
+      timestamp: Date.now(),
+      metadata: meta ?? {},
+    });
+
+    this.state = toState;
+    this.updatedAt = Date.now();
+
+    logger.info(
+      { taskId: this.taskId, from: oldState, to: toState, trigger: event.type },
+      "task_state_changed",
+    );
+
+    return toState;
+  }
+
+  private _resolveDynamicTarget(event: Event): TaskState {
+    // ACTING + tool completed/failed
+    if (
+      this.state === TaskState.ACTING &&
+      (event.type === EventType.TOOL_CALL_COMPLETED || event.type === EventType.TOOL_CALL_FAILED)
+    ) {
+      if (this.context.plan && this.context.plan.steps.some((s) => !s.completed)) {
+        return TaskState.ACTING;
+      }
+      return TaskState.REFLECTING;
+    }
+
+    // REFLECTING + reflect done → check verdict
+    if (this.state === TaskState.REFLECTING && event.type === EventType.REFLECT_DONE) {
+      const verdict = event.payload["verdict"] as string | undefined;
+      if (verdict === "complete") return TaskState.COMPLETED;
+      if (verdict === "replan") return TaskState.PLANNING;
+      return TaskState.THINKING; // "continue"
+    }
+
+    // SUSPENDED + resumed → restore previous state
+    if (this.state === TaskState.SUSPENDED && event.type === EventType.TASK_RESUMED) {
+      const target = this.context.suspendedState;
+      if (target) {
+        this.context.suspendedState = null;
+        this.context.suspendReason = null;
+        return target as TaskState;
+      }
+      return TaskState.THINKING; // fallback
+    }
+
+    throw new InvalidStateTransition(
+      `Cannot dynamically resolve target for (${this.state}, ${event.type})`,
+    );
+  }
+}

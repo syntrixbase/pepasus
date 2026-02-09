@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+
+# Build
+dist/
+*.tsbuildinfo
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Testing / Coverage / Plan
+coverage/
+docs/plans
+
+# Project data
+data/
+
+# Environment
+.env
+.env.*
+
+# OS
+.DS_Store
+Thumbs.db
