@@ -18,7 +18,7 @@ class MockProvider extends LLMProvider {
     this.fail = opts?.fail ?? false;
   }
 
-  async chat(messages: Message[], _options?: ChatOptions): Promise<Message> {
+  async chat(_messages: Message[], _options?: ChatOptions): Promise<Message> {
     this.callCount++;
     if (this.fail) throw new LLMError(`${this.name} failed`);
     return createMessage(Role.ASSISTANT, `Response from ${this.name}`, {
@@ -27,7 +27,7 @@ class MockProvider extends LLMProvider {
   }
 
   async chatWithTools(
-    messages: Message[],
+    _messages: Message[],
     _tools: Record<string, unknown>[],
     _options?: ChatOptions,
   ): Promise<Message> {

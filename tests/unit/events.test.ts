@@ -166,6 +166,70 @@ describe("EventBus", () => {
     await bus.stop();
   });
 
+  test("unsubscribe removes handler", async () => {
+    const bus = new EventBus();
+    const received: Event[] = [];
+
+    const handler = async (e: Event) => {
+      received.push(e);
+    };
+    bus.subscribe(EventType.MESSAGE_RECEIVED, handler);
+    bus.unsubscribe(EventType.MESSAGE_RECEIVED, handler);
+
+    await bus.start();
+    await bus.emit(createEvent(EventType.MESSAGE_RECEIVED));
+    await sleep(50);
+
+    expect(received).toHaveLength(0);
+    await bus.stop();
+  });
+
+  test("unsubscribe is no-op for unregistered type", async () => {
+    const bus = new EventBus();
+    const handler = async (_e: Event) => {};
+    // Should not throw
+    bus.unsubscribe(EventType.HEARTBEAT, handler);
+  });
+
+  test("unsubscribe is no-op for unregistered handler", async () => {
+    const bus = new EventBus();
+    const handler1 = async (_e: Event) => {};
+    const handler2 = async (_e: Event) => {};
+    bus.subscribe(EventType.MESSAGE_RECEIVED, handler1);
+    // handler2 was never subscribed — should not throw
+    bus.unsubscribe(EventType.MESSAGE_RECEIVED, handler2);
+  });
+
+  test("pendingCount reflects queued events", async () => {
+    const bus = new EventBus();
+    expect(bus.pendingCount).toBe(0);
+
+    // Queue events before starting — they stay in the queue
+    await bus.emit(createEvent(EventType.MESSAGE_RECEIVED));
+    await bus.emit(createEvent(EventType.HEARTBEAT));
+    expect(bus.pendingCount).toBe(2);
+
+    await bus.start();
+    await sleep(50);
+    await bus.stop();
+  });
+
+  test("start is idempotent", async () => {
+    const bus = new EventBus();
+    await bus.start();
+    await bus.start(); // should be no-op
+    expect(bus.isRunning).toBe(true);
+    await bus.stop();
+  });
+
+  test("stop is idempotent", async () => {
+    const bus = new EventBus();
+    await bus.start();
+    await bus.stop();
+    await bus.stop(); // should be no-op
+    expect(bus.isRunning).toBe(false);
+  });
+
   test("history recording", async () => {
     const bus = new EventBus({ keepHistory: true });
     await bus.start();

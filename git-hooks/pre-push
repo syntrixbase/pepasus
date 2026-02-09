@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# Pre-push hook: block push if any source file has line coverage < 95%.
+set -euo pipefail
+
+THRESHOLD=95
+
+echo "📊 Running coverage check (threshold: ${THRESHOLD}% per file)..."
+
+# Run coverage, capture output (strip ANSI color codes)
+COVERAGE_OUTPUT=$(bun test --coverage 2>&1 | sed 's/\x1b\[[0-9;]*m//g')
+
+# Check if tests failed
+if echo "$COVERAGE_OUTPUT" | grep -qE "[1-9][0-9]* fail"; then
+    echo "❌ Tests failed. Push aborted."
+    exit 1
+fi
+
+# Parse coverage table lines:
+# Format: " src/foo/bar.ts  | 95.24 | 98.34 | 43,125-128"
+#         File               % Funcs  % Lines  Uncovered
+# Filter: lines containing "|", exclude separators (---), header (File), summary (All files)
+COVERAGE_LINES=$(echo "$COVERAGE_OUTPUT" | grep '|' | grep -v '^\-' | grep -v 'File' | grep -v 'All files')
+
+FAILED=0
+FAIL_DETAILS=""
+
+while IFS= read -r line; do
+    [ -z "$line" ] && continue
+
+    # Extract file path (col 1) and % Lines (col 3)
+    FILE=$(echo "$line" | awk -F'|' '{print $1}' | xargs)
+    LINE_COV=$(echo "$line" | awk -F'|' '{print $3}' | xargs)
+
+    # Skip if we couldn't parse
+    if [ -z "$FILE" ] || [ -z "$LINE_COV" ]; then
+        continue
+    fi
+
+    # Float comparison via awk
+    BELOW=$(awk "BEGIN { print ($LINE_COV < $THRESHOLD) ? 1 : 0 }")
+    if [ "$BELOW" -eq 1 ]; then
+        FAILED=1
+        FAIL_DETAILS="${FAIL_DETAILS}\n  ❌ ${FILE}: ${LINE_COV}% < ${THRESHOLD}%"
+    fi
+done <<< "$COVERAGE_LINES"
+
+if [ "$FAILED" -eq 1 ]; then
+    echo ""
+    echo "🚫 Push blocked! The following files have line coverage below ${THRESHOLD}%:"
+    echo -e "$FAIL_DETAILS"
+    echo ""
+    echo "Please add tests to improve coverage before pushing."
+    exit 1
+fi
+
+echo "✅ All files meet ${THRESHOLD}% line coverage. Push allowed."

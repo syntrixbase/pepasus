@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Pre-commit hook: run typecheck and tests before committing.
+set -euo pipefail
+
+echo "🔍 Running typecheck..."
+bunx tsc --noEmit
+
+echo "🧪 Running tests..."
+bun test
+
+echo "✅ All checks passed."

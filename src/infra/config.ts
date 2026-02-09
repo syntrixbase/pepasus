@@ -82,3 +82,8 @@ export function getSettings(): Settings {
 export function setSettings(s: Settings): void {
   _settings = s;
 }
+
+/** Reset settings singleton so next getSettings() reloads from env (for testing) */
+export function resetSettings(): void {
+  _settings = null;
+}

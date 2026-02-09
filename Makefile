@@ -1,7 +1,11 @@
-.PHONY: install test lint lint-fix typecheck coverage clean check
+.PHONY: install test lint lint-fix typecheck coverage clean check install-hooks
 
-install:
+install: install-hooks
 	bun install
+
+install-hooks:
+	git config core.hooksPath git-hooks
+	chmod +x git-hooks/*
 
 test:
 	bun test

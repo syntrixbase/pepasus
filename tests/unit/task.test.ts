@@ -11,7 +11,6 @@ import {
   markStepDone,
 } from "@pegasus/task/context.ts";
 import type {
-  TaskContext,
   Plan,
   PlanStep,
   ActionResult,
@@ -300,7 +299,7 @@ describe("TaskFSM", () => {
     fsm.state = TaskState.ACTING;
 
     fsm.transition(makeEvent(EventType.TOOL_CALL_COMPLETED));
-    expect(fsm.state).toBe(TaskState.REFLECTING);
+    expect(fsm.state as TaskState).toBe(TaskState.REFLECTING);
   });
 
   test("ACTING + TOOL_CALL_FAILED → REFLECTING when no more steps", () => {
@@ -311,7 +310,7 @@ describe("TaskFSM", () => {
     fsm.state = TaskState.ACTING;
 
     fsm.transition(makeEvent(EventType.TOOL_CALL_FAILED));
-    expect(fsm.state).toBe(TaskState.REFLECTING);
+    expect(fsm.state as TaskState).toBe(TaskState.REFLECTING);
   });
 
   test("ACTING + TOOL_CALL_FAILED → ACTING when plan has more steps", () => {
@@ -331,7 +330,7 @@ describe("TaskFSM", () => {
     fsm.state = TaskState.REFLECTING;
 
     fsm.transition(makeEvent(EventType.REFLECT_DONE, { payload: { verdict: "continue" } }));
-    expect(fsm.state).toBe(TaskState.THINKING);
+    expect(fsm.state as TaskState).toBe(TaskState.THINKING);
   });
 
   test("REFLECTING + REFLECT_DONE verdict=replan → PLANNING", () => {
@@ -339,7 +338,7 @@ describe("TaskFSM", () => {
     fsm.state = TaskState.REFLECTING;
 
     fsm.transition(makeEvent(EventType.REFLECT_DONE, { payload: { verdict: "replan" } }));
-    expect(fsm.state).toBe(TaskState.PLANNING);
+    expect(fsm.state as TaskState).toBe(TaskState.PLANNING);
   });
 
   test("REFLECTING + REFLECT_DONE no verdict → defaults to THINKING", () => {
@@ -347,7 +346,7 @@ describe("TaskFSM", () => {
     fsm.state = TaskState.REFLECTING;
 
     fsm.transition(makeEvent(EventType.REFLECT_DONE));
-    expect(fsm.state).toBe(TaskState.THINKING);
+    expect(fsm.state as TaskState).toBe(TaskState.THINKING);
   });
 
   // ── Suspend / Resume ──
@@ -357,13 +356,13 @@ describe("TaskFSM", () => {
     fsm.state = TaskState.THINKING;
 
     fsm.transition(makeEvent(EventType.TASK_SUSPENDED, { payload: { reason: "awaiting input" } }));
-    expect(fsm.state).toBe(TaskState.SUSPENDED);
+    expect(fsm.state as TaskState).toBe(TaskState.SUSPENDED);
     expect(fsm.context.suspendedState).toBe(TaskState.THINKING);
     expect(fsm.context.suspendReason).toBe("awaiting input");
     expect(fsm.isActive).toBe(false);
 
     fsm.transition(makeEvent(EventType.TASK_RESUMED));
-    expect(fsm.state).toBe(TaskState.THINKING);
+    expect(fsm.state as TaskState).toBe(TaskState.THINKING);
     expect(fsm.context.suspendedState).toBeNull();
     expect(fsm.context.suspendReason).toBeNull();
   });
@@ -383,7 +382,7 @@ describe("TaskFSM", () => {
     fsm.state = TaskState.SUSPENDED;
 
     fsm.transition(makeEvent(EventType.MESSAGE_RECEIVED));
-    expect(fsm.state).toBe(TaskState.THINKING);
+    expect(fsm.state as TaskState).toBe(TaskState.THINKING);
   });
 
   test("resume with no suspendedState falls back to THINKING", () => {
@@ -392,7 +391,7 @@ describe("TaskFSM", () => {
     fsm.context.suspendedState = null;
 
     fsm.transition(makeEvent(EventType.TASK_RESUMED));
-    expect(fsm.state).toBe(TaskState.THINKING); // fallback
+    expect(fsm.state as TaskState).toBe(TaskState.THINKING); // fallback
   });
 
   // ── NEED_MORE_INFO ──
@@ -402,7 +401,7 @@ describe("TaskFSM", () => {
     fsm.state = TaskState.THINKING;
 
     fsm.transition(makeEvent(EventType.NEED_MORE_INFO));
-    expect(fsm.state).toBe(TaskState.SUSPENDED);
+    expect(fsm.state as TaskState).toBe(TaskState.SUSPENDED);
   });
 
   // ── Fail from any state ──
