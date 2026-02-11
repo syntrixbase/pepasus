@@ -4,13 +4,13 @@
  * Uses Bun's native readline for zero-dependency terminal interaction.
  */
 import { createInterface } from "readline";
-import { createAnthropic } from "@ai-sdk/anthropic";
-import { createOpenAI } from "@ai-sdk/openai";
 import type { LanguageModel } from "ai";
 import { Agent } from "./agent.ts";
 import { loadPersona } from "./identity/persona.ts";
 import { getSettings, getActiveProviderConfig } from "./infra/config.ts";
 import { getLogger } from "./infra/logger.ts";
+import { createOpenAICompatibleModel } from "./infra/llm-clients.ts";
+import { createAnthropicCompatibleModel } from "./infra/llm-clients.ts";
 
 const logger = getLogger("cli");
 
@@ -27,12 +27,18 @@ function createModel(settings: ReturnType<typeof getSettings>): LanguageModel {
             "  ANTHROPIC_API_KEY=sk-ant-api03-your-key-here",
         );
       }
-      const anthropicClient = createAnthropic({
+
+      const model = createAnthropicCompatibleModel({
         apiKey: config.apiKey,
         baseURL: config.baseURL,
+        model: config.model,
+        headers: {
+          "Copilot-Integration-Id": "vscode-chat",
+        },
       });
-      logger.info({ provider, model: config.model }, "llm_initialized");
-      return anthropicClient(config.model);
+
+      logger.info({ provider, model: config.model, baseURL: config.baseURL }, "llm_initialized");
+      return model;
     }
 
     case "openai": {
@@ -42,12 +48,18 @@ function createModel(settings: ReturnType<typeof getSettings>): LanguageModel {
             "  OPENAI_API_KEY=sk-proj-your-key-here",
         );
       }
-      const openaiClient = createOpenAI({
+
+      const model = createOpenAICompatibleModel({
         apiKey: config.apiKey,
         baseURL: config.baseURL,
+        model: config.model,
+        headers: {
+          "Copilot-Integration-Id": "vscode-chat",
+        },
       });
+
       logger.info({ provider, model: config.model, baseURL: config.baseURL }, "llm_initialized");
-      return openaiClient(config.model);
+      return model;
     }
 
     case "openai-compatible": {
@@ -58,15 +70,18 @@ function createModel(settings: ReturnType<typeof getSettings>): LanguageModel {
             "  LLM_BASE_URL=http://localhost:1234/v1   # For LM Studio",
         );
       }
-      const compatibleClient = createOpenAI({
+
+      const model = createOpenAICompatibleModel({
         apiKey: config.apiKey || "dummy", // Many local models don't need real key
         baseURL: config.baseURL,
+        model: config.model,
       });
+
       logger.info(
         { provider, model: config.model, baseURL: config.baseURL },
         "llm_initialized",
       );
-      return compatibleClient(config.model);
+      return model;
     }
 
     default:

@@ -100,7 +100,7 @@ function configToSettings(config: any, env = process.env): Settings {
         baseURL: env["ANTHROPIC_BASE_URL"] || providers.anthropic?.baseURL,
         model: env["ANTHROPIC_MODEL"] || providers.anthropic?.model,
       },
-      baseURL: env["LLM_BASE_URL"] || providers[activeProvider]?.baseURL,
+      baseURL: env["LLM_BASE_URL"] || llm.baseURL || providers[activeProvider]?.baseURL,
       maxConcurrentCalls: Number(env["LLM_MAX_CONCURRENT_CALLS"]) || llm.maxConcurrentCalls,
       timeout: Number(env["LLM_TIMEOUT"]) || llm.timeout,
     },
