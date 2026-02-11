@@ -18,9 +18,9 @@
     "typescript": "^5"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^3.0.39",
-    "@ai-sdk/openai": "^3.0.26",
+    "@anthropic-ai/sdk": "^0.74.0",
     "ai": "^6.0.78",
+    "openai": "^6.21.0",
     "pino": "^9.0.0",
     "pino-pretty": "^13.0.0",
     "zod": "^3.24"
