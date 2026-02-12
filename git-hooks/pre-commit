@@ -15,6 +15,19 @@ echo "🔍 Running typecheck..."
 bunx tsc --noEmit
 
 echo "🧪 Running tests..."
-PEGASUS_LOG_LEVEL=silent bun test
+TEST_OUTPUT=$(PEGASUS_LOG_LEVEL=silent bun test 2>&1)
+TEST_EXIT=$?
+echo "$TEST_OUTPUT"
+
+if [ $TEST_EXIT -ne 0 ]; then
+  echo "❌ Tests failed!"
+  exit 1
+fi
+
+if echo "$TEST_OUTPUT" | grep -q "skip"; then
+  echo "❌ Skipped tests detected! No tests should be skipped."
+  echo "   Remove .skip() or .todo() from tests before committing."
+  exit 1
+fi
 
 echo "✅ All checks passed."

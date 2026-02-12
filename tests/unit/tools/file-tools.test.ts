@@ -195,9 +195,7 @@ describe("file tools", () => {
       await rm(filePath, { force: true }).catch(() => {});
     });
 
-    it.skip("should handle non-existent file gracefully", async () => {
-      // Skip this test - Bun.stat behavior varies
-      // get_file_info should handle ENOENT error properly
+    it("should handle non-existent file gracefully", async () => {
       const context = { taskId: "test-task-id", dataDir: testDir };
       const result = await get_file_info.execute({ path: `${testDir}/nonexistent.txt` }, context);
 
