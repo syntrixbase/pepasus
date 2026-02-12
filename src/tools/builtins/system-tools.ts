@@ -1,0 +1,166 @@
+/**
+ * System tools - time, environment, and system utilities.
+ */
+
+import { z } from "zod";
+import type { Tool, ToolResult, ToolContext, ToolCategory } from "../types.ts";
+
+// ── current_time ─────────────────────────────────
+
+export const current_time: Tool = {
+  name: "current_time",
+  description: "Get the current time",
+  category: "system" as ToolCategory,
+  parameters: z.object({
+    timezone: z.string().optional().describe("IANA timezone (e.g., 'UTC', 'America/New_York')"),
+  }),
+  async execute(params: unknown, _context: ToolContext): Promise<ToolResult> {
+    const startedAt = Date.now();
+    const { timezone } = params as { timezone?: string };
+
+    try {
+      const now = new Date();
+      const iso = now.toISOString();
+
+      let formattedTime = iso;
+      if (timezone) {
+        // Simple timezone-aware formatting
+        try {
+          formattedTime = now.toLocaleString("en-US", { timeZone: timezone });
+        } catch {
+          // Invalid timezone, fall back to UTC
+          formattedTime = now.toUTCString();
+        }
+      }
+
+      return {
+        success: true,
+        result: {
+          timestamp: now.getTime(),
+          iso,
+          timezone: timezone || "UTC",
+          formatted: formattedTime,
+        },
+        startedAt,
+        completedAt: Date.now(),
+        durationMs: Date.now() - startedAt,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+        startedAt,
+        completedAt: Date.now(),
+        durationMs: Date.now() - startedAt,
+      };
+    }
+  },
+};
+
+// ── sleep ───────────────────────────────────────
+
+export const sleep: Tool = {
+  name: "sleep",
+  description: "Sleep for a specified duration in seconds",
+  category: "system" as ToolCategory,
+  parameters: z.object({
+    duration: z.number().positive().describe("Duration in seconds"),
+  }),
+  async execute(params: unknown, _context: ToolContext): Promise<ToolResult> {
+    const startedAt = Date.now();
+    const { duration } = params as { duration: number };
+
+    try {
+      const durationMs = duration * 1000;
+      await new Promise((resolve) => setTimeout(resolve, durationMs));
+
+      return {
+        success: true,
+        result: { slept: duration },
+        startedAt,
+        completedAt: Date.now(),
+        durationMs: Date.now() - startedAt,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+        startedAt,
+        completedAt: Date.now(),
+        durationMs: Date.now() - startedAt,
+      };
+    }
+  },
+};
+
+// ── get_env ────────────────────────────────────
+
+export const get_env: Tool = {
+  name: "get_env",
+  description: "Get the value of an environment variable",
+  category: "system" as ToolCategory,
+  parameters: z.object({
+    key: z.string().describe("Environment variable name"),
+  }),
+  async execute(params: unknown, _context: ToolContext): Promise<ToolResult> {
+    const startedAt = Date.now();
+    const { key } = params as { key: string };
+
+    try {
+      const value = process.env[key] ?? null;
+
+      return {
+        success: true,
+        result: { key, value },
+        startedAt,
+        completedAt: Date.now(),
+        durationMs: Date.now() - startedAt,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+        startedAt,
+        completedAt: Date.now(),
+        durationMs: Date.now() - startedAt,
+      };
+    }
+  },
+};
+
+// ── set_env ────────────────────────────────────
+
+export const set_env: Tool = {
+  name: "set_env",
+  description: "Set an environment variable (only affects current process)",
+  category: "system" as ToolCategory,
+  parameters: z.object({
+    key: z.string().describe("Environment variable name"),
+    value: z.string().describe("Value to set"),
+  }),
+  async execute(params: unknown, _context: ToolContext): Promise<ToolResult> {
+    const startedAt = Date.now();
+    const { key, value } = params as { key: string; value: string };
+
+    try {
+      const previous = process.env[key] ?? null;
+      process.env[key] = value;
+
+      return {
+        success: true,
+        result: { key, previous, current: value },
+        startedAt,
+        completedAt: Date.now(),
+        durationMs: Date.now() - startedAt,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+        startedAt,
+        completedAt: Date.now(),
+        durationMs: Date.now() - startedAt,
+      };
+    }
+  },
+};

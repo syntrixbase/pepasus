@@ -46,11 +46,35 @@ export const IdentityConfigSchema = z.object({
   personaPath: z.string().default("data/personas/default.json"),
 });
 
+export const ToolsConfigSchema = z.object({
+  timeout: z.coerce.number().int().positive().default(30000),
+  allowedPaths: z.array(z.string()).default([]),
+  webSearch: z
+    .object({
+      provider: z
+        .enum(["tavily", "google", "bing", "duckduckgo"])
+        .optional(),
+      apiKey: z.string().optional(),
+      maxResults: z.coerce.number().int().positive().default(10),
+    })
+    .optional(),
+  mcpServers: z
+    .array(
+      z.object({
+        name: z.string(),
+        url: z.string().url(),
+        enabled: z.boolean().default(true),
+      })
+    )
+    .default([]),
+});
+
 export const SettingsSchema = z.object({
   llm: LLMConfigSchema.default({}),
   memory: MemoryConfigSchema.default({}),
   agent: AgentConfigSchema.default({}),
   identity: IdentityConfigSchema.default({}),
+  tools: ToolsConfigSchema.default({}),
   logLevel: z.string().default("info"),
   dataDir: z.string().default("data"),
   // Log output configuration
@@ -62,4 +86,5 @@ export type ProviderConfig = z.infer<typeof ProviderConfigSchema>;
 export type MemoryConfig = z.infer<typeof MemoryConfigSchema>;
 export type AgentConfig = z.infer<typeof AgentConfigSchema>;
 export type IdentityConfig = z.infer<typeof IdentityConfigSchema>;
+export type ToolsConfig = z.infer<typeof ToolsConfigSchema>;
 export type Settings = z.infer<typeof SettingsSchema>;

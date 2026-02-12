@@ -1,0 +1,173 @@
+/**
+ * Unit tests for ToolExecutor.
+ */
+
+import { describe, it, expect, mock } from "bun:test";
+import { ToolExecutor } from "../../../src/tools/executor.ts";
+import type { Tool, ToolContext, ToolCategory } from "../../../src/tools/types.ts";
+import { z } from "zod";
+
+describe("ToolExecutor", () => {
+  it("should execute a tool successfully", async () => {
+    const events: unknown[] = [];
+    const mockBus = {
+      emit: (event: unknown) => events.push(event),
+    };
+
+    const tool: Tool = {
+      name: "test_tool",
+      description: "Test tool",
+      category: "system" as ToolCategory,
+      parameters: z.object({}),
+      execute: async () => ({
+        success: true,
+        result: { test: "result" },
+        startedAt: Date.now(),
+        completedAt: Date.now(),
+        durationMs: 10,
+      }),
+    };
+
+    const registry = {
+      get: mock(() => tool),
+      updateCallStats: mock(() => {}),
+    };
+
+    const executor = new ToolExecutor(registry, mockBus, 10000);
+    const context: ToolContext = { taskId: "test-task-id" };
+
+    const result = await executor.execute("test_tool", {}, context);
+
+    expect(result.success).toBe(true);
+    expect(result.result).toEqual({ test: "result" });
+    expect(events).toHaveLength(2); // REQUESTED + COMPLETED
+  });
+
+  it("should handle tool not found", async () => {
+    const events: unknown[] = [];
+    const mockBus = {
+      emit: (event: unknown) => events.push(event),
+    };
+
+    const registry = {
+      get: mock(() => undefined),
+      updateCallStats: mock(() => {}),
+    };
+
+    const executor = new ToolExecutor(registry, mockBus, 10000);
+    const context: ToolContext = { taskId: "test-task-id" };
+
+    const result = await executor.execute("unknown_tool", {}, context);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("not found");
+    expect(events).toHaveLength(2); // REQUESTED + FAILED
+  });
+
+  it("should handle tool timeout", async () => {
+    const events: unknown[] = [];
+    const mockBus = {
+      emit: (event: unknown) => events.push(event),
+    };
+
+    const tool: Tool = {
+      name: "slow_tool",
+      description: "Slow tool",
+      category: "system" as ToolCategory,
+      parameters: z.object({}),
+      execute: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10000));
+        return {
+          success: true,
+          startedAt: Date.now(),
+        };
+      },
+    };
+
+    const registry = {
+      get: mock(() => tool),
+      updateCallStats: mock(() => {}),
+    };
+
+    const executor = new ToolExecutor(registry, mockBus, 100); // 100ms timeout
+    const context: ToolContext = { taskId: "test-task-id" };
+
+    const result = await executor.execute("slow_tool", {}, context);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("timed out");
+    expect(result.durationMs).toBeGreaterThanOrEqual(100);
+    expect(result.durationMs).toBeLessThan(500); // Should timeout quickly
+    expect(events).toHaveLength(2); // REQUESTED + FAILED
+  });
+
+  it("should update call statistics on success", async () => {
+    const events: unknown[] = [];
+    const mockBus = {
+      emit: (event: unknown) => events.push(event),
+    };
+
+    const tool: Tool = {
+      name: "test_tool",
+      description: "Test tool",
+      category: "system" as ToolCategory,
+      parameters: z.object({}),
+      execute: async () => ({
+        success: true,
+        result: "ok",
+        startedAt: Date.now(),
+        completedAt: Date.now(),
+        durationMs: 50,
+      }),
+    };
+
+    const statsUpdates: unknown[] = [];
+    const registry = {
+      get: mock(() => tool),
+      updateCallStats: mock((name, duration, success) => {
+        statsUpdates.push({ name, duration, success });
+      }),
+    };
+
+    const executor = new ToolExecutor(registry, mockBus, 10000);
+    const context: ToolContext = { taskId: "test-task-id" };
+
+    await executor.execute("test_tool", {}, context);
+
+    expect(statsUpdates).toHaveLength(1);
+    expect(statsUpdates[0]).toEqual({ name: "test_tool", duration: 50, success: true });
+  });
+
+  it("should update call statistics on failure", async () => {
+    const events: unknown[] = [];
+    const mockBus = {
+      emit: (event: unknown) => events.push(event),
+    };
+
+    const tool: Tool = {
+      name: "failing_tool",
+      description: "Failing tool",
+      category: "system" as ToolCategory,
+      parameters: z.object({}),
+      execute: async () => {
+        throw new Error("Tool failed");
+      },
+    };
+
+    const statsUpdates: unknown[] = [];
+    const registry = {
+      get: mock(() => tool),
+      updateCallStats: mock((name, duration, success) => {
+        statsUpdates.push({ name, duration, success });
+      }),
+    };
+
+    const executor = new ToolExecutor(registry, mockBus, 10000);
+    const context: ToolContext = { taskId: "test-task-id" };
+
+    await executor.execute("failing_tool", {}, context);
+
+    expect(statsUpdates).toHaveLength(1);
+    expect(statsUpdates[0]).toEqual({ name: "failing_tool", duration: expect.any(Number), success: false });
+  });
+});
