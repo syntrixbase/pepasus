@@ -26,9 +26,16 @@ data/
 !.env.example
 !.env.ollama
 config.json
+config.yaml
+config.yml
 config.local.json
+config.local.yaml
+config.local.yml
 .pegasus.json
+.pegasus.yaml
+.pegasus.yml
 !config.example.json
+!config.example.yaml
 
 # OS
 .DS_Store

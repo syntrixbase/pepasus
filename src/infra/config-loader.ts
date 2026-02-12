@@ -1,13 +1,14 @@
 /**
- * ConfigLoader — Load configuration from JSON file with env var support.
+ * ConfigLoader — Load configuration from JSON/YAML file with env var support.
  *
  * Features:
- * - Load from config.json (or custom path via PEGASUS_CONFIG env var)
- * - Support ${ENV_VAR} interpolation in JSON strings
+ * - Load from config.yaml/.json (or custom path via PEGASUS_CONFIG env var)
+ * - Support ${ENV_VAR} interpolation in strings
  * - Environment variables override file config
  * - Fallback to env-only mode if no config file found
  */
 import { existsSync, readFileSync } from "fs";
+import yaml from "js-yaml";
 import { ConfigError } from "./errors.ts";
 import { getLogger } from "./logger.ts";
 import { SettingsSchema, type Settings } from "./config-schema.ts";
@@ -37,12 +38,19 @@ function interpolateEnvVars(obj: any): any {
 }
 
 /**
- * Load and parse config file, returning raw structure.
+ * Load and parse config file (JSON or YAML), returning raw structure.
  */
 function loadConfigFile(path: string): any {
   try {
     const content = readFileSync(path, "utf-8");
-    const parsed = JSON.parse(content);
+
+    // Determine format by extension
+    const isYaml = path.endsWith(".yaml") || path.endsWith(".yml");
+
+    const parsed = isYaml
+      ? yaml.load(content)
+      : JSON.parse(content);
+
     return interpolateEnvVars(parsed);
   } catch (err) {
     throw new ConfigError(`Failed to load config file ${path}: ${(err as Error).message}`);
@@ -55,8 +63,14 @@ function loadConfigFile(path: string): any {
 function findConfigFile(): string | null {
   const paths = [
     process.env["PEGASUS_CONFIG"],
+    "config.local.yaml",
+    "config.local.yml",
     "config.local.json",
+    "config.yaml",
+    "config.yml",
     "config.json",
+    ".pegasus.yaml",
+    ".pegasus.yml",
     ".pegasus.json",
   ].filter(Boolean) as string[];
 
@@ -167,7 +181,7 @@ export function loadFromEnv(env = process.env): Settings {
  *
  * Priority:
  * 1. Environment variables (highest)
- * 2. Config file (config.json, config.local.json, .pegasus.json)
+ * 2. Config file (config.yaml/.json, config.local.yaml/.json, .pegasus.yaml/.json)
  * 3. Schema defaults
  */
 export function loadSettings(): Settings {

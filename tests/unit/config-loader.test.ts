@@ -20,7 +20,17 @@ describe("config-loader", () => {
     process.env = originalEnv;
     resetSettings();
     // Clean up test config files
-    const testFiles = ["config.json", "config.local.json", ".pegasus.json"];
+    const testFiles = [
+      "config.json",
+      "config.yaml",
+      "config.yml",
+      "config.local.json",
+      "config.local.yaml",
+      "config.local.yml",
+      ".pegasus.json",
+      ".pegasus.yaml",
+      ".pegasus.yml",
+    ];
     testFiles.forEach((file) => {
       if (existsSync(file)) {
         unlinkSync(file);
@@ -162,6 +172,58 @@ describe("config-loader", () => {
       expect(settings.llm.provider).toBe("anthropic");
     });
 
+    test("loads from YAML config file", () => {
+      resetSettings();
+      delete process.env.LLM_PROVIDER;
+
+      const yamlContent = `
+llm:
+  provider: anthropic
+  providers:
+    anthropic:
+      apiKey: \${ANTHROPIC_API_KEY}
+      model: claude-sonnet-4
+`;
+
+      process.env.ANTHROPIC_API_KEY = "test-yaml-key";
+      writeFileSync("config.local.yaml", yamlContent);
+
+      const settings = loadSettings();
+
+      expect(settings.llm.provider).toBe("anthropic");
+      expect(settings.llm.anthropic.apiKey).toBe("test-yaml-key");
+      expect(settings.llm.anthropic.model).toBe("claude-sonnet-4");
+    });
+
+    test("prefers config.local.yaml over config.yaml", () => {
+      resetSettings();
+      delete process.env.LLM_PROVIDER;
+
+      const localYaml = `
+llm:
+  provider: anthropic
+  providers:
+    anthropic:
+      model: claude-from-local
+`;
+      const mainYaml = `
+llm:
+  provider: openai
+  providers:
+    openai:
+      model: gpt-from-main
+`;
+
+      writeFileSync("config.local.yaml", localYaml);
+      writeFileSync("config.yaml", mainYaml);
+
+      const settings = loadSettings();
+
+      // config.local.yaml should win
+      expect(settings.llm.provider).toBe("anthropic");
+      expect(settings.llm.anthropic.model).toBe("claude-from-local");
+    });
+
     test("handles ollama provider alias to openai-compatible", () => {
       const config = {
         llm: {
@@ -206,6 +268,10 @@ describe("config-loader", () => {
     });
 
     test("handles missing ${ENV_VAR} by replacing with empty string", () => {
+      // Clear any existing env vars that might interfere
+      delete process.env.OPENAI_API_KEY;
+      delete process.env.MISSING_KEY;
+
       const config = {
         llm: {
           provider: "openai",
