@@ -24,8 +24,9 @@ if [ $TEST_EXIT -ne 0 ]; then
   exit 1
 fi
 
-if echo "$TEST_OUTPUT" | grep -q "skip"; then
-  echo "❌ Skipped tests detected! No tests should be skipped."
+if echo "$TEST_OUTPUT" | grep -Eq "^[[:space:]]+[0-9]+ skip"; then
+  SKIP_COUNT=$(echo "$TEST_OUTPUT" | grep -oE "[0-9]+ skip" | grep -oE "^[0-9]+")
+  echo "❌ ${SKIP_COUNT} skipped test(s) detected! No tests should be skipped."
   echo "   Remove .skip() or .todo() from tests before committing."
   exit 1
 fi
