@@ -452,6 +452,90 @@ describe("Actor", () => {
     expect(result.stepIndex).toBe(1);
     expect(result.actionInput).toEqual({ prompt: "Generate code" });
   });
+
+  test("executes tool_call step via ToolExecutor", async () => {
+    const model = createMockModel("");
+    const mockExecutor = {
+      execute: async (_toolName: string, _params: unknown, _context: any) => ({
+        success: true,
+        result: "2026-02-24T10:00:00Z",
+        startedAt: Date.now(),
+        completedAt: Date.now(),
+        durationMs: 10,
+      }),
+    };
+    const actor = new Actor(model, testPersona, mockExecutor as any);
+
+    const ctx = createTaskContext({ inputText: "What time?" });
+    ctx.reasoning = {
+      toolCalls: [{ id: "c1", name: "current_time", arguments: {} }],
+    };
+
+    const step = makePlanStep({
+      actionType: "tool_call",
+      actionParams: { toolCallId: "c1", toolName: "current_time", toolParams: {} },
+    });
+
+    const result = await actor.run(ctx, step);
+
+    expect(result.success).toBe(true);
+    expect(result.actionType).toBe("tool_call");
+    expect(result.result).toBe("2026-02-24T10:00:00Z");
+
+    // Check messages were pushed to context
+    expect(ctx.messages).toHaveLength(2);
+    expect(ctx.messages[0]!.role).toBe("assistant");
+    expect(ctx.messages[0]!.toolCalls).toHaveLength(1);
+    expect(ctx.messages[1]!.role).toBe("tool");
+    expect(ctx.messages[1]!.toolCallId).toBe("c1");
+  });
+
+  test("handles tool execution failure", async () => {
+    const model = createMockModel("");
+    const mockExecutor = {
+      execute: async () => ({
+        success: false,
+        error: "File not found",
+        startedAt: Date.now(),
+        completedAt: Date.now(),
+        durationMs: 5,
+      }),
+    };
+    const actor = new Actor(model, testPersona, mockExecutor as any);
+
+    const ctx = createTaskContext({ inputText: "Read missing file" });
+    ctx.reasoning = {
+      toolCalls: [{ id: "c1", name: "read_file", arguments: { path: "nope" } }],
+    };
+
+    const step = makePlanStep({
+      actionType: "tool_call",
+      actionParams: { toolCallId: "c1", toolName: "read_file", toolParams: { path: "nope" } },
+    });
+
+    const result = await actor.run(ctx, step);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe("File not found");
+
+    const toolMsg = ctx.messages.find((m) => m.role === "tool");
+    expect(toolMsg).toBeDefined();
+    expect(toolMsg!.content).toContain("Error: File not found");
+  });
+
+  test("respond action still works without toolExecutor", async () => {
+    const model = createMockModel("");
+    const actor = new Actor(model, testPersona);
+
+    const ctx = createTaskContext({ inputText: "Hello" });
+    ctx.reasoning = { response: "Hi there!" };
+
+    const step = makePlanStep({ actionType: "respond" });
+    const result = await actor.run(ctx, step);
+
+    expect(result.success).toBe(true);
+    expect(result.result).toBe("Hi there!");
+  });
 });
 
 // ── Reflector ───────────────────────────────────────
@@ -553,5 +637,60 @@ describe("Reflector", () => {
     expect(reflection.verdict).toBe("complete");
     expect(reflection.assessment).toContain("all succeeded");
     expect(reflection.assessment).toContain("0 actions");
+  });
+
+  test("returns 'continue' when current plan has tool_call steps and all succeeded", async () => {
+    const model = createMockModel("");
+    const reflector = new Reflector(model, testPersona);
+
+    const ctx = createTaskContext({ inputText: "What time?" });
+    ctx.perception = { taskType: "conversation" };
+    ctx.plan = {
+      goal: "Execute tool calls",
+      reasoning: "1 tool call",
+      steps: [{ index: 0, description: "Call current_time", actionType: "tool_call", actionParams: {}, completed: true }],
+    };
+    ctx.actionsDone = [makeActionResult({ actionType: "tool_call", success: true })];
+
+    const reflection = await reflector.run(ctx);
+    expect(reflection.verdict).toBe("continue");
+  });
+
+  test("returns 'complete' on round 2 when plan has respond steps (no tool_calls)", async () => {
+    const model = createMockModel("");
+    const reflector = new Reflector(model, testPersona);
+
+    const ctx = createTaskContext({ inputText: "What time?" });
+    ctx.perception = { taskType: "conversation" };
+    ctx.plan = {
+      goal: "Respond",
+      reasoning: "deliver response",
+      steps: [{ index: 0, description: "Deliver response", actionType: "respond", actionParams: {}, completed: true }],
+    };
+    ctx.actionsDone = [
+      makeActionResult({ actionType: "tool_call", success: true }),
+      makeActionResult({ stepIndex: 1, actionType: "respond", success: true }),
+    ];
+    ctx.reflections = [{ verdict: "continue", assessment: "tool calls executed", lessons: [] }];
+
+    const reflection = await reflector.run(ctx);
+    expect(reflection.verdict).toBe("complete");
+  });
+
+  test("returns 'complete' when tool_call step failed", async () => {
+    const model = createMockModel("");
+    const reflector = new Reflector(model, testPersona);
+
+    const ctx = createTaskContext({ inputText: "Read file" });
+    ctx.perception = { taskType: "conversation" };
+    ctx.plan = {
+      goal: "Execute tool calls",
+      reasoning: "1 tool call",
+      steps: [{ index: 0, description: "Call read_file", actionType: "tool_call", actionParams: {}, completed: true }],
+    };
+    ctx.actionsDone = [makeActionResult({ actionType: "tool_call", success: false })];
+
+    const reflection = await reflector.run(ctx);
+    expect(reflection.verdict).toBe("complete");
   });
 });

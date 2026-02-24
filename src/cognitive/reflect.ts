@@ -1,7 +1,8 @@
 /**
  * Reflector — evaluate results, extract lessons, decide next action.
  *
- * For conversation tasks: always returns "complete" verdict (no LLM call needed).
+ * For conversation tasks: returns "complete" verdict.
+ * After tool_call execution: returns "continue" to trigger another LLM round.
  * Complex reflection with LLM evaluation will be added in M4.
  */
 import type { LanguageModel } from "../infra/llm-types.ts";
@@ -12,7 +13,6 @@ import type { TaskContext, Reflection } from "../task/context.ts";
 const logger = getLogger("cognitive.reflect");
 
 export class Reflector {
-  // Reserved for M4: LLM-powered reflection
   readonly model: LanguageModel;
   readonly persona: Persona;
 
@@ -27,17 +27,27 @@ export class Reflector {
     const taskType = (context.perception?.["taskType"] as string) ?? "conversation";
     const allSuccess = context.actionsDone.every((a) => a.success);
 
+    // Check if the CURRENT plan has tool_call steps (not historical actions)
+    const currentPlanHasToolCalls = context.plan?.steps.some(
+      (s) => s.actionType === "tool_call",
+    ) ?? false;
+
     let reflection: Reflection;
 
-    if (taskType === "conversation") {
-      // Conversation: always complete after delivering the response
+    if (currentPlanHasToolCalls && allSuccess) {
+      // Tool calls executed successfully — need another LLM round for summary
+      reflection = {
+        verdict: "continue",
+        assessment: `Tool calls executed in iteration ${context.iteration}, continuing for LLM summary`,
+        lessons: [],
+      };
+    } else if (taskType === "conversation") {
       reflection = {
         verdict: "complete",
         assessment: "Conversation response delivered successfully",
         lessons: [],
       };
     } else {
-      // Non-conversation: check action success
       reflection = {
         verdict: allSuccess ? "complete" : "continue",
         assessment: `Iteration ${context.iteration}, ${context.actionsDone.length} actions, ${allSuccess ? "all succeeded" : "some failed"}`,
