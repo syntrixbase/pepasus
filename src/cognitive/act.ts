@@ -1,16 +1,21 @@
 /**
- * Actor — execute concrete actions (tool calls, content generation).
+ * Actor — cognitive decision layer for concrete actions.
  *
- * For "respond" action: extracts the LLM-generated response from context.reasoning.
- * For "tool_call" action: executes tool via ToolExecutor, writes results to context.messages.
+ * Actor is a pure decision-maker — it does NOT execute I/O:
+ *   - "respond": extracts the LLM-generated response from context.reasoning.
+ *   - "tool_call": pushes assistant message (intent) to context.messages,
+ *     returns a pending ActionResult. Actual tool execution is handled by
+ *     the Agent layer via ToolExecutor.
+ *   - other: returns a stub result.
+ *
+ * Actor does NOT emit events or update actionsDone / plan.
+ * Those responsibilities belong to the Agent layer.
  */
 import type { LanguageModel } from "../infra/llm-types.ts";
 import { getLogger } from "../infra/logger.ts";
 import type { Persona } from "../identity/persona.ts";
 import type { TaskContext, PlanStep, ActionResult } from "../task/context.ts";
 import type { ToolCall } from "../models/tool.ts";
-import type { ToolExecutor } from "../tools/executor.ts";
-import type { ToolContext } from "../tools/types.ts";
 
 const logger = getLogger("cognitive.act");
 
@@ -18,11 +23,7 @@ export class Actor {
   readonly model: LanguageModel;
   readonly persona: Persona;
 
-  constructor(
-    model: LanguageModel,
-    persona: Persona,
-    private toolExecutor?: ToolExecutor,
-  ) {
+  constructor(model: LanguageModel, persona: Persona) {
     this.model = model;
     this.persona = persona;
   }
@@ -47,17 +48,8 @@ export class Actor {
       return result;
     }
 
-    if (step.actionType === "tool_call" && this.toolExecutor) {
-      const { toolCallId, toolName, toolParams } = step.actionParams as {
-        toolCallId: string;
-        toolName: string;
-        toolParams: Record<string, unknown>;
-      };
-
-      const toolContext: ToolContext = { taskId: context.id };
-      const toolResult = await this.toolExecutor.execute(toolName, toolParams, toolContext);
-
-      // Push assistant message with tool calls (once per round)
+    if (step.actionType === "tool_call") {
+      // Push assistant message with tool calls (cognitive decision: "I want to call these tools")
       const alreadyPushedAssistant = context.messages.some(
         (m) => m.role === "assistant" && !!m.toolCalls?.length,
       );
@@ -72,27 +64,17 @@ export class Actor {
         }
       }
 
-      // Push tool result message
-      context.messages.push({
-        role: "tool",
-        content: toolResult.success
-          ? JSON.stringify(toolResult.result)
-          : `Error: ${toolResult.error}`,
-        toolCallId,
-      });
-
+      // Return pending result — actual execution handled by Agent layer
       const result: ActionResult = {
         stepIndex: step.index,
         actionType: step.actionType,
         actionInput: step.actionParams,
-        result: toolResult.result,
-        success: toolResult.success,
-        error: toolResult.error,
+        result: undefined,
+        success: true,
         startedAt,
-        completedAt: Date.now(),
-        durationMs: toolResult.durationMs,
+        completedAt: undefined,
       };
-      logger.info({ stepIndex: step.index, success: result.success }, "act_step_done");
+      logger.info({ stepIndex: step.index, success: true }, "act_step_pending");
       return result;
     }
 

@@ -1,5 +1,14 @@
 /**
  * ToolExecutor - executes tools with validation, timeout, and event publishing.
+ *
+ * Event emission:
+ *   - TOOL_CALL_REQUESTED (400): emitted immediately when execution begins
+ *   - TOOL_CALL_COMPLETED (410) / TOOL_CALL_FAILED (420): emitted via
+ *     emitCompletion() AFTER execute() returns, NOT inside execute().
+ *     The caller is responsible for emitting these events after it has
+ *     finished updating context (actionsDone, markStepDone).
+ *     This avoids a race condition where the EventBus consumes the
+ *     completion event before the caller has updated state.
  */
 
 import type { Event } from "../events/index.ts";
@@ -23,7 +32,11 @@ export class ToolExecutor {
   ) {}
 
   /**
-   * Execute a tool with validation, timeout, and event publishing.
+   * Execute a tool with validation and timeout.
+   *
+   * Emits TOOL_CALL_REQUESTED at the start.  Does NOT emit
+   * TOOL_CALL_COMPLETED / TOOL_CALL_FAILED — the caller should call
+   * emitCompletion() after updating any dependent state.
    */
   async execute(
     toolName: string,
@@ -77,15 +90,6 @@ export class ToolExecutor {
         "tool_execute_done",
       );
 
-      // Emit TOOL_CALL_COMPLETED event
-      this.bus.emit(
-        createEvent(410 as EventType, {
-          source: "tools.executor",
-          taskId: context.taskId,
-          payload: { toolName, result: result.result, durationMs: result.durationMs },
-        })
-      );
-
       return result;
     } catch (error) {
       const durationMs = Date.now() - startedAt;
@@ -107,16 +111,37 @@ export class ToolExecutor {
         "tool_execute_error",
       );
 
-      // Emit TOOL_CALL_FAILED event
+      return errorResult;
+    }
+  }
+
+  /**
+   * Emit TOOL_CALL_COMPLETED or TOOL_CALL_FAILED event.
+   *
+   * Call this AFTER updating context (actionsDone, markStepDone) so that
+   * the FSM sees up-to-date state when processing the event.
+   */
+  emitCompletion(
+    toolName: string,
+    result: ToolResult,
+    context: ToolContext,
+  ): void {
+    if (result.success) {
+      this.bus.emit(
+        createEvent(410 as EventType, {
+          source: "tools.executor",
+          taskId: context.taskId,
+          payload: { toolName, result: result.result, durationMs: result.durationMs },
+        })
+      );
+    } else {
       this.bus.emit(
         createEvent(420 as EventType, {
           source: "tools.executor",
           taskId: context.taskId,
-          payload: { toolName, error: errorResult.error },
+          payload: { toolName, error: result.error },
         })
       );
-
-      return errorResult;
     }
   }
 

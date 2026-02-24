@@ -11,6 +11,7 @@ import { getSettings, getActiveProviderConfig } from "./infra/config.ts";
 import { getLogger } from "./infra/logger.ts";
 import { createOpenAICompatibleModel } from "./infra/openai-client.ts";
 import { createAnthropicCompatibleModel } from "./infra/anthropic-client.ts";
+import { TaskState } from "./task/states.ts";
 
 const logger = getLogger("cli");
 
@@ -137,58 +138,64 @@ export async function startCLI(): Promise<void> {
     output: process.stdout,
   });
 
-  const prompt = () => {
-    rl.question("> ", async (input) => {
-      const trimmed = input.trim();
+  rl.setPrompt("> ");
 
-      // Skip empty input
-      if (!trimmed) {
-        prompt();
+  rl.on("line", async (input) => {
+    const trimmed = input.trim();
+
+    // Skip empty input
+    if (!trimmed) {
+      rl.prompt();
+      return;
+    }
+
+    // Handle slash commands
+    if (trimmed.startsWith("/")) {
+      const result = handleCommand(trimmed);
+      if (result === "exit") {
+        rl.close();
+        await agent.stop();
+        return;
+      }
+      if (result === true) {
+        rl.prompt();
+        return;
+      }
+      // Not a recognized command — treat as regular input
+    }
+
+    try {
+      const taskId = await agent.submit(trimmed);
+      if (!taskId) {
+        console.log("  [Error] Failed to create task\n");
+        rl.prompt();
         return;
       }
 
-      // Handle slash commands
-      if (trimmed.startsWith("/")) {
-        const result = handleCommand(trimmed);
-        if (result === "exit") {
-          rl.close();
-          await agent.stop();
-          return;
-        }
-        if (result === true) {
-          prompt();
-          return;
-        }
-        // Not a recognized command — treat as regular input
-      }
+      console.log(`  [Task ${taskId.slice(0, 8)}] Processing...\n`);
 
-      try {
-        const taskId = await agent.submit(trimmed);
-        if (!taskId) {
-          console.log("  [Error] Failed to create task\n");
-          prompt();
-          return;
-        }
-
-        const task = await agent.waitForTask(taskId);
+      agent.onTaskComplete(taskId, (task) => {
         const result = task.context.finalResult as Record<string, unknown> | null;
         const response = result?.["response"] as string | undefined;
 
-        if (response) {
+        if (task.state === TaskState.FAILED) {
+          console.log(`\n  [Error] Task failed: ${task.context.error}\n`);
+        } else if (response) {
           console.log(`\n  ${persona.name}: ${response}\n`);
         } else {
           console.log(`\n  ${persona.name}: [No response generated]\n`);
         }
-      } catch (err) {
-        logger.error({ error: err }, "cli_error");
-        console.log(`  [Error] ${(err as Error).message}\n`);
-      }
+        rl.prompt(); // Re-show prompt after async output
+      });
+    } catch (err) {
+      logger.error({ error: err }, "cli_error");
+      console.log(`  [Error] ${(err as Error).message}\n`);
+    }
 
-      prompt();
-    });
-  };
+    rl.prompt(); // Immediately accept next input
+  });
 
-  prompt();
+  rl.prompt(); // Initial prompt
 }
 
 // Entry point: run CLI when this file is executed directly

@@ -50,6 +50,7 @@ const TRANSITION_TABLE = new Map<TransitionKey, TaskState | null>([
   // Act → Act (tool chain) / Reflect
   [`${TaskState.ACTING}:${EventType.TOOL_CALL_COMPLETED}`, null], // dynamic
   [`${TaskState.ACTING}:${EventType.TOOL_CALL_FAILED}`, null],    // dynamic
+  [`${TaskState.ACTING}:${EventType.STEP_COMPLETED}`, null],      // dynamic
   [`${TaskState.ACTING}:${EventType.ACT_DONE}`, TaskState.REFLECTING],
 
   // Reflect → Complete / Think / Plan (dynamic)
@@ -194,7 +195,9 @@ export class TaskFSM {
     // ACTING + tool completed/failed
     if (
       this.state === TaskState.ACTING &&
-      (event.type === EventType.TOOL_CALL_COMPLETED || event.type === EventType.TOOL_CALL_FAILED)
+      (event.type === EventType.TOOL_CALL_COMPLETED ||
+       event.type === EventType.TOOL_CALL_FAILED ||
+       event.type === EventType.STEP_COMPLETED)
     ) {
       if (this.context.plan && this.context.plan.steps.some((s) => !s.completed)) {
         return TaskState.ACTING;
