@@ -31,8 +31,7 @@ export const LLMConfigSchema = z.object({
 });
 
 export const MemoryConfigSchema = z.object({
-  dbPath: z.string().default("data/memory.db"),
-  vectorDbPath: z.string().default("data/vectors"),
+  dataDir: z.string().default("data/memory"),
 });
 
 export const AgentConfigSchema = z.object({

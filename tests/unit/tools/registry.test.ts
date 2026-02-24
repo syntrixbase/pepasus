@@ -5,6 +5,7 @@
 import { describe, it, expect } from "bun:test";
 import { ToolRegistry } from "../../../src/tools/registry.ts";
 import type { Tool, ToolCategory } from "../../../src/tools/types.ts";
+import { allBuiltInTools } from "../../../src/tools/builtins/index.ts";
 import { z } from "zod";
 
 describe("ToolRegistry", () => {
@@ -152,5 +153,16 @@ describe("ToolRegistry", () => {
       },
       required: ["path"],
     });
+  });
+
+  it("allBuiltInTools should include memory tools", () => {
+    const memoryTools = allBuiltInTools.filter((t) => t.category === "memory");
+    expect(memoryTools).toHaveLength(4);
+    expect(memoryTools.map((t) => t.name).sort()).toEqual([
+      "memory_append",
+      "memory_list",
+      "memory_read",
+      "memory_write",
+    ]);
   });
 });

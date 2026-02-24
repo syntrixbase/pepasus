@@ -42,6 +42,15 @@ const base64_decode = dataToolsModule.base64_decode;
 
 export { json_parse, json_stringify, base64_encode, base64_decode };
 
+// Memory tools
+import * as memoryToolsModule from "./memory-tools.ts";
+const memory_list = memoryToolsModule.memory_list;
+const memory_read = memoryToolsModule.memory_read;
+const memory_write = memoryToolsModule.memory_write;
+const memory_append = memoryToolsModule.memory_append;
+
+export { memory_list, memory_read, memory_write, memory_append };
+
 // Re-export all tools as array
 export const systemTools: Tool[] = [
   current_time,
@@ -73,9 +82,17 @@ export const dataTools: Tool[] = [
   base64_decode,
 ];
 
+export const memoryTools: Tool[] = [
+  memory_list,
+  memory_read,
+  memory_write,
+  memory_append,
+];
+
 export const allBuiltInTools: Tool[] = [
   ...systemTools,
   ...fileTools,
   ...networkTools,
   ...dataTools,
+  ...memoryTools,
 ];

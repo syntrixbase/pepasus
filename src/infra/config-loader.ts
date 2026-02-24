@@ -33,8 +33,7 @@ const DEFAULT_CONFIG = {
     timeout: 120,
   },
   memory: {
-    dbPath: "data/memory.db",
-    vectorDbPath: "data/vectors",
+    dataDir: "data/memory",
   },
   agent: {
     maxActiveTasks: 5,

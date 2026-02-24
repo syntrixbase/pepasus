@@ -40,6 +40,9 @@ config.local.yml
 !config.example.json
 !config.yml
 
+# Worktrees
+.worktrees/
+
 # OS
 .DS_Store
 Thumbs.db
