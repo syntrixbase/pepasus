@@ -455,7 +455,7 @@ export class Agent {
   }
 
   /** Wait for a task to complete (for testing and simple scenarios). */
-  async waitForTask(taskId: string, timeout: number = 30_000): Promise<TaskFSM> {
+  async waitForTask(taskId: string, timeout: number = 120_000): Promise<TaskFSM> {
     const deadline = Date.now() + timeout;
     while (Date.now() < deadline) {
       const task = this.taskRegistry.getOrNull(taskId);
