@@ -15,6 +15,7 @@ export enum ToolCategory {
   FILE = "file",
   NETWORK = "network",
   DATA = "data",
+  MEMORY = "memory", // M2: long-term memory
   CODE = "code", // Future extension
   MCP = "mcp", // Future extension
   CUSTOM = "custom", // Future extension
