@@ -23,6 +23,7 @@ import {
   ToolError,
 } from "@pegasus/infra/errors.ts";
 import { getLogger, rootLogger, resolveTransports } from "@pegasus/infra/logger.ts";
+import type { Message, GenerateTextResult } from "@pegasus/infra/llm-types.ts";
 
 // ── Config ──────────────────────────────────────
 
@@ -354,5 +355,36 @@ describe("getActiveProviderConfig", () => {
     } as Settings;
 
     expect(() => getActiveProviderConfig(settings)).toThrow("Unknown provider");
+  });
+});
+
+// ── LLM Types ──────────────────────────────────────
+
+describe("LLM Types - Tool support", () => {
+  test("Message type supports tool role and toolCalls", () => {
+    const toolMsg: Message = {
+      role: "tool",
+      content: '{"result":"ok"}',
+      toolCallId: "call_123",
+    };
+    expect(toolMsg.role).toBe("tool");
+    expect(toolMsg.toolCallId).toBe("call_123");
+
+    const assistantMsg: Message = {
+      role: "assistant",
+      content: "",
+      toolCalls: [{ id: "call_1", name: "read_file", arguments: { path: "x" } }],
+    };
+    expect(assistantMsg.toolCalls).toHaveLength(1);
+  });
+
+  test("GenerateTextResult supports toolCalls", () => {
+    const result: GenerateTextResult = {
+      text: "",
+      finishReason: "tool_calls",
+      toolCalls: [{ id: "c1", name: "get_time", arguments: {} }],
+      usage: { promptTokens: 10, completionTokens: 5 },
+    };
+    expect(result.toolCalls).toHaveLength(1);
   });
 });
