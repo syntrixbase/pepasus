@@ -44,8 +44,15 @@ describe("logger", () => {
       expect((transport as any).targets).toHaveLength(2);
 
       const targets = (transport as any).targets;
+      // Console: pino-pretty with color
       expect(targets[0].target).toBe("pino-pretty");
-      expect(targets[1].target).toBe("pino-roll");
+      expect(targets[0].options.colorize).toBe(true);
+      // File: pipeline (pino-pretty no color → pino-roll)
+      expect(targets[1].pipeline).toBeDefined();
+      expect(targets[1].pipeline).toHaveLength(2);
+      expect(targets[1].pipeline[0].target).toBe("pino-pretty");
+      expect(targets[1].pipeline[0].options.colorize).toBe(false);
+      expect(targets[1].pipeline[1].target).toBe("pino-roll");
     });
 
     test("returns multi-transport with console enabled and json format", () => {
@@ -83,12 +90,18 @@ describe("logger", () => {
       expect(existsSync(logDir)).toBe(true);
     });
 
-    test("always creates file transport", () => {
+    test("file transport uses pipeline with pino-pretty when format is pretty", () => {
       const logFile = join(testDir, "test.log");
-      const { transport } = resolveTransports(logFile, false, "pretty");
+      const { transport, isMultiTarget } = resolveTransports(logFile, false, "pretty");
 
       expect(transport).toBeDefined();
-      expect((transport as any).target).toBe("pino-roll");
+      // Single transport (file only), but it's a pipeline
+      expect(isMultiTarget).toBe(false);
+      expect((transport as any).pipeline).toBeDefined();
+      expect((transport as any).pipeline).toHaveLength(2);
+      expect((transport as any).pipeline[0].target).toBe("pino-pretty");
+      expect((transport as any).pipeline[0].options.colorize).toBe(false);
+      expect((transport as any).pipeline[1].target).toBe("pino-roll");
     });
   });
 
