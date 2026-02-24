@@ -60,7 +60,6 @@ describe("config-loader", () => {
       expect(settings.identity.personaPath).toBe("data/personas/default.json");
       expect(settings.logLevel).toBe("info");
       expect(settings.dataDir).toBe("data");
-      expect(settings.logConsoleEnabled).toBe(false);
       expect(settings.logFormat).toBe("json");
       expect(settings.nodeEnv).toBe("development");
     });
@@ -480,7 +479,7 @@ identity:
 system:
   logLevel: warn
   dataDir: custom-data
-  logFormat: pretty
+  logFormat: line
 `;
 
       writeFileSync("config.yaml", config);
@@ -498,7 +497,7 @@ system:
       expect(settings.identity.personaPath).toBe("custom/persona.json");
       expect(settings.logLevel).toBe("warn");
       expect(settings.dataDir).toBe("custom-data");
-      expect(settings.logFormat).toBe("pretty");
+      expect(settings.logFormat).toBe("line");
     });
 
     test("throws error when both config.yaml and config.yml exist", () => {
@@ -560,16 +559,14 @@ llm:
       expect(settings.llm.anthropic.apiKey).toBe("local-yml-key");
     });
 
-    test("handles string 'false' from YAML env var interpolation for logConsoleEnabled", () => {
+    test("handles logFormat from YAML env var interpolation", () => {
       resetSettings();
-      delete process.env.PEGASUS_LOG_CONSOLE_ENABLED;
       delete process.env.PEGASUS_LOG_FORMAT;
 
       const config = `
 llm:
   provider: openai
 system:
-  logConsoleEnabled: \${PEGASUS_LOG_CONSOLE_ENABLED:-false}
   logFormat: \${PEGASUS_LOG_FORMAT:-json}
 `;
 
@@ -577,30 +574,27 @@ system:
 
       const settings = loadSettings();
 
-      // "false" string from env var interpolation should be coerced to boolean false
-      expect(settings.logConsoleEnabled).toBe(false);
       expect(settings.logFormat).toBe("json");
     });
 
-    test("handles string 'true' from YAML env var interpolation for logConsoleEnabled", () => {
+    test("handles logFormat override from env var", () => {
       resetSettings();
-      process.env.PEGASUS_LOG_CONSOLE_ENABLED = "true";
-      delete process.env.PEGASUS_LOG_FORMAT;
+      process.env.PEGASUS_LOG_FORMAT = "line";
 
       const config = `
 llm:
   provider: openai
 system:
-  logConsoleEnabled: \${PEGASUS_LOG_CONSOLE_ENABLED:-false}
-  logFormat: \${PEGASUS_LOG_FORMAT:-pretty}
+  logFormat: \${PEGASUS_LOG_FORMAT:-json}
 `;
 
       writeFileSync("config.yaml", config);
 
       const settings = loadSettings();
 
-      expect(settings.logConsoleEnabled).toBe(true);
-      expect(settings.logFormat).toBe("pretty");
+      expect(settings.logFormat).toBe("line");
+
+      delete process.env.PEGASUS_LOG_FORMAT;
     });
   });
 });

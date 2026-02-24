@@ -54,7 +54,6 @@ const DEFAULT_CONFIG = {
   system: {
     logLevel: "info",
     dataDir: "data",
-    logConsoleEnabled: false,
     logFormat: "json",
     nodeEnv: "development",
   },
@@ -260,7 +259,6 @@ function configToSettings(config: any): Settings {
     tools: config.tools,
     logLevel: config.system?.logLevel,
     dataDir: config.system?.dataDir,
-    logConsoleEnabled: config.system?.logConsoleEnabled,
     logFormat: config.system?.logFormat,
     nodeEnv: config.system?.nodeEnv,
   });

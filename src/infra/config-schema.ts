@@ -90,18 +90,6 @@ export const ToolsConfigSchema = z.object({
   ),
 });
 
-/**
- * Preprocess string-to-boolean for values that may arrive as strings
- * from YAML env var interpolation (e.g., ${VAR:-false} → "false").
- */
-const coerceBool = z.preprocess(
-  (val) => {
-    if (typeof val === "string") return val === "true";
-    return val;
-  },
-  z.boolean().default(false),
-);
-
 export const SettingsSchema = z.object({
   llm: LLMConfigSchema.default({}),
   memory: MemoryConfigSchema.default({}),
@@ -111,9 +99,10 @@ export const SettingsSchema = z.object({
   logLevel: z.string().default("info"),
   dataDir: z.string().default("data"),
   // Log output destination
-  logConsoleEnabled: coerceBool, // Enable console logging (default: false)
-  // Log output format (applies to both file and console)
-  logFormat: z.enum(["json", "pretty"]).default("json"),
+  // Log output format (file only, no console output)
+  // json — structured JSON lines, machine-parseable (default)
+  // line — human-readable single lines: TIME LEVEL [module] message key=value
+  logFormat: z.enum(["json", "line"]).default("json"),
   nodeEnv: z.string().default("development"), // NODE_ENV: development | production | test
 });
 

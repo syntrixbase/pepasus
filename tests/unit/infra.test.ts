@@ -22,7 +22,7 @@ import {
   MemoryError,
   ToolError,
 } from "@pegasus/infra/errors.ts";
-import { getLogger, rootLogger, resolveTransports } from "@pegasus/infra/logger.ts";
+import { getLogger, rootLogger, resolveTransport } from "@pegasus/infra/logger.ts";
 import type { Message, GenerateTextResult } from "@pegasus/infra/llm-types.ts";
 import { toOpenAIMessages } from "@pegasus/infra/openai-client.ts";
 import { toAnthropicMessages } from "@pegasus/infra/anthropic-client.ts";
@@ -74,27 +74,16 @@ describe("Config schemas", () => {
     expect(settings.logLevel).toBe("info");
     expect(settings.dataDir).toBe("data");
     expect(settings.logFormat).toBe("json");
-    expect(settings.logConsoleEnabled).toBe(false);
+    expect(settings.logFormat).toBe("json");
   });
 
   test("SettingsSchema accepts custom logFormat", () => {
-    const settings = SettingsSchema.parse({ logFormat: "pretty" });
-    expect(settings.logFormat).toBe("pretty");
+    const settings = SettingsSchema.parse({ logFormat: "line" });
+    expect(settings.logFormat).toBe("line");
   });
 
   test("SettingsSchema rejects invalid logFormat", () => {
     expect(() => SettingsSchema.parse({ logFormat: "xml" })).toThrow();
-  });
-
-  test("SettingsSchema coerces string 'false' to boolean for logConsoleEnabled", () => {
-    // YAML env var interpolation produces strings like "false" instead of boolean false
-    const settings = SettingsSchema.parse({ logConsoleEnabled: "false" });
-    expect(settings.logConsoleEnabled).toBe(false);
-  });
-
-  test("SettingsSchema coerces string 'true' to boolean for logConsoleEnabled", () => {
-    const settings = SettingsSchema.parse({ logConsoleEnabled: "true" });
-    expect(settings.logConsoleEnabled).toBe(true);
   });
 });
 
@@ -268,31 +257,30 @@ describe("Logger", () => {
     expect(typeof rootLogger.child).toBe("function");
   });
 
-  test("rootLogger has expected log level", () => {
-    // Default level from env or "info"
-    const expectedLevel = process.env["PEGASUS_LOG_LEVEL"] ?? "info";
-    expect(rootLogger.level).toBe(expectedLevel);
+  test("rootLogger has a valid log level", () => {
+    const validLevels = ["fatal", "error", "warn", "info", "debug", "trace", "silent"];
+    expect(validLevels).toContain(rootLogger.level);
   });
 });
 
-describe("resolveTransports", () => {
+describe("resolveTransport", () => {
   test("returns file transport for json format", () => {
-    const { transport } = resolveTransports("test.log", false, "json");
+    const transport = resolveTransport("test.log", "json");
     expect(transport).toBeDefined();
     expect((transport as any).target).toBe("pino-roll");
   });
 
-  test("returns multi-transport when console enabled", () => {
-    const { transport, isMultiTarget } = resolveTransports("test.log", true, "pretty");
+  test("returns line-transport for line format", () => {
+    const transport = resolveTransport("test.log", "line");
     expect(transport).toBeDefined();
-    expect(isMultiTarget).toBe(true);
-    expect((transport as any).targets).toBeDefined();
-    expect((transport as any).targets).toHaveLength(2);
+    expect((transport as any).target).toContain("line-transport");
   });
 
-  test("always includes file transport", () => {
-    const { transport } = resolveTransports("test.log", false, "pretty");
+  test("always uses file transport (no console)", () => {
+    const transport = resolveTransport("test.log", "json");
     expect(transport).toBeDefined();
+    // Single transport object, not multi-target
+    expect((transport as any).targets).toBeUndefined();
   });
 });
 

@@ -26,7 +26,7 @@ export function getSettings(): Settings {
     const { reinitLogger } = require("./logger.ts") as typeof import("./logger.ts");
     const { join } = require("path") as typeof import("path");
     const logFile = join(_settings.dataDir, "logs/pegasus.log");
-    reinitLogger(logFile, _settings.logConsoleEnabled, _settings.logFormat);
+    reinitLogger(logFile, _settings.logFormat, _settings.logLevel);
   }
   return _settings;
 }
