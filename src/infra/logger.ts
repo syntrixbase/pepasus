@@ -6,7 +6,7 @@
  *   - **Format** (how): `json` or `pretty` (global, via `logFormat`)
  */
 import pino from "pino";
-import type { TransportSingleOptions, TransportMultiOptions } from "pino";
+import type { TransportSingleOptions, TransportMultiOptions, TransportPipelineOptions } from "pino";
 import { existsSync, mkdirSync, readdirSync, statSync, unlinkSync } from "fs";
 import { dirname, join, basename } from "path";
 
@@ -27,7 +27,7 @@ export type LogFormat = "json" | "pretty";
  * and we use `formatters.level` is skipped (pino-pretty handles it on its own).
  */
 function createLoggerOptions(
-  transport: TransportSingleOptions | TransportMultiOptions,
+  transport: TransportSingleOptions | TransportMultiOptions | TransportPipelineOptions,
   isMultiTarget: boolean,
 ): pino.LoggerOptions {
   const opts: pino.LoggerOptions = {
@@ -105,9 +105,10 @@ export function resolveTransports(
   logFile: string,
   logConsoleEnabled?: boolean,
   logFormat?: LogFormat,
-): { transport: TransportSingleOptions | TransportMultiOptions; isMultiTarget: boolean } {
+): { transport: TransportSingleOptions | TransportMultiOptions | TransportPipelineOptions; isMultiTarget: boolean } {
   const format: LogFormat = logFormat ?? "json";
   const transports: TransportSingleOptions[] = [];
+  const fileTransports: (TransportSingleOptions | TransportPipelineOptions)[] = [];
 
   // Console transport (only if explicitly enabled)
   if (logConsoleEnabled) {
@@ -135,27 +136,41 @@ export function resolveTransports(
   // Clean up old log files (keep last 30 days)
   cleanupOldLogs(logFile, 30);
 
-  // Use pino-roll for log rotation
-  transports.push({
-    target: "pino-roll",
-    options: {
-      file: logFile,
-      frequency: "daily",
-      size: "10m", // Rotate when file exceeds 10MB
-      mkdir: true,
-    },
-  });
+  const rollOptions = {
+    file: logFile,
+    frequency: "daily",
+    size: "10m", // Rotate when file exceeds 10MB
+    mkdir: true,
+  };
+
+  // When pretty format: use pipeline (pino-pretty → pino-roll) so file gets formatted output.
+  // When json format: use pino-roll directly for raw JSON lines.
+  if (format === "pretty") {
+    fileTransports.push({
+      pipeline: [
+        { target: "pino-pretty", options: { colorize: false } },
+        { target: "pino-roll", options: rollOptions },
+      ],
+    });
+  } else {
+    fileTransports.push({
+      target: "pino-roll",
+      options: rollOptions,
+    });
+  }
+
+  const allTransports = [...transports, ...fileTransports];
 
   // Return single transport or multi transport
-  if (transports.length === 1) {
+  if (allTransports.length === 1) {
     return {
-      transport: transports[0]!, // Non-null assertion: we know length is 1
+      transport: allTransports[0]!,
       isMultiTarget: false,
     };
   }
 
   return {
-    transport: { targets: transports },
+    transport: { targets: allTransports },
     isMultiTarget: true,
   };
 }
