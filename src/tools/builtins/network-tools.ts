@@ -192,24 +192,13 @@ export const web_search: Tool = {
   async execute(_params: unknown, _context: ToolContext): Promise<ToolResult> {
     const startedAt = Date.now();
 
-    try {
-      // Check if web search is configured
-      // For now, return an error if not configured
-      return {
-        success: false,
-        error: "Web search is not configured. Set WEB_SEARCH_API_KEY and WEB_SEARCH_PROVIDER environment variables, or configure in tools.webSearch section of config.yml",
-        startedAt,
-        completedAt: Date.now(),
-        durationMs: Date.now() - startedAt,
-      };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-        startedAt,
-        completedAt: Date.now(),
-        durationMs: Date.now() - startedAt,
-      };
-    }
+    // Web search is not yet implemented — return a clear error
+    return {
+      success: false,
+      error: "Web search is not configured. Set WEB_SEARCH_API_KEY and WEB_SEARCH_PROVIDER environment variables, or configure in tools.webSearch section of config.yml",
+      startedAt,
+      completedAt: Date.now(),
+      durationMs: Date.now() - startedAt,
+    };
   },
 };

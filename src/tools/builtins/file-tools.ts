@@ -31,10 +31,7 @@ export const read_file: Tool = {
       const allowedPaths = context.allowedPaths;
       if (allowedPaths && allowedPaths.length > 0) {
         if (!isPathAllowed(originalPath, allowedPaths)) {
-          throw new ToolPermissionError(
-            "read_file",
-            `Path "${originalPath}" is not in allowed paths`
-          );
+          throw new ToolPermissionError("read_file", `Path "${originalPath}" is not in allowed paths`);
         }
       }
 
@@ -93,10 +90,7 @@ export const write_file: Tool = {
       const allowedPaths = context.allowedPaths;
       if (allowedPaths && allowedPaths.length > 0) {
         if (!isPathAllowed(originalPath, allowedPaths)) {
-          throw new ToolPermissionError(
-            "write_file",
-            `Path "${originalPath}" is not in allowed paths`
-          );
+          throw new ToolPermissionError("write_file", `Path "${originalPath}" is not in allowed paths`);
         }
       }
 
@@ -163,10 +157,7 @@ export const list_files: Tool = {
 
       if (allowedPaths && allowedPaths.length > 0) {
         if (!isPathAllowed(dirPath, allowedPaths)) {
-          throw new ToolPermissionError(
-            "list_files",
-            `Path "${dirPath}" is not in allowed paths`
-          );
+          throw new ToolPermissionError("list_files", `Path "${dirPath}" is not in allowed paths`);
         }
       }
 
@@ -300,10 +291,7 @@ export const delete_file: Tool = {
       const allowedPaths = context.allowedPaths;
       if (allowedPaths && allowedPaths.length > 0) {
         if (!isPathAllowed(originalPath, allowedPaths)) {
-          throw new ToolPermissionError(
-            "delete_file",
-            `Path "${originalPath}" is not in allowed paths`
-          );
+          throw new ToolPermissionError("delete_file", `Path "${originalPath}" is not in allowed paths`);
         }
       }
 
@@ -355,16 +343,10 @@ export const move_file: Tool = {
       const allowedPaths = context.allowedPaths;
       if (allowedPaths && allowedPaths.length > 0) {
         if (!isPathAllowed(fromPath, allowedPaths)) {
-          throw new ToolPermissionError(
-            "move_file",
-            `Source path "${fromPath}" is not in allowed paths`
-          );
+          throw new ToolPermissionError("move_file", `Source path "${fromPath}" is not in allowed paths`);
         }
         if (!isPathAllowed(toPath, allowedPaths)) {
-          throw new ToolPermissionError(
-            "move_file",
-            `Destination path "${toPath}" is not in allowed paths`
-          );
+          throw new ToolPermissionError("move_file", `Destination path "${toPath}" is not in allowed paths`);
         }
       }
 
@@ -416,10 +398,7 @@ export const get_file_info: Tool = {
       const allowedPaths = context.allowedPaths;
       if (allowedPaths && allowedPaths.length > 0) {
         if (!isPathAllowed(originalPath, allowedPaths)) {
-          throw new ToolPermissionError(
-            "get_file_info",
-            `Path "${originalPath}" is not in allowed paths`
-          );
+          throw new ToolPermissionError("get_file_info", `Path "${originalPath}" is not in allowed paths`);
         }
       }
 

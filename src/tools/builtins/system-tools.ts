@@ -17,43 +17,31 @@ export const current_time: Tool = {
   async execute(params: unknown, _context: ToolContext): Promise<ToolResult> {
     const startedAt = Date.now();
     const { timezone } = params as { timezone?: string };
+    const now = new Date();
+    const iso = now.toISOString();
 
-    try {
-      const now = new Date();
-      const iso = now.toISOString();
-
-      let formattedTime = iso;
-      if (timezone) {
-        // Simple timezone-aware formatting
-        try {
-          formattedTime = now.toLocaleString("en-US", { timeZone: timezone });
-        } catch {
-          // Invalid timezone, fall back to UTC
-          formattedTime = now.toUTCString();
-        }
+    let formattedTime = iso;
+    if (timezone) {
+      try {
+        formattedTime = now.toLocaleString("en-US", { timeZone: timezone });
+      } catch {
+        // Invalid timezone, fall back to UTC
+        formattedTime = now.toUTCString();
       }
-
-      return {
-        success: true,
-        result: {
-          timestamp: now.getTime(),
-          iso,
-          timezone: timezone || "UTC",
-          formatted: formattedTime,
-        },
-        startedAt,
-        completedAt: Date.now(),
-        durationMs: Date.now() - startedAt,
-      };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-        startedAt,
-        completedAt: Date.now(),
-        durationMs: Date.now() - startedAt,
-      };
     }
+
+    return {
+      success: true,
+      result: {
+        timestamp: now.getTime(),
+        iso,
+        timezone: timezone || "UTC",
+        formatted: formattedTime,
+      },
+      startedAt,
+      completedAt: Date.now(),
+      durationMs: Date.now() - startedAt,
+    };
   },
 };
 
@@ -69,27 +57,16 @@ export const sleep: Tool = {
   async execute(params: unknown, _context: ToolContext): Promise<ToolResult> {
     const startedAt = Date.now();
     const { duration } = params as { duration: number };
+    const durationMs = duration * 1000;
+    await new Promise((resolve) => setTimeout(resolve, durationMs));
 
-    try {
-      const durationMs = duration * 1000;
-      await new Promise((resolve) => setTimeout(resolve, durationMs));
-
-      return {
-        success: true,
-        result: { slept: duration },
-        startedAt,
-        completedAt: Date.now(),
-        durationMs: Date.now() - startedAt,
-      };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-        startedAt,
-        completedAt: Date.now(),
-        durationMs: Date.now() - startedAt,
-      };
-    }
+    return {
+      success: true,
+      result: { slept: duration },
+      startedAt,
+      completedAt: Date.now(),
+      durationMs: Date.now() - startedAt,
+    };
   },
 };
 
@@ -105,26 +82,15 @@ export const get_env: Tool = {
   async execute(params: unknown, _context: ToolContext): Promise<ToolResult> {
     const startedAt = Date.now();
     const { key } = params as { key: string };
+    const value = process.env[key] ?? null;
 
-    try {
-      const value = process.env[key] ?? null;
-
-      return {
-        success: true,
-        result: { key, value },
-        startedAt,
-        completedAt: Date.now(),
-        durationMs: Date.now() - startedAt,
-      };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-        startedAt,
-        completedAt: Date.now(),
-        durationMs: Date.now() - startedAt,
-      };
-    }
+    return {
+      success: true,
+      result: { key, value },
+      startedAt,
+      completedAt: Date.now(),
+      durationMs: Date.now() - startedAt,
+    };
   },
 };
 
@@ -141,26 +107,15 @@ export const set_env: Tool = {
   async execute(params: unknown, _context: ToolContext): Promise<ToolResult> {
     const startedAt = Date.now();
     const { key, value } = params as { key: string; value: string };
+    const previous = process.env[key] ?? null;
+    process.env[key] = value;
 
-    try {
-      const previous = process.env[key] ?? null;
-      process.env[key] = value;
-
-      return {
-        success: true,
-        result: { key, previous, current: value },
-        startedAt,
-        completedAt: Date.now(),
-        durationMs: Date.now() - startedAt,
-      };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-        startedAt,
-        completedAt: Date.now(),
-        durationMs: Date.now() - startedAt,
-      };
-    }
+    return {
+      success: true,
+      result: { key, previous, current: value },
+      startedAt,
+      completedAt: Date.now(),
+      durationMs: Date.now() - startedAt,
+    };
   },
 };

@@ -119,6 +119,68 @@ describe("file tools", () => {
       // Clean up
       await rm(subDir, { recursive: true, force: true }).catch(() => {});
     });
+
+    it("should return empty list for non-existent directory", async () => {
+      const context = { taskId: "test-task-id", dataDir: testDir };
+      const result = await list_files.execute({ path: `${testDir}/nonexistent-dir` }, context);
+
+      expect(result.success).toBe(true);
+      const resultObj = result.result as { files: unknown[]; count: number };
+      expect(resultObj.files).toEqual([]);
+      expect(resultObj.count).toBe(0);
+    });
+
+    it("should filter files by pattern (non-recursive)", async () => {
+      const context = { taskId: "test-task-id", dataDir: testDir };
+
+      // Create files with different extensions
+      await Bun.write(`${testDir}/file1.ts`, "ts content");
+      await Bun.write(`${testDir}/file2.js`, "js content");
+      await Bun.write(`${testDir}/file3.ts`, "ts content 2");
+
+      const result = await list_files.execute({ path: testDir, pattern: "\\.ts$" }, context);
+
+      expect(result.success).toBe(true);
+      const resultObj = result.result as { files: Array<{ name: string }>; count: number };
+      // Only .ts files should match
+      expect(resultObj.count).toBe(2);
+      for (const file of resultObj.files) {
+        expect(file.name).toMatch(/\.ts$/);
+      }
+    });
+
+    it("should filter files by pattern (recursive)", async () => {
+      const context = { taskId: "test-task-id", dataDir: testDir };
+      const subDir = `${testDir}/sub-pattern`;
+
+      // Create files in subdirectory
+      await Bun.write(`${subDir}/nested1.ts`, "ts");
+      await Bun.write(`${subDir}/nested2.js`, "js");
+
+      const result = await list_files.execute({
+        path: testDir,
+        recursive: true,
+        pattern: "\\.ts$",
+      }, context);
+
+      expect(result.success).toBe(true);
+      const resultObj = result.result as { files: Array<{ name: string; isDir: boolean }> };
+      // Should include directories and only .ts files
+      const fileEntries = resultObj.files.filter(f => !f.isDir);
+      for (const file of fileEntries) {
+        expect(file.name).toMatch(/\.ts$/);
+      }
+    });
+
+    it("should reject unauthorized paths via allowedPaths", async () => {
+      const allowedPaths = [testDir];
+      const context = { taskId: "test-task-id", dataDir: testDir, allowedPaths };
+
+      const result = await list_files.execute({ path: "/etc" }, context);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("not in allowed paths");
+    });
   });
 
   describe("delete_file", () => {
@@ -172,6 +234,50 @@ describe("file tools", () => {
       // Clean up
       await rm(toPath, { force: true }).catch(() => {});
     });
+
+    it("should reject unauthorized source path via allowedPaths", async () => {
+      const allowedPaths = [testDir];
+      const context = { taskId: "test-task-id", dataDir: testDir, allowedPaths };
+
+      const result = await move_file.execute({
+        from: "/etc/passwd",
+        to: `${testDir}/stolen.txt`,
+      }, context);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("Source path");
+      expect(result.error).toContain("not in allowed paths");
+    });
+
+    it("should reject unauthorized destination path via allowedPaths", async () => {
+      const allowedPaths = [testDir];
+      const context = { taskId: "test-task-id", dataDir: testDir, allowedPaths };
+
+      // Create a valid source file first
+      const fromPath = `${testDir}/move-allowed.txt`;
+      await Bun.write(fromPath, "content");
+
+      const result = await move_file.execute({
+        from: fromPath,
+        to: "/etc/evil.txt",
+      }, context);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("Destination path");
+      expect(result.error).toContain("not in allowed paths");
+    });
+
+    it("should fail when moving non-existent file", async () => {
+      const context = { taskId: "test-task-id", dataDir: testDir };
+
+      const result = await move_file.execute({
+        from: `${testDir}/does-not-exist.txt`,
+        to: `${testDir}/target.txt`,
+      }, context);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBeDefined();
+    });
   });
 
   describe("get_file_info", () => {
@@ -201,6 +307,16 @@ describe("file tools", () => {
 
       expect(result.success).toBe(false);
       expect((result.result as { exists: boolean }).exists).toBe(false);
+    });
+
+    it("should reject unauthorized paths via allowedPaths", async () => {
+      const allowedPaths = [testDir];
+      const context = { taskId: "test-task-id", dataDir: testDir, allowedPaths };
+
+      const result = await get_file_info.execute({ path: "/etc/passwd" }, context);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("not in allowed paths");
     });
   });
 });
