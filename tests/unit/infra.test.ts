@@ -85,6 +85,20 @@ describe("Config schemas", () => {
   test("SettingsSchema rejects invalid logFormat", () => {
     expect(() => SettingsSchema.parse({ logFormat: "xml" })).toThrow();
   });
+
+  test("SettingsSchema coerces JSON string array for allowedPaths", () => {
+    const settings = SettingsSchema.parse({
+      tools: { allowedPaths: '["./data", "/tmp"]' },
+    });
+    expect(settings.tools.allowedPaths).toEqual(["./data", "/tmp"]);
+  });
+
+  test("SettingsSchema passes through invalid JSON string for allowedPaths to Zod", () => {
+    // Non-JSON string that's not "[]" — Zod will validate/reject it
+    expect(() =>
+      SettingsSchema.parse({ tools: { allowedPaths: "not-json" } }),
+    ).toThrow();
+  });
 });
 
 describe("getSettings / setSettings", () => {
