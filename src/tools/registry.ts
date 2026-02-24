@@ -5,6 +5,7 @@
 import type { Tool, ToolStats } from "./types.ts";
 import { ToolCategory } from "./types.ts";
 import type { ToolDefinition } from "../models/tool.ts";
+import { zodToJsonSchema as zodToJson } from "zod-to-json-schema";
 
 export class ToolRegistry {
   private tools = new Map<string, Tool>();
@@ -67,7 +68,7 @@ export class ToolRegistry {
     return this.list().map((tool) => ({
       name: tool.name,
       description: tool.description,
-      parameters: zodToJsonSchema(tool.parameters) as Record<string, unknown>,
+      parameters: zodToJson(tool.parameters) as Record<string, unknown>,
     }));
   }
 
@@ -129,30 +130,4 @@ export class ToolRegistry {
     }
     stats.totalDuration += duration;
   }
-}
-
-/**
- * Convert Zod schema to JSON Schema format.
- * Simplified version for tool definitions.
- */
-function zodToJsonSchema(zodType: unknown): unknown {
-  // For now, return a simple object schema
-  // In production, use a proper Zod to JSON Schema converter
-  // or rely on the LLM provider's built-in tool parsing
-  if (typeof zodType === "object" && zodType !== null && "shape" in zodType) {
-    const shape = (zodType as { shape: Record<string, unknown> }).shape;
-    const properties: Record<string, unknown> = {};
-
-    for (const [key, value] of Object.entries(shape)) {
-      properties[key] = {
-        type: value && typeof value === "object" && "type" in value
-          ? (value as { type: string }).type
-          : "string",
-      };
-    }
-
-    return { type: "object", properties };
-  }
-
-  return { type: "object", properties: {} };
 }

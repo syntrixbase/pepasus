@@ -5,6 +5,7 @@
 import { describe, it, expect } from "bun:test";
 import { ToolRegistry } from "../../../src/tools/registry.ts";
 import type { Tool, ToolCategory } from "../../../src/tools/types.ts";
+import { z } from "zod";
 
 describe("ToolRegistry", () => {
   it("should register a tool", () => {
@@ -110,7 +111,7 @@ describe("ToolRegistry", () => {
       name: "test_tool",
       description: "Test tool description",
       category: "system" as ToolCategory,
-      parameters: {} as any,
+      parameters: z.object({}),
       execute: async () => ({ success: true, startedAt: Date.now() }),
     };
 
@@ -118,10 +119,38 @@ describe("ToolRegistry", () => {
     const llmTools = registry.toLLMTools();
 
     expect(llmTools).toHaveLength(1);
-    expect(llmTools[0]).toEqual({
+    expect(llmTools[0]).toMatchObject({
       name: "test_tool",
       description: "Test tool description",
       parameters: expect.any(Object),
+    });
+  });
+
+  it("toLLMTools() generates correct JSON schema from Zod", () => {
+    const registry = new ToolRegistry();
+    const tool = {
+      name: "read_file",
+      description: "Read a file",
+      category: "file" as ToolCategory,
+      parameters: z.object({
+        path: z.string().describe("File path to read"),
+        encoding: z.string().optional().describe("File encoding"),
+      }),
+      execute: async () => ({ success: true, startedAt: Date.now() }),
+    };
+
+    registry.register(tool);
+    const llmTools = registry.toLLMTools();
+
+    expect(llmTools).toHaveLength(1);
+    expect(llmTools[0]!.name).toBe("read_file");
+    expect(llmTools[0]!.parameters).toMatchObject({
+      type: "object",
+      properties: {
+        path: { type: "string", description: "File path to read" },
+        encoding: { type: "string", description: "File encoding" },
+      },
+      required: ["path"],
     });
   });
 });

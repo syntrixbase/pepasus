@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { LanguageModel } from "@pegasus/infra/llm-types.ts";
+import type { LanguageModel, Message } from "@pegasus/infra/llm-types.ts";
 import type { Persona } from "@pegasus/identity/persona.ts";
 import { createTaskContext } from "@pegasus/task/context.ts";
 import type { PlanStep, ActionResult } from "@pegasus/task/context.ts";
@@ -189,7 +189,7 @@ describe("Thinker", () => {
     ctx.messages = [
       { role: "user", content: null },
       { role: "assistant" }, // content is undefined
-    ];
+    ] as unknown as Message[];
 
     const result = await thinker.run(ctx);
 
