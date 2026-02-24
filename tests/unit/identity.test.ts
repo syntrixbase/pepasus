@@ -193,4 +193,40 @@ describe("buildSystemPrompt", () => {
     const prompt = buildSystemPrompt(persona);
     expect(prompt.length).toBeGreaterThan(50);
   });
+
+  test("should include memory index in think stage prompt", () => {
+    const memoryIndex = [
+      { path: "facts/user.md", summary: "user name, language", size: 320 },
+      { path: "episodes/2026-02.md", summary: "logger fix, short ID", size: 1200 },
+    ];
+
+    const prompt = buildSystemPrompt(persona, "think", memoryIndex);
+
+    expect(prompt).toContain("Available memory:");
+    expect(prompt).toContain("facts/user.md (320B): user name, language");
+    expect(prompt).toContain("episodes/2026-02.md (1.2KB): logger fix, short ID");
+    expect(prompt).toContain("memory_read");
+  });
+
+  test("should not include memory section when index is empty", () => {
+    const prompt = buildSystemPrompt(persona, "think", []);
+    expect(prompt).not.toContain("Available memory:");
+  });
+
+  test("should not include memory section when index is undefined", () => {
+    const prompt = buildSystemPrompt(persona, "think");
+    expect(prompt).not.toContain("Available memory:");
+  });
+
+  test("should format sizes correctly for memory index", () => {
+    const memoryIndex = [
+      { path: "facts/small.md", summary: "small", size: 100 },
+      { path: "facts/large.md", summary: "large", size: 2048 },
+    ];
+
+    const prompt = buildSystemPrompt(persona, undefined, memoryIndex);
+
+    expect(prompt).toContain("100B");
+    expect(prompt).toContain("2.0KB");
+  });
 });
