@@ -254,20 +254,21 @@ describe("Logger", () => {
 
 describe("resolveTransports", () => {
   test("returns file transport for production", () => {
-    const transport = resolveTransports("production", "test.log", false);
+    const { transport } = resolveTransports("production", "test.log", false);
     expect(transport).toBeDefined();
     expect((transport as any).target).toBe("pino-roll");
   });
 
   test("returns multi-transport when console enabled", () => {
-    const transport = resolveTransports("development", "test.log", true);
+    const { transport, isMultiTarget } = resolveTransports("development", "test.log", true);
     expect(transport).toBeDefined();
+    expect(isMultiTarget).toBe(true);
     expect((transport as any).targets).toBeDefined();
     expect((transport as any).targets).toHaveLength(2);
   });
 
   test("always includes file transport", () => {
-    const transport = resolveTransports("production", "test.log", false);
+    const { transport } = resolveTransports("production", "test.log", false);
     expect(transport).toBeDefined();
   });
 });
