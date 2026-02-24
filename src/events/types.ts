@@ -58,6 +58,8 @@ export interface Event {
 }
 
 /** Create an immutable Event. */
+import { shortId } from "../infra/id.ts";
+
 export function createEvent(
   type: EventType,
   opts: {
@@ -69,7 +71,7 @@ export function createEvent(
   } = {},
 ): Event {
   return Object.freeze({
-    id: crypto.randomUUID(),
+    id: shortId(),
     type,
     timestamp: Date.now(),
     source: opts.source ?? "",

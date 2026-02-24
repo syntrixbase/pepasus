@@ -9,6 +9,7 @@
 import type { Event } from "../events/types.ts";
 import { EventType } from "../events/types.ts";
 import { InvalidStateTransition } from "../infra/errors.ts";
+import { shortId } from "../infra/id.ts";
 import { getLogger } from "../infra/logger.ts";
 import type { TaskContext } from "./context.ts";
 import { createTaskContext } from "./context.ts";
@@ -80,7 +81,7 @@ export class TaskFSM {
     priority?: number;
     metadata?: Record<string, unknown>;
   }) {
-    this.taskId = opts?.taskId ?? crypto.randomUUID();
+    this.taskId = opts?.taskId ?? shortId();
     this.state = opts?.state ?? TaskState.IDLE;
     this.context = opts?.context ?? createTaskContext();
     this.history = [];
