@@ -25,6 +25,7 @@ import {
 import { getLogger, rootLogger, resolveTransports } from "@pegasus/infra/logger.ts";
 import type { Message, GenerateTextResult } from "@pegasus/infra/llm-types.ts";
 import { toOpenAIMessages } from "@pegasus/infra/openai-client.ts";
+import { toAnthropicMessages } from "@pegasus/infra/anthropic-client.ts";
 
 // ── Config ──────────────────────────────────────
 
@@ -432,6 +433,62 @@ describe("OpenAI client tool support", () => {
     expect(result).toEqual([
       { role: "user", content: "hello" },
       { role: "assistant", content: "hi" },
+    ]);
+  });
+});
+
+// ── Anthropic Client Tool Support ──────────────────────────────────────
+
+describe("Anthropic client tool support", () => {
+  test("toAnthropicMessages converts tool result to user message with tool_result block", () => {
+    const messages: Message[] = [
+      { role: "user", content: "get time" },
+      {
+        role: "assistant",
+        content: "Let me check.",
+        toolCalls: [{ id: "tu_1", name: "current_time", arguments: {} }],
+      },
+      { role: "tool", content: "2026-02-24T10:00:00Z", toolCallId: "tu_1" },
+    ];
+    const result = toAnthropicMessages(messages);
+
+    // Assistant with tool_use content blocks
+    expect(result[1]!.role).toBe("assistant");
+    expect(result[1]!.content).toEqual([
+      { type: "text", text: "Let me check." },
+      { type: "tool_use", id: "tu_1", name: "current_time", input: {} },
+    ]);
+
+    // Tool result as user message with tool_result block
+    expect(result[2]!.role).toBe("user");
+    expect(result[2]!.content).toEqual([
+      { type: "tool_result", tool_use_id: "tu_1", content: "2026-02-24T10:00:00Z" },
+    ]);
+  });
+
+  test("toAnthropicMessages passes through regular messages", () => {
+    const messages: Message[] = [
+      { role: "user", content: "hello" },
+      { role: "assistant", content: "hi" },
+    ];
+    const result = toAnthropicMessages(messages);
+    expect(result).toEqual([
+      { role: "user", content: "hello" },
+      { role: "assistant", content: "hi" },
+    ]);
+  });
+
+  test("toAnthropicMessages handles assistant with toolCalls but no text", () => {
+    const messages: Message[] = [
+      {
+        role: "assistant",
+        content: "",
+        toolCalls: [{ id: "tu_2", name: "read_file", arguments: { path: "x" } }],
+      },
+    ];
+    const result = toAnthropicMessages(messages);
+    expect(result[0]!.content).toEqual([
+      { type: "tool_use", id: "tu_2", name: "read_file", input: { path: "x" } },
     ]);
   });
 });
