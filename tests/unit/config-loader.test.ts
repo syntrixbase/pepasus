@@ -50,8 +50,7 @@ describe("config-loader", () => {
       expect(settings.llm.model).toBe("gpt-4o-mini");
       expect(settings.llm.maxConcurrentCalls).toBe(3);
       expect(settings.llm.timeout).toBe(120);
-      expect(settings.memory.dbPath).toBe("data/memory.db");
-      expect(settings.memory.vectorDbPath).toBe("data/vectors");
+      expect(settings.memory.dataDir).toBe("data/memory");
       expect(settings.agent.maxActiveTasks).toBe(5);
       expect(settings.agent.maxConcurrentTools).toBe(3);
       expect(settings.agent.maxCognitiveIterations).toBe(10);
@@ -71,7 +70,7 @@ llm:
   model: claude-sonnet-4
   maxConcurrentCalls: 10
 memory:
-  dbPath: custom/memory.db
+  dataDir: custom/memory
 `;
       writeFileSync("config.yml", yamlContent);
 
@@ -81,11 +80,10 @@ memory:
       expect(settings.llm.provider).toBe("anthropic");
       expect(settings.llm.model).toBe("claude-sonnet-4");
       expect(settings.llm.maxConcurrentCalls).toBe(10);
-      expect(settings.memory.dbPath).toBe("custom/memory.db");
+      expect(settings.memory.dataDir).toBe("custom/memory");
 
       // Retained from defaults
       expect(settings.llm.timeout).toBe(120);
-      expect(settings.memory.vectorDbPath).toBe("data/vectors");
       expect(settings.agent.maxActiveTasks).toBe(5);
       expect(settings.logLevel).toBe("info");
     });
@@ -176,7 +174,7 @@ llm:
   maxConcurrentCalls: 3
   timeout: 120
 memory:
-  dbPath: data/memory.db
+  dataDir: data/memory
 agent:
   maxActiveTasks: 5
 `;
@@ -205,7 +203,7 @@ llm:
 
       // Inherited from base (not overridden)
       expect(settings.llm.timeout).toBe(120);
-      expect(settings.memory.dbPath).toBe("data/memory.db");
+      expect(settings.memory.dataDir).toBe("data/memory");
       expect(settings.agent.maxActiveTasks).toBe(5);
     });
 
@@ -467,8 +465,7 @@ llm:
   maxConcurrentCalls: 10
   timeout: 180
 memory:
-  dbPath: custom/memory.db
-  vectorDbPath: custom/vectors
+  dataDir: custom/memory
 agent:
   maxActiveTasks: 20
   maxConcurrentTools: 5
@@ -488,8 +485,7 @@ system:
 
       expect(settings.llm.maxConcurrentCalls).toBe(10);
       expect(settings.llm.timeout).toBe(180);
-      expect(settings.memory.dbPath).toBe("custom/memory.db");
-      expect(settings.memory.vectorDbPath).toBe("custom/vectors");
+      expect(settings.memory.dataDir).toBe("custom/memory");
       expect(settings.agent.maxActiveTasks).toBe(20);
       expect(settings.agent.maxConcurrentTools).toBe(5);
       expect(settings.agent.maxCognitiveIterations).toBe(15);
