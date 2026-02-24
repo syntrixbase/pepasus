@@ -1,12 +1,55 @@
 /**
  * Structured logger — thin pino wrapper with file output support.
+ *
+ * Log format: JSON with human-readable `level` (label) and `time` (ISO 8601).
+ * This applies to ALL outputs (file, console, any transport) so logs are
+ * always grep-friendly and human-scannable without extra tooling.
  */
 import pino from "pino";
 import type { TransportSingleOptions, TransportMultiOptions } from "pino";
 import { existsSync, mkdirSync, readdirSync, statSync, unlinkSync } from "fs";
 import { dirname, join, basename } from "path";
 
+// Bootstrap phase: read log level from env before config is available.
+// Will be overridden when reinitLogger() is called with loaded config.
 const level = process.env["PEGASUS_LOG_LEVEL"] ?? "info";
+
+/**
+ * Shared pino options for human-readable level and timestamp.
+ * - `formatters.level`: outputs `"level":"info"` instead of `"level":30`
+ * - `timestamp`: outputs `"time":"2026-02-24T10:00:00.000Z"` instead of epoch ms
+ *
+ * NOTE: pino disallows `formatters` with multi-target transports.
+ * We conditionally apply them only for single-target (file-only) mode.
+ * For multi-target mode (file + console), pino-pretty handles console rendering,
+ * and we use `formatters.level` is skipped (pino-pretty handles it on its own).
+ */
+function createLoggerOptions(
+  transport: TransportSingleOptions | TransportMultiOptions,
+  isMultiTarget: boolean,
+): pino.LoggerOptions {
+  const opts: pino.LoggerOptions = {
+    level,
+    transport,
+    base: undefined, // Remove pid and hostname from log output
+  };
+
+  if (!isMultiTarget) {
+    // Single target: we can use formatters and custom timestamp
+    opts.formatters = {
+      level(label) {
+        return { level: label };
+      },
+    };
+    opts.timestamp = pino.stdTimeFunctions.isoTime;
+  } else {
+    // Multi target: formatters not allowed, but pino-pretty handles console.
+    // For the file transport, use timestamp (string serializer is allowed in multi mode).
+    opts.timestamp = pino.stdTimeFunctions.isoTime;
+  }
+
+  return opts;
+}
 
 /**
  * Clean up old log files older than specified days.
@@ -50,12 +93,14 @@ function cleanupOldLogs(logFile: string, retentionDays = 30): void {
 /**
  * Resolve transports based on environment and configuration.
  * File logging is always enabled. Console output is optional.
+ *
+ * Returns the transport config and whether it's multi-target.
  */
 export function resolveTransports(
   nodeEnv: string | undefined,
   logFile: string,
   logConsoleEnabled?: boolean,
-): TransportSingleOptions | TransportMultiOptions {
+): { transport: TransportSingleOptions | TransportMultiOptions; isMultiTarget: boolean } {
   const transports: TransportSingleOptions[] = [];
 
   // Console transport (only if explicitly enabled)
@@ -97,27 +142,35 @@ export function resolveTransports(
 
   // Return single transport or multi transport
   if (transports.length === 1) {
-    return transports[0]!;  // Non-null assertion: we know length is 1
+    return {
+      transport: transports[0]!, // Non-null assertion: we know length is 1
+      isMultiTarget: false,
+    };
   }
 
   return {
-    targets: transports,
+    transport: { targets: transports },
+    isMultiTarget: true,
   };
 }
 
 /**
  * Initialize root logger with file output.
+ *
+ * Bootstrap phase: config is not yet loaded, so we read env vars directly.
+ * This logger will be replaced by reinitLogger() once config is available.
  */
 function initRootLogger(): pino.Logger {
-  // Get log config from environment variables
   const dataDir = process.env["PEGASUS_DATA_DIR"] || "data";
   const logFile = join(dataDir, "logs/pegasus.log");
   const logConsoleEnabled = process.env["PEGASUS_LOG_CONSOLE_ENABLED"] === "true";
 
-  return pino({
-    level,
-    transport: resolveTransports(process.env["NODE_ENV"], logFile, logConsoleEnabled),
-  });
+  const { transport, isMultiTarget } = resolveTransports(
+    process.env["NODE_ENV"],
+    logFile,
+    logConsoleEnabled,
+  );
+  return pino(createLoggerOptions(transport, isMultiTarget));
 }
 
 const rootLogger = initRootLogger();
@@ -130,13 +183,16 @@ export function getLogger(name: string): pino.Logger {
 }
 
 /**
- * Reinitialize logger with new configuration (used after config is loaded).
+ * Reinitialize logger with loaded configuration (called by config.ts after settings are ready).
+ * All parameters come from config — no direct env var reads.
  */
-export function reinitLogger(logFile: string, logConsoleEnabled?: boolean): void {
-  const newLogger = pino({
-    level,
-    transport: resolveTransports(process.env["NODE_ENV"], logFile, logConsoleEnabled),
-  });
+export function reinitLogger(logFile: string, logConsoleEnabled?: boolean, nodeEnv?: string): void {
+  const { transport, isMultiTarget } = resolveTransports(
+    nodeEnv,
+    logFile,
+    logConsoleEnabled,
+  );
+  const newLogger = pino(createLoggerOptions(transport, isMultiTarget));
 
   // Replace the root logger's bindings and streams
   Object.assign(rootLogger, newLogger);

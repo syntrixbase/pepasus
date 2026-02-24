@@ -40,10 +40,34 @@ export const AgentConfigSchema = z.object({
   maxConcurrentTools: z.coerce.number().int().positive().default(3),
   maxCognitiveIterations: z.coerce.number().int().positive().default(10),
   heartbeatInterval: z.coerce.number().positive().default(60),
+  taskTimeout: z.coerce.number().int().positive().default(120), // seconds, default 2 minutes
 });
 
 export const IdentityConfigSchema = z.object({
   personaPath: z.string().default("data/personas/default.json"),
+});
+
+export const ToolsConfigSchema = z.object({
+  timeout: z.coerce.number().int().positive().default(30), // seconds, tool execution timeout
+  allowedPaths: z.array(z.string()).default([]),
+  webSearch: z
+    .object({
+      provider: z
+        .enum(["tavily", "google", "bing", "duckduckgo"])
+        .optional(),
+      apiKey: z.string().optional(),
+      maxResults: z.coerce.number().int().positive().default(10),
+    })
+    .optional(),
+  mcpServers: z
+    .array(
+      z.object({
+        name: z.string(),
+        url: z.string().url(),
+        enabled: z.boolean().default(true),
+      })
+    )
+    .default([]),
 });
 
 export const SettingsSchema = z.object({
@@ -51,10 +75,12 @@ export const SettingsSchema = z.object({
   memory: MemoryConfigSchema.default({}),
   agent: AgentConfigSchema.default({}),
   identity: IdentityConfigSchema.default({}),
+  tools: ToolsConfigSchema.default({}),
   logLevel: z.string().default("info"),
   dataDir: z.string().default("data"),
   // Log output configuration
   logConsoleEnabled: z.boolean().default(false), // Enable console logging (default: false)
+  nodeEnv: z.string().default("development"), // NODE_ENV: development | production | test
 });
 
 export type LLMConfig = z.infer<typeof LLMConfigSchema>;
@@ -62,4 +88,5 @@ export type ProviderConfig = z.infer<typeof ProviderConfigSchema>;
 export type MemoryConfig = z.infer<typeof MemoryConfigSchema>;
 export type AgentConfig = z.infer<typeof AgentConfigSchema>;
 export type IdentityConfig = z.infer<typeof IdentityConfigSchema>;
+export type ToolsConfig = z.infer<typeof ToolsConfigSchema>;
 export type Settings = z.infer<typeof SettingsSchema>;

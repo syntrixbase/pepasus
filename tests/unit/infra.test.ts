@@ -23,6 +23,9 @@ import {
   ToolError,
 } from "@pegasus/infra/errors.ts";
 import { getLogger, rootLogger, resolveTransports } from "@pegasus/infra/logger.ts";
+import type { Message, GenerateTextResult } from "@pegasus/infra/llm-types.ts";
+import { toOpenAIMessages } from "@pegasus/infra/openai-client.ts";
+import { toAnthropicMessages } from "@pegasus/infra/anthropic-client.ts";
 
 // ── Config ──────────────────────────────────────
 
@@ -60,6 +63,7 @@ describe("Config schemas", () => {
     expect(config.maxConcurrentTools).toBe(3);
     expect(config.maxCognitiveIterations).toBe(10);
     expect(config.heartbeatInterval).toBe(60);
+    expect(config.taskTimeout).toBe(120);
   });
 
   test("SettingsSchema applies nested defaults", () => {
@@ -251,20 +255,21 @@ describe("Logger", () => {
 
 describe("resolveTransports", () => {
   test("returns file transport for production", () => {
-    const transport = resolveTransports("production", "test.log", false);
+    const { transport } = resolveTransports("production", "test.log", false);
     expect(transport).toBeDefined();
     expect((transport as any).target).toBe("pino-roll");
   });
 
   test("returns multi-transport when console enabled", () => {
-    const transport = resolveTransports("development", "test.log", true);
+    const { transport, isMultiTarget } = resolveTransports("development", "test.log", true);
     expect(transport).toBeDefined();
+    expect(isMultiTarget).toBe(true);
     expect((transport as any).targets).toBeDefined();
     expect((transport as any).targets).toHaveLength(2);
   });
 
   test("always includes file transport", () => {
-    const transport = resolveTransports("production", "test.log", false);
+    const { transport } = resolveTransports("production", "test.log", false);
     expect(transport).toBeDefined();
   });
 });
@@ -354,5 +359,138 @@ describe("getActiveProviderConfig", () => {
     } as Settings;
 
     expect(() => getActiveProviderConfig(settings)).toThrow("Unknown provider");
+  });
+});
+
+// ── LLM Types ──────────────────────────────────────
+
+describe("LLM Types - Tool support", () => {
+  test("Message type supports tool role and toolCalls", () => {
+    const toolMsg: Message = {
+      role: "tool",
+      content: '{"result":"ok"}',
+      toolCallId: "call_123",
+    };
+    expect(toolMsg.role).toBe("tool");
+    expect(toolMsg.toolCallId).toBe("call_123");
+
+    const assistantMsg: Message = {
+      role: "assistant",
+      content: "",
+      toolCalls: [{ id: "call_1", name: "read_file", arguments: { path: "x" } }],
+    };
+    expect(assistantMsg.toolCalls).toHaveLength(1);
+  });
+
+  test("GenerateTextResult supports toolCalls", () => {
+    const result: GenerateTextResult = {
+      text: "",
+      finishReason: "tool_calls",
+      toolCalls: [{ id: "c1", name: "get_time", arguments: {} }],
+      usage: { promptTokens: 10, completionTokens: 5 },
+    };
+    expect(result.toolCalls).toHaveLength(1);
+  });
+});
+
+// ── OpenAI Client Tool Support ──────────────────────────────────────
+
+describe("OpenAI client tool support", () => {
+  test("toOpenAIMessages converts tool messages", () => {
+    const messages: Message[] = [
+      { role: "user", content: "read config" },
+      {
+        role: "assistant",
+        content: "",
+        toolCalls: [{ id: "c1", name: "read_file", arguments: { path: "config.yml" } }],
+      },
+      { role: "tool", content: '{"data":"hello"}', toolCallId: "c1" },
+    ];
+    const result = toOpenAIMessages(messages);
+
+    expect(result[2]).toMatchObject({
+      role: "tool",
+      content: '{"data":"hello"}',
+      tool_call_id: "c1",
+    });
+
+    expect(result[1]).toMatchObject({
+      role: "assistant",
+      tool_calls: [
+        {
+          id: "c1",
+          type: "function",
+          function: { name: "read_file", arguments: '{"path":"config.yml"}' },
+        },
+      ],
+    });
+  });
+
+  test("toOpenAIMessages passes through regular messages", () => {
+    const messages: Message[] = [
+      { role: "user", content: "hello" },
+      { role: "assistant", content: "hi" },
+    ];
+    const result = toOpenAIMessages(messages);
+    expect(result).toEqual([
+      { role: "user", content: "hello" },
+      { role: "assistant", content: "hi" },
+    ]);
+  });
+});
+
+// ── Anthropic Client Tool Support ──────────────────────────────────────
+
+describe("Anthropic client tool support", () => {
+  test("toAnthropicMessages converts tool result to user message with tool_result block", () => {
+    const messages: Message[] = [
+      { role: "user", content: "get time" },
+      {
+        role: "assistant",
+        content: "Let me check.",
+        toolCalls: [{ id: "tu_1", name: "current_time", arguments: {} }],
+      },
+      { role: "tool", content: "2026-02-24T10:00:00Z", toolCallId: "tu_1" },
+    ];
+    const result = toAnthropicMessages(messages);
+
+    // Assistant with tool_use content blocks
+    expect(result[1]!.role).toBe("assistant");
+    expect(result[1]!.content).toEqual([
+      { type: "text", text: "Let me check." },
+      { type: "tool_use", id: "tu_1", name: "current_time", input: {} },
+    ]);
+
+    // Tool result as user message with tool_result block
+    expect(result[2]!.role).toBe("user");
+    expect(result[2]!.content).toEqual([
+      { type: "tool_result", tool_use_id: "tu_1", content: "2026-02-24T10:00:00Z" },
+    ]);
+  });
+
+  test("toAnthropicMessages passes through regular messages", () => {
+    const messages: Message[] = [
+      { role: "user", content: "hello" },
+      { role: "assistant", content: "hi" },
+    ];
+    const result = toAnthropicMessages(messages);
+    expect(result).toEqual([
+      { role: "user", content: "hello" },
+      { role: "assistant", content: "hi" },
+    ]);
+  });
+
+  test("toAnthropicMessages handles assistant with toolCalls but no text", () => {
+    const messages: Message[] = [
+      {
+        role: "assistant",
+        content: "",
+        toolCalls: [{ id: "tu_2", name: "read_file", arguments: { path: "x" } }],
+      },
+    ];
+    const result = toAnthropicMessages(messages);
+    expect(result[0]!.content).toEqual([
+      { type: "tool_use", id: "tu_2", name: "read_file", input: { path: "x" } },
+    ]);
   });
 });

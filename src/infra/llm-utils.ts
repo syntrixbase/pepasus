@@ -15,5 +15,7 @@ export async function generateText(options: GenerateTextOptions): Promise<Genera
     temperature: options.temperature,
     maxTokens: options.maxTokens,
     topP: options.topP,
+    tools: options.tools,
+    toolChoice: options.toolChoice,
   });
 }

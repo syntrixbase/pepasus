@@ -2,13 +2,53 @@
  * Anthropic LLM client using official Anthropic SDK.
  */
 import Anthropic from "@anthropic-ai/sdk";
-import type { LanguageModel } from "./llm-types.ts";
+import type { LanguageModel, Message } from "./llm-types.ts";
+import { getLogger } from "./logger.ts";
+
+const logger = getLogger("llm.anthropic");
 
 export interface AnthropicClientConfig {
   apiKey: string;
   baseURL?: string;
   model: string;
   headers?: Record<string, string>;
+}
+
+/** Convert internal Message[] to Anthropic MessageParam[]. Exported for testing. */
+export function toAnthropicMessages(messages: Message[]): Anthropic.MessageParam[] {
+  return messages.map((msg) => {
+    if (msg.role === "tool") {
+      return {
+        role: "user" as const,
+        content: [
+          {
+            type: "tool_result" as const,
+            tool_use_id: msg.toolCallId!,
+            content: msg.content,
+          },
+        ],
+      };
+    }
+    if (msg.role === "assistant" && msg.toolCalls?.length) {
+      const content: (Anthropic.TextBlockParam | Anthropic.ToolUseBlockParam)[] = [];
+      if (msg.content) {
+        content.push({ type: "text" as const, text: msg.content });
+      }
+      for (const tc of msg.toolCalls) {
+        content.push({
+          type: "tool_use" as const,
+          id: tc.id,
+          name: tc.name,
+          input: tc.arguments,
+        });
+      }
+      return { role: "assistant" as const, content };
+    }
+    return {
+      role: msg.role as "user" | "assistant",
+      content: msg.content,
+    };
+  });
 }
 
 /**
@@ -26,30 +66,84 @@ export function createAnthropicCompatibleModel(config: AnthropicClientConfig): L
     modelId: config.model,
 
     async generate(options) {
-      // Build messages array
-      const messages: Anthropic.MessageParam[] = options.messages.map((msg) => ({
-        role: msg.role as "user" | "assistant",
-        content: msg.content,
-      }));
+      const messages = toAnthropicMessages(options.messages);
 
-      const response = await client.messages.create({
+      const params: Anthropic.MessageCreateParamsNonStreaming = {
         model: config.model,
         system: options.system,
         messages,
         temperature: options.temperature,
         max_tokens: options.maxTokens || 4096,
         top_p: options.topP,
-      });
+      };
 
-      // Extract text content
+      if (options.tools?.length) {
+        params.tools = options.tools.map((t) => ({
+          name: t.name,
+          description: t.description,
+          input_schema: t.parameters as Anthropic.Tool.InputSchema,
+        }));
+      }
+
+      const startTime = Date.now();
+      logger.info(
+        {
+          model: config.model,
+          messageCount: messages.length,
+          hasTools: !!options.tools?.length,
+          toolCount: options.tools?.length ?? 0,
+        },
+        "llm_request_start",
+      );
+
+      let response: Anthropic.Message;
+      try {
+        response = await client.messages.create(params);
+      } catch (error) {
+        const durationMs = Date.now() - startTime;
+        logger.error(
+          {
+            model: config.model,
+            durationMs,
+            error: error instanceof Error ? error.message : String(error),
+          },
+          "llm_request_error",
+        );
+        throw error;
+      }
+
+      const durationMs = Date.now() - startTime;
+
       const textContent = response.content
-        .filter((c) => c.type === "text")
-        .map((c) => (c as Anthropic.TextBlock).text)
+        .filter((c): c is Anthropic.TextBlock => c.type === "text")
+        .map((c) => c.text)
         .join("");
+
+      const toolUseBlocks = response.content.filter(
+        (c): c is Anthropic.ToolUseBlock => c.type === "tool_use",
+      );
+      const toolCalls = toolUseBlocks.map((c) => ({
+        id: c.id,
+        name: c.name,
+        arguments: c.input as Record<string, unknown>,
+      }));
+
+      logger.info(
+        {
+          model: config.model,
+          durationMs,
+          finishReason: response.stop_reason ?? "stop",
+          promptTokens: response.usage.input_tokens,
+          completionTokens: response.usage.output_tokens,
+          toolCallCount: toolCalls.length,
+        },
+        "llm_request_done",
+      );
 
       return {
         text: textContent,
         finishReason: response.stop_reason || "stop",
+        toolCalls: toolCalls.length ? toolCalls : undefined,
         usage: {
           promptTokens: response.usage.input_tokens,
           completionTokens: response.usage.output_tokens,

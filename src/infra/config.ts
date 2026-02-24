@@ -43,7 +43,7 @@ export function getSettings(): Settings {
     const { reinitLogger } = require("./logger.ts") as typeof import("./logger.ts");
     const { join } = require("path") as typeof import("path");
     const logFile = join(_settings.dataDir, "logs/pegasus.log");
-    reinitLogger(logFile, _settings.logConsoleEnabled);
+    reinitLogger(logFile, _settings.logConsoleEnabled, _settings.nodeEnv);
   }
   return _settings;
 }

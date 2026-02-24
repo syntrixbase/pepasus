@@ -5,12 +5,16 @@
  * independent and maintain direct control over LLM integrations.
  */
 
+import type { ToolCall, ToolDefinition } from "../models/tool.ts";
+
 /**
  * Message in a conversation with an LLM.
  */
 export interface Message {
-  role: "user" | "assistant" | "system";
+  role: "user" | "assistant" | "system" | "tool";
   content: string;
+  toolCallId?: string;
+  toolCalls?: ToolCall[];
 }
 
 /**
@@ -23,6 +27,8 @@ export interface GenerateTextOptions {
   temperature?: number;
   maxTokens?: number;
   topP?: number;
+  tools?: ToolDefinition[];
+  toolChoice?: "auto" | "none";
 }
 
 /**
@@ -31,6 +37,7 @@ export interface GenerateTextOptions {
 export interface GenerateTextResult {
   text: string;
   finishReason: string;
+  toolCalls?: ToolCall[];
   usage: {
     promptTokens: number;
     completionTokens: number;
@@ -53,5 +60,7 @@ export interface LanguageModel {
     temperature?: number;
     maxTokens?: number;
     topP?: number;
+    tools?: ToolDefinition[];
+    toolChoice?: "auto" | "none";
   }): Promise<GenerateTextResult>;
 }

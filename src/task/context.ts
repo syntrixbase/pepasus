@@ -2,6 +2,8 @@
  * TaskContext — accumulates all intermediate artifacts for a task.
  */
 
+import type { Message } from "../infra/llm-types.ts";
+
 // ── PlanStep ─────────────────────────────────────────
 
 export interface PlanStep {
@@ -59,6 +61,9 @@ export interface Reflection {
 // ── TaskContext ───────────────────────────────────────
 
 export interface TaskContext {
+  // Task identifier
+  id: string;
+
   // Original input
   inputText: string;
   inputMetadata: Record<string, unknown>;
@@ -83,17 +88,19 @@ export interface TaskContext {
   suspendReason: string | null;
 
   // Conversation history
-  messages: Record<string, unknown>[];
+  messages: Message[];
 }
 
 export function createTaskContext(
   opts: {
+    id?: string;
     inputText?: string;
     inputMetadata?: Record<string, unknown>;
     source?: string;
   } = {},
 ): TaskContext {
   return {
+    id: opts.id ?? crypto.randomUUID(),
     inputText: opts.inputText ?? "",
     inputMetadata: opts.inputMetadata ?? {},
     source: opts.source ?? "",

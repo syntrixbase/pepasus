@@ -64,6 +64,25 @@ agent:
   maxConcurrentTools: 3
   maxCognitiveIterations: 10
   heartbeatInterval: 60  # seconds
+  taskTimeout: 300  # seconds, max wait time for task completion
+
+tools:
+  # Tool execution timeout (seconds)
+  timeout: ${TOOLS_TIMEOUT:-60}
+
+  # Allowed paths for file operations (empty = no restriction)
+  # Supports both absolute paths (/path/to/dir) and relative paths (./data)
+  # Relative paths are resolved against dataDir
+  allowedPaths: ${TOOLS_ALLOWED_PATHS:-[]}
+
+  # Web search configuration (optional)
+  webSearch:
+    provider: ${WEB_SEARCH_PROVIDER:-tavily}  # tavily | google | bing | duckduckgo
+    apiKey: ${WEB_SEARCH_API_KEY}
+    maxResults: 10
+
+  # MCP server configurations (optional, for future use)
+  mcpServers: ${TOOLS_MCP_SERVERS:-[]}
 
 memory:
   dbPath: ${MEMORY_DB_PATH:-data/memory.db}

@@ -26,18 +26,20 @@ describe("logger", () => {
   describe("resolveTransports", () => {
     test("returns file transport only when console disabled", () => {
       const logFile = join(testDir, "test.log");
-      const transport = resolveTransports("production", logFile, false);
+      const { transport, isMultiTarget } = resolveTransports("production", logFile, false);
 
       expect(transport).toBeDefined();
+      expect(isMultiTarget).toBe(false);
       expect((transport as any).target).toBe("pino-roll");
       expect((transport as any).options.file).toBe(logFile);
     });
 
     test("returns multi-transport with console enabled in dev", () => {
       const logFile = join(testDir, "test.log");
-      const transport = resolveTransports("development", logFile, true);
+      const { transport, isMultiTarget } = resolveTransports("development", logFile, true);
 
       expect(transport).toBeDefined();
+      expect(isMultiTarget).toBe(true);
       expect((transport as any).targets).toBeDefined();
       expect((transport as any).targets).toHaveLength(2);
 
@@ -48,9 +50,10 @@ describe("logger", () => {
 
     test("returns multi-transport with console enabled in production", () => {
       const logFile = join(testDir, "test.log");
-      const transport = resolveTransports("production", logFile, true);
+      const { transport, isMultiTarget } = resolveTransports("production", logFile, true);
 
       expect(transport).toBeDefined();
+      expect(isMultiTarget).toBe(true);
       expect((transport as any).targets).toBeDefined();
       expect((transport as any).targets).toHaveLength(2);
 
@@ -73,7 +76,7 @@ describe("logger", () => {
 
     test("always creates file transport", () => {
       const logFile = join(testDir, "test.log");
-      const transport = resolveTransports("development", logFile, false);
+      const { transport } = resolveTransports("development", logFile, false);
 
       expect(transport).toBeDefined();
       expect((transport as any).target).toBe("pino-roll");

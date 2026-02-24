@@ -24,6 +24,9 @@ import { TaskFSM } from "./task/fsm.ts";
 import { TaskRegistry } from "./task/registry.ts";
 import { TaskState } from "./task/states.ts";
 import { currentStep, hasMoreSteps, markStepDone } from "./task/context.ts";
+import { ToolRegistry } from "./tools/registry.ts";
+import { ToolExecutor } from "./tools/executor.ts";
+import { allBuiltInTools } from "./tools/builtins/index.ts";
 
 const logger = getLogger("agent");
 
@@ -101,11 +104,21 @@ export class Agent {
     this.llmSemaphore = new Semaphore(this.settings.llm.maxConcurrentCalls);
     this.toolSemaphore = new Semaphore(this.settings.agent.maxConcurrentTools);
 
+    // Create tool infrastructure
+    const toolRegistry = new ToolRegistry();
+    toolRegistry.registerMany(allBuiltInTools);
+
+    const toolExecutor = new ToolExecutor(
+      toolRegistry,
+      this.eventBus,
+      (this.settings.tools?.timeout ?? 30) * 1000,
+    );
+
     // Initialize cognitive processors with model + persona
     this.perceiver = new Perceiver(deps.model, deps.persona);
-    this.thinker = new Thinker(deps.model, deps.persona);
+    this.thinker = new Thinker(deps.model, deps.persona, toolRegistry);
     this.planner = new Planner(deps.model, deps.persona);
-    this.actor = new Actor(deps.model, deps.persona);
+    this.actor = new Actor(deps.model, deps.persona, toolExecutor);
     this.reflector = new Reflector(deps.model, deps.persona);
   }
 
@@ -442,13 +455,14 @@ export class Agent {
   }
 
   /** Wait for a task to complete (for testing and simple scenarios). */
-  async waitForTask(taskId: string, timeout: number = 30_000): Promise<TaskFSM> {
-    const deadline = Date.now() + timeout;
+  async waitForTask(taskId: string, timeout?: number): Promise<TaskFSM> {
+    const effectiveTimeout = timeout ?? this.settings.agent.taskTimeout * 1000;
+    const deadline = Date.now() + effectiveTimeout;
     while (Date.now() < deadline) {
       const task = this.taskRegistry.getOrNull(taskId);
       if (task?.isTerminal) return task;
       await Bun.sleep(50);
     }
-    throw new Error(`Task ${taskId} did not complete within ${timeout}ms`);
+    throw new Error(`Task ${taskId} did not complete within ${effectiveTimeout}ms`);
   }
 }

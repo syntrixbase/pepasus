@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { LanguageModel } from "@pegasus/infra/llm-types.ts";
+import type { LanguageModel, Message } from "@pegasus/infra/llm-types.ts";
 import type { Persona } from "@pegasus/identity/persona.ts";
 import { createTaskContext } from "@pegasus/task/context.ts";
 import type { PlanStep, ActionResult } from "@pegasus/task/context.ts";
@@ -8,6 +8,9 @@ import { Thinker } from "@pegasus/cognitive/think.ts";
 import { Planner } from "@pegasus/cognitive/plan.ts";
 import { Actor } from "@pegasus/cognitive/act.ts";
 import { Reflector } from "@pegasus/cognitive/reflect.ts";
+import { ToolRegistry } from "@pegasus/tools/registry.ts";
+import { z } from "zod";
+import type { ToolCall } from "@pegasus/models/tool.ts";
 
 // ── Helpers ────────────────────────────────────────
 
@@ -31,6 +34,24 @@ function createMockModel(responseText: string): LanguageModel {
       };
     },
   };
+}
+
+function createToolCallMockModel(toolCalls: ToolCall[]): LanguageModel & { lastOptions?: unknown } {
+  const model: LanguageModel & { lastOptions?: unknown } = {
+    provider: "test",
+    modelId: "test-model",
+    lastOptions: undefined,
+    async generate(options) {
+      model.lastOptions = options;
+      return {
+        text: "",
+        finishReason: "tool_calls",
+        toolCalls,
+        usage: { promptTokens: 10, completionTokens: 5 },
+      };
+    },
+  };
+  return model;
 }
 
 function makeActionResult(overrides: Partial<ActionResult> = {}): ActionResult {
@@ -189,7 +210,7 @@ describe("Thinker", () => {
     ctx.messages = [
       { role: "user", content: null },
       { role: "assistant" }, // content is undefined
-    ];
+    ] as unknown as Message[];
 
     const result = await thinker.run(ctx);
 
@@ -214,6 +235,39 @@ describe("Thinker", () => {
     const result = await thinker.run(ctx);
 
     expect(result.response).toBe("Multi-turn response");
+  });
+
+  test("passes tools to LLM when toolRegistry is provided", async () => {
+    const toolCalls: ToolCall[] = [{ id: "c1", name: "current_time", arguments: {} }];
+    const model = createToolCallMockModel(toolCalls);
+
+    const registry = new ToolRegistry();
+    registry.register({
+      name: "current_time",
+      description: "Get current time",
+      category: "system" as any,
+      parameters: z.object({}),
+      execute: async () => ({ success: true, startedAt: Date.now(), result: "2026-02-24" }),
+    });
+
+    const thinker = new Thinker(model, testPersona, registry);
+    const ctx = createTaskContext({ inputText: "What time is it?" });
+    const reasoning = await thinker.run(ctx);
+
+    expect((model.lastOptions as any).tools).toHaveLength(1);
+    expect((model.lastOptions as any).tools[0].name).toBe("current_time");
+    expect(reasoning.toolCalls).toEqual(toolCalls);
+    expect(reasoning.approach).toBe("tool_use");
+  });
+
+  test("does not pass tools when no toolRegistry", async () => {
+    const model = createMockModel("plain response");
+    const thinker = new Thinker(model, testPersona);
+    const ctx = createTaskContext({ inputText: "Hello" });
+    const reasoning = await thinker.run(ctx);
+
+    expect(reasoning.toolCalls).toBeUndefined();
+    expect(reasoning.approach).toBe("direct");
   });
 });
 
@@ -278,6 +332,52 @@ describe("Planner", () => {
 
     const plan = await planner.run(ctx);
 
+    expect(plan.steps[0]!.actionType).toBe("respond");
+  });
+
+  test("generates tool_call steps when reasoning has toolCalls", async () => {
+    const model = createMockModel("");
+    const planner = new Planner(model, testPersona);
+
+    const ctx = createTaskContext({ inputText: "What time is it?" });
+    ctx.perception = { taskType: "conversation" };
+    ctx.reasoning = {
+      response: "",
+      approach: "tool_use",
+      toolCalls: [
+        { id: "c1", name: "current_time", arguments: {} },
+        { id: "c2", name: "get_date", arguments: { format: "iso" } },
+      ],
+    };
+
+    const plan = await planner.run(ctx);
+
+    expect(plan.steps).toHaveLength(2);
+    expect(plan.steps[0]!.actionType).toBe("tool_call");
+    expect(plan.steps[0]!.actionParams).toEqual({
+      toolCallId: "c1",
+      toolName: "current_time",
+      toolParams: {},
+    });
+    expect(plan.steps[1]!.actionType).toBe("tool_call");
+    expect(plan.steps[1]!.actionParams).toEqual({
+      toolCallId: "c2",
+      toolName: "get_date",
+      toolParams: { format: "iso" },
+    });
+  });
+
+  test("generates respond step when reasoning has no toolCalls", async () => {
+    const model = createMockModel("");
+    const planner = new Planner(model, testPersona);
+
+    const ctx = createTaskContext({ inputText: "Hello" });
+    ctx.perception = { taskType: "conversation" };
+    ctx.reasoning = { response: "Hi", approach: "direct" };
+
+    const plan = await planner.run(ctx);
+
+    expect(plan.steps).toHaveLength(1);
     expect(plan.steps[0]!.actionType).toBe("respond");
   });
 });
@@ -351,6 +451,90 @@ describe("Actor", () => {
     expect(result.actionType).toBe("generate");
     expect(result.stepIndex).toBe(1);
     expect(result.actionInput).toEqual({ prompt: "Generate code" });
+  });
+
+  test("executes tool_call step via ToolExecutor", async () => {
+    const model = createMockModel("");
+    const mockExecutor = {
+      execute: async (_toolName: string, _params: unknown, _context: any) => ({
+        success: true,
+        result: "2026-02-24T10:00:00Z",
+        startedAt: Date.now(),
+        completedAt: Date.now(),
+        durationMs: 10,
+      }),
+    };
+    const actor = new Actor(model, testPersona, mockExecutor as any);
+
+    const ctx = createTaskContext({ inputText: "What time?" });
+    ctx.reasoning = {
+      toolCalls: [{ id: "c1", name: "current_time", arguments: {} }],
+    };
+
+    const step = makePlanStep({
+      actionType: "tool_call",
+      actionParams: { toolCallId: "c1", toolName: "current_time", toolParams: {} },
+    });
+
+    const result = await actor.run(ctx, step);
+
+    expect(result.success).toBe(true);
+    expect(result.actionType).toBe("tool_call");
+    expect(result.result).toBe("2026-02-24T10:00:00Z");
+
+    // Check messages were pushed to context
+    expect(ctx.messages).toHaveLength(2);
+    expect(ctx.messages[0]!.role).toBe("assistant");
+    expect(ctx.messages[0]!.toolCalls).toHaveLength(1);
+    expect(ctx.messages[1]!.role).toBe("tool");
+    expect(ctx.messages[1]!.toolCallId).toBe("c1");
+  });
+
+  test("handles tool execution failure", async () => {
+    const model = createMockModel("");
+    const mockExecutor = {
+      execute: async () => ({
+        success: false,
+        error: "File not found",
+        startedAt: Date.now(),
+        completedAt: Date.now(),
+        durationMs: 5,
+      }),
+    };
+    const actor = new Actor(model, testPersona, mockExecutor as any);
+
+    const ctx = createTaskContext({ inputText: "Read missing file" });
+    ctx.reasoning = {
+      toolCalls: [{ id: "c1", name: "read_file", arguments: { path: "nope" } }],
+    };
+
+    const step = makePlanStep({
+      actionType: "tool_call",
+      actionParams: { toolCallId: "c1", toolName: "read_file", toolParams: { path: "nope" } },
+    });
+
+    const result = await actor.run(ctx, step);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe("File not found");
+
+    const toolMsg = ctx.messages.find((m) => m.role === "tool");
+    expect(toolMsg).toBeDefined();
+    expect(toolMsg!.content).toContain("Error: File not found");
+  });
+
+  test("respond action still works without toolExecutor", async () => {
+    const model = createMockModel("");
+    const actor = new Actor(model, testPersona);
+
+    const ctx = createTaskContext({ inputText: "Hello" });
+    ctx.reasoning = { response: "Hi there!" };
+
+    const step = makePlanStep({ actionType: "respond" });
+    const result = await actor.run(ctx, step);
+
+    expect(result.success).toBe(true);
+    expect(result.result).toBe("Hi there!");
   });
 });
 
@@ -453,5 +637,60 @@ describe("Reflector", () => {
     expect(reflection.verdict).toBe("complete");
     expect(reflection.assessment).toContain("all succeeded");
     expect(reflection.assessment).toContain("0 actions");
+  });
+
+  test("returns 'continue' when current plan has tool_call steps and all succeeded", async () => {
+    const model = createMockModel("");
+    const reflector = new Reflector(model, testPersona);
+
+    const ctx = createTaskContext({ inputText: "What time?" });
+    ctx.perception = { taskType: "conversation" };
+    ctx.plan = {
+      goal: "Execute tool calls",
+      reasoning: "1 tool call",
+      steps: [{ index: 0, description: "Call current_time", actionType: "tool_call", actionParams: {}, completed: true }],
+    };
+    ctx.actionsDone = [makeActionResult({ actionType: "tool_call", success: true })];
+
+    const reflection = await reflector.run(ctx);
+    expect(reflection.verdict).toBe("continue");
+  });
+
+  test("returns 'complete' on round 2 when plan has respond steps (no tool_calls)", async () => {
+    const model = createMockModel("");
+    const reflector = new Reflector(model, testPersona);
+
+    const ctx = createTaskContext({ inputText: "What time?" });
+    ctx.perception = { taskType: "conversation" };
+    ctx.plan = {
+      goal: "Respond",
+      reasoning: "deliver response",
+      steps: [{ index: 0, description: "Deliver response", actionType: "respond", actionParams: {}, completed: true }],
+    };
+    ctx.actionsDone = [
+      makeActionResult({ actionType: "tool_call", success: true }),
+      makeActionResult({ stepIndex: 1, actionType: "respond", success: true }),
+    ];
+    ctx.reflections = [{ verdict: "continue", assessment: "tool calls executed", lessons: [] }];
+
+    const reflection = await reflector.run(ctx);
+    expect(reflection.verdict).toBe("complete");
+  });
+
+  test("returns 'complete' when tool_call step failed", async () => {
+    const model = createMockModel("");
+    const reflector = new Reflector(model, testPersona);
+
+    const ctx = createTaskContext({ inputText: "Read file" });
+    ctx.perception = { taskType: "conversation" };
+    ctx.plan = {
+      goal: "Execute tool calls",
+      reasoning: "1 tool call",
+      steps: [{ index: 0, description: "Call read_file", actionType: "tool_call", actionParams: {}, completed: true }],
+    };
+    ctx.actionsDone = [makeActionResult({ actionType: "tool_call", success: false })];
+
+    const reflection = await reflector.run(ctx);
+    expect(reflection.verdict).toBe("complete");
   });
 });
