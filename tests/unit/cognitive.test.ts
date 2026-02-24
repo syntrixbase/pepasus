@@ -8,6 +8,9 @@ import { Thinker } from "@pegasus/cognitive/think.ts";
 import { Planner } from "@pegasus/cognitive/plan.ts";
 import { Actor } from "@pegasus/cognitive/act.ts";
 import { Reflector } from "@pegasus/cognitive/reflect.ts";
+import { ToolRegistry } from "@pegasus/tools/registry.ts";
+import { z } from "zod";
+import type { ToolCall } from "@pegasus/models/tool.ts";
 
 // ── Helpers ────────────────────────────────────────
 
@@ -31,6 +34,24 @@ function createMockModel(responseText: string): LanguageModel {
       };
     },
   };
+}
+
+function createToolCallMockModel(toolCalls: ToolCall[]): LanguageModel & { lastOptions?: unknown } {
+  const model: LanguageModel & { lastOptions?: unknown } = {
+    provider: "test",
+    modelId: "test-model",
+    lastOptions: undefined,
+    async generate(options) {
+      model.lastOptions = options;
+      return {
+        text: "",
+        finishReason: "tool_calls",
+        toolCalls,
+        usage: { promptTokens: 10, completionTokens: 5 },
+      };
+    },
+  };
+  return model;
 }
 
 function makeActionResult(overrides: Partial<ActionResult> = {}): ActionResult {
@@ -215,6 +236,39 @@ describe("Thinker", () => {
 
     expect(result.response).toBe("Multi-turn response");
   });
+
+  test("passes tools to LLM when toolRegistry is provided", async () => {
+    const toolCalls: ToolCall[] = [{ id: "c1", name: "current_time", arguments: {} }];
+    const model = createToolCallMockModel(toolCalls);
+
+    const registry = new ToolRegistry();
+    registry.register({
+      name: "current_time",
+      description: "Get current time",
+      category: "system" as any,
+      parameters: z.object({}),
+      execute: async () => ({ success: true, startedAt: Date.now(), result: "2026-02-24" }),
+    });
+
+    const thinker = new Thinker(model, testPersona, registry);
+    const ctx = createTaskContext({ inputText: "What time is it?" });
+    const reasoning = await thinker.run(ctx);
+
+    expect((model.lastOptions as any).tools).toHaveLength(1);
+    expect((model.lastOptions as any).tools[0].name).toBe("current_time");
+    expect(reasoning.toolCalls).toEqual(toolCalls);
+    expect(reasoning.approach).toBe("tool_use");
+  });
+
+  test("does not pass tools when no toolRegistry", async () => {
+    const model = createMockModel("plain response");
+    const thinker = new Thinker(model, testPersona);
+    const ctx = createTaskContext({ inputText: "Hello" });
+    const reasoning = await thinker.run(ctx);
+
+    expect(reasoning.toolCalls).toBeUndefined();
+    expect(reasoning.approach).toBe("direct");
+  });
 });
 
 // ── Planner ─────────────────────────────────────────
@@ -278,6 +332,52 @@ describe("Planner", () => {
 
     const plan = await planner.run(ctx);
 
+    expect(plan.steps[0]!.actionType).toBe("respond");
+  });
+
+  test("generates tool_call steps when reasoning has toolCalls", async () => {
+    const model = createMockModel("");
+    const planner = new Planner(model, testPersona);
+
+    const ctx = createTaskContext({ inputText: "What time is it?" });
+    ctx.perception = { taskType: "conversation" };
+    ctx.reasoning = {
+      response: "",
+      approach: "tool_use",
+      toolCalls: [
+        { id: "c1", name: "current_time", arguments: {} },
+        { id: "c2", name: "get_date", arguments: { format: "iso" } },
+      ],
+    };
+
+    const plan = await planner.run(ctx);
+
+    expect(plan.steps).toHaveLength(2);
+    expect(plan.steps[0]!.actionType).toBe("tool_call");
+    expect(plan.steps[0]!.actionParams).toEqual({
+      toolCallId: "c1",
+      toolName: "current_time",
+      toolParams: {},
+    });
+    expect(plan.steps[1]!.actionType).toBe("tool_call");
+    expect(plan.steps[1]!.actionParams).toEqual({
+      toolCallId: "c2",
+      toolName: "get_date",
+      toolParams: { format: "iso" },
+    });
+  });
+
+  test("generates respond step when reasoning has no toolCalls", async () => {
+    const model = createMockModel("");
+    const planner = new Planner(model, testPersona);
+
+    const ctx = createTaskContext({ inputText: "Hello" });
+    ctx.perception = { taskType: "conversation" };
+    ctx.reasoning = { response: "Hi", approach: "direct" };
+
+    const plan = await planner.run(ctx);
+
+    expect(plan.steps).toHaveLength(1);
     expect(plan.steps[0]!.actionType).toBe("respond");
   });
 });
