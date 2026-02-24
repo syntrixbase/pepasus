@@ -2,7 +2,7 @@
  * Tests for config-loader.ts
  */
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
-import { loadFromEnv, loadSettings } from "../../src/infra/config-loader.ts";
+import { loadSettings } from "../../src/infra/config-loader.ts";
 import { resetSettings } from "../../src/infra/config.ts";
 import { writeFileSync, mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
@@ -42,68 +42,59 @@ describe("config-loader", () => {
     resetSettings();
   });
 
-  describe("loadFromEnv", () => {
-    test("loads settings from environment variables", () => {
-      const env = {
-        LLM_PROVIDER: "anthropic",
-        LLM_MODEL: "claude-opus-4",
-        ANTHROPIC_API_KEY: "test-key",
-        ANTHROPIC_MODEL: "claude-sonnet-4",
-        MEMORY_DB_PATH: "test-memory.db",
-        AGENT_MAX_ACTIVE_TASKS: "10",
-        PEGASUS_LOG_LEVEL: "debug",
-      };
-
-      const settings = loadFromEnv(env);
-
-      expect(settings.llm.provider).toBe("anthropic");
-      expect(settings.llm.model).toBe("claude-opus-4");
-      expect(settings.llm.anthropic.apiKey).toBe("test-key");
-      expect(settings.llm.anthropic.model).toBe("claude-sonnet-4");
-      expect(settings.memory.dbPath).toBe("test-memory.db");
-      expect(settings.agent.maxActiveTasks).toBe(10);
-      expect(settings.logLevel).toBe("debug");
-    });
-
-    test("uses default values when env vars not set", () => {
-      const settings = loadFromEnv({});
+  describe("DEFAULT_CONFIG (no config file)", () => {
+    test("uses hardcoded defaults when no config file exists", () => {
+      const settings = loadSettings();
 
       expect(settings.llm.provider).toBe("openai");
       expect(settings.llm.model).toBe("gpt-4o-mini");
       expect(settings.llm.maxConcurrentCalls).toBe(3);
       expect(settings.llm.timeout).toBe(120);
       expect(settings.memory.dbPath).toBe("data/memory.db");
+      expect(settings.memory.vectorDbPath).toBe("data/vectors");
       expect(settings.agent.maxActiveTasks).toBe(5);
+      expect(settings.agent.maxConcurrentTools).toBe(3);
+      expect(settings.agent.maxCognitiveIterations).toBe(10);
+      expect(settings.agent.heartbeatInterval).toBe(60);
+      expect(settings.agent.taskTimeout).toBe(120);
+      expect(settings.identity.personaPath).toBe("data/personas/default.json");
+      expect(settings.logLevel).toBe("info");
+      expect(settings.dataDir).toBe("data");
+      expect(settings.logConsoleEnabled).toBe(false);
+      expect(settings.logFormat).toBe("json");
+      expect(settings.nodeEnv).toBe("development");
     });
 
-    test("supports LLM_API_KEY fallback", () => {
-      const env = {
-        LLM_API_KEY: "fallback-key",
-      };
+    test("defaults are overridden by config file values", () => {
+      const yamlContent = `
+llm:
+  provider: anthropic
+  model: claude-sonnet-4
+  maxConcurrentCalls: 10
+memory:
+  dbPath: custom/memory.db
+`;
+      writeFileSync("config.yml", yamlContent);
 
-      const settings = loadFromEnv(env);
-      expect(settings.llm.openai.apiKey).toBe("fallback-key");
+      const settings = loadSettings();
+
+      // Overridden by config file
+      expect(settings.llm.provider).toBe("anthropic");
+      expect(settings.llm.model).toBe("claude-sonnet-4");
+      expect(settings.llm.maxConcurrentCalls).toBe(10);
+      expect(settings.memory.dbPath).toBe("custom/memory.db");
+
+      // Retained from defaults
+      expect(settings.llm.timeout).toBe(120);
+      expect(settings.memory.vectorDbPath).toBe("data/vectors");
+      expect(settings.agent.maxActiveTasks).toBe(5);
+      expect(settings.logLevel).toBe("info");
     });
   });
 
   describe("loadSettings", () => {
-    test("loads from env vars when no config file exists", () => {
-      process.env.LLM_PROVIDER = "openai";
-      process.env.OPENAI_API_KEY = "env-key";
-      process.env.OPENAI_MODEL = "gpt-4o";
-
-      const settings = loadSettings();
-
-      expect(settings.llm.provider).toBe("openai");
-      expect(settings.llm.openai.apiKey).toBe("env-key");
-      expect(settings.llm.openai.model).toBe("gpt-4o");
-    });
-
     test("loads from config.yaml when no local config exists", () => {
       resetSettings();
-      delete process.env.LLM_PROVIDER;
-      delete process.env.OPENAI_MODEL;
-      delete process.env.OPENAI_API_KEY;
 
       const yamlContent = `
 llm:
@@ -123,7 +114,7 @@ llm:
       expect(settings.llm.openai.apiKey).toBe("yaml-key");
     });
 
-    test("env vars override merged config file values", () => {
+    test("config file values override defaults via deep merge", () => {
       const baseConfig = `
 llm:
   provider: openai
@@ -141,19 +132,17 @@ llm:
 
       writeFileSync("config.yaml", baseConfig);
       writeFileSync("config.local.yaml", localConfig);
-      process.env.LLM_PROVIDER = "anthropic";
-      process.env.ANTHROPIC_API_KEY = "env-override-key";
 
       const settings = loadSettings();
 
-      expect(settings.llm.provider).toBe("anthropic");
-      expect(settings.llm.anthropic.apiKey).toBe("env-override-key");
+      // local overrides base
+      expect(settings.llm.openai.model).toBe("gpt-4o");
+      // base value preserved
+      expect(settings.llm.openai.apiKey).toBe("config-key");
     });
 
-test("loads from config.local.yaml with env var interpolation", () => {
+    test("loads from config.local.yaml with env var interpolation", () => {
       resetSettings();
-      delete process.env.LLM_PROVIDER;
-      delete process.env.ANTHROPIC_MODEL;
 
       const yamlContent = `
 llm:
@@ -176,9 +165,6 @@ llm:
 
     test("config.local.yaml merges with and overrides config.yaml", () => {
       resetSettings();
-      delete process.env.LLM_PROVIDER;
-      delete process.env.ANTHROPIC_MODEL;
-      delete process.env.ANTHROPIC_API_KEY;
 
       // Base config
       const baseConfig = `
@@ -226,12 +212,6 @@ llm:
 
     test("deep merge preserves nested fields from both configs", () => {
       resetSettings();
-      delete process.env.LLM_PROVIDER;
-      delete process.env.OPENAI_API_KEY;
-      delete process.env.OPENAI_MODEL;
-      delete process.env.OPENAI_BASE_URL;
-      delete process.env.ANTHROPIC_API_KEY;
-      delete process.env.ANTHROPIC_MODEL;
 
       const baseConfig = `
 llm:
@@ -272,7 +252,6 @@ llm:
 
     test("handles ollama provider alias to openai-compatible", () => {
       resetSettings();
-      delete process.env.LLM_PROVIDER;
 
       const config = `
 llm:
@@ -294,7 +273,6 @@ llm:
 
     test("handles lmstudio provider alias to openai-compatible", () => {
       resetSettings();
-      delete process.env.LLM_PROVIDER;
 
       const config = `
 llm:
@@ -315,7 +293,6 @@ llm:
 
     test("handles missing ${ENV_VAR} by replacing with empty string", () => {
       // Clear any existing env vars that might interfere
-      delete process.env.OPENAI_API_KEY;
       delete process.env.MISSING_KEY;
 
       const config = `
@@ -380,9 +357,6 @@ llm:
     test("supports ${VAR:=default} syntax to assign default", () => {
       resetSettings();
       delete process.env.TEST_VAR;
-      delete process.env.OPENAI_API_KEY;
-      delete process.env.OPENAI_MODEL;
-      delete process.env.LLM_PROVIDER;
 
       const config = `
 llm:
@@ -406,10 +380,6 @@ llm:
     test("supports ${VAR:?error} syntax to throw error when missing", () => {
       resetSettings();
       delete process.env.REQUIRED_KEY;
-      delete process.env.OPENAI_API_KEY;
-      delete process.env.OPENAI_MODEL;
-      delete process.env.OPENAI_BASE_URL;
-      delete process.env.LLM_PROVIDER;
 
       const config = `
 llm:
@@ -428,8 +398,6 @@ llm:
     test("${VAR:?error} does not throw when var is set", () => {
       resetSettings();
       process.env.REQUIRED_KEY = "valid-key";
-      delete process.env.OPENAI_API_KEY;
-      delete process.env.LLM_PROVIDER;
 
       const config = `
 llm:
@@ -450,8 +418,6 @@ llm:
     test("supports ${VAR:+alternate} syntax to use alternate when set", () => {
       resetSettings();
       process.env.USE_PROXY = "yes";
-      delete process.env.OPENAI_BASE_URL;
-      delete process.env.LLM_PROVIDER;
 
       const config = `
 llm:
@@ -472,8 +438,6 @@ llm:
     test("${VAR:+alternate} returns empty when var is unset", () => {
       resetSettings();
       delete process.env.USE_PROXY;
-      delete process.env.OPENAI_BASE_URL;
-      delete process.env.LLM_PROVIDER;
 
       const config = `
 llm:
@@ -494,7 +458,6 @@ llm:
 
     test("loads all config sections from yaml file", () => {
       resetSettings();
-      delete process.env.PEGASUS_LOG_LEVEL; // Remove env override
 
       const config = `
 llm:
@@ -517,6 +480,7 @@ identity:
 system:
   logLevel: warn
   dataDir: custom-data
+  logFormat: pretty
 `;
 
       writeFileSync("config.yaml", config);
@@ -534,6 +498,7 @@ system:
       expect(settings.identity.personaPath).toBe("custom/persona.json");
       expect(settings.logLevel).toBe("warn");
       expect(settings.dataDir).toBe("custom-data");
+      expect(settings.logFormat).toBe("pretty");
     });
 
     test("throws error when both config.yaml and config.yml exist", () => {
@@ -553,9 +518,6 @@ system:
 
     test("loads config.yml when config.yaml does not exist", () => {
       resetSettings();
-      delete process.env.LLM_PROVIDER;
-      delete process.env.OPENAI_API_KEY;
-      delete process.env.OPENAI_MODEL;
 
       const yamlContent = `
 llm:
@@ -577,9 +539,6 @@ llm:
 
     test("loads config.local.yml when config.local.yaml does not exist", () => {
       resetSettings();
-      delete process.env.LLM_PROVIDER;
-      delete process.env.ANTHROPIC_API_KEY;
-      delete process.env.ANTHROPIC_MODEL;
 
       writeFileSync("config.yaml", "llm:\n  provider: openai\n");
 
@@ -599,6 +558,49 @@ llm:
       expect(settings.llm.provider).toBe("anthropic");
       expect(settings.llm.anthropic.model).toBe("claude-sonnet-4");
       expect(settings.llm.anthropic.apiKey).toBe("local-yml-key");
+    });
+
+    test("handles string 'false' from YAML env var interpolation for logConsoleEnabled", () => {
+      resetSettings();
+      delete process.env.PEGASUS_LOG_CONSOLE_ENABLED;
+      delete process.env.PEGASUS_LOG_FORMAT;
+
+      const config = `
+llm:
+  provider: openai
+system:
+  logConsoleEnabled: \${PEGASUS_LOG_CONSOLE_ENABLED:-false}
+  logFormat: \${PEGASUS_LOG_FORMAT:-json}
+`;
+
+      writeFileSync("config.yaml", config);
+
+      const settings = loadSettings();
+
+      // "false" string from env var interpolation should be coerced to boolean false
+      expect(settings.logConsoleEnabled).toBe(false);
+      expect(settings.logFormat).toBe("json");
+    });
+
+    test("handles string 'true' from YAML env var interpolation for logConsoleEnabled", () => {
+      resetSettings();
+      process.env.PEGASUS_LOG_CONSOLE_ENABLED = "true";
+      delete process.env.PEGASUS_LOG_FORMAT;
+
+      const config = `
+llm:
+  provider: openai
+system:
+  logConsoleEnabled: \${PEGASUS_LOG_CONSOLE_ENABLED:-false}
+  logFormat: \${PEGASUS_LOG_FORMAT:-pretty}
+`;
+
+      writeFileSync("config.yaml", config);
+
+      const settings = loadSettings();
+
+      expect(settings.logConsoleEnabled).toBe(true);
+      expect(settings.logFormat).toBe("pretty");
     });
   });
 });

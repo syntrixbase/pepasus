@@ -1,9 +1,9 @@
 /**
  * Structured logger — thin pino wrapper with file output support.
  *
- * Log format: JSON with human-readable `level` (label) and `time` (ISO 8601).
- * This applies to ALL outputs (file, console, any transport) so logs are
- * always grep-friendly and human-scannable without extra tooling.
+ * Two independent configuration axes:
+ *   - **Destination** (where): file (always) + console (optional via `logConsoleEnabled`)
+ *   - **Format** (how): `json` or `pretty` (global, via `logFormat`)
  */
 import pino from "pino";
 import type { TransportSingleOptions, TransportMultiOptions } from "pino";
@@ -13,6 +13,8 @@ import { dirname, join, basename } from "path";
 // Bootstrap phase: read log level from env before config is available.
 // Will be overridden when reinitLogger() is called with loaded config.
 const level = process.env["PEGASUS_LOG_LEVEL"] ?? "info";
+
+export type LogFormat = "json" | "pretty";
 
 /**
  * Shared pino options for human-readable level and timestamp.
@@ -84,34 +86,38 @@ function cleanupOldLogs(logFile: string, retentionDays = 30): void {
         unlinkSync(filePath);
       }
     }
-  } catch (err) {
+  } catch (_err) {
     // Silently ignore cleanup errors to avoid affecting application startup
     // The logger itself may not be ready yet
   }
 }
 
 /**
- * Resolve transports based on environment and configuration.
- * File logging is always enabled. Console output is optional.
+ * Resolve transports based on configuration.
+ *
+ * Two independent axes:
+ *   - **Destination**: file (always) + console (optional via `logConsoleEnabled`)
+ *   - **Format**: `json` or `pretty` (global, applies to all destinations)
  *
  * Returns the transport config and whether it's multi-target.
  */
 export function resolveTransports(
-  nodeEnv: string | undefined,
   logFile: string,
   logConsoleEnabled?: boolean,
+  logFormat?: LogFormat,
 ): { transport: TransportSingleOptions | TransportMultiOptions; isMultiTarget: boolean } {
+  const format: LogFormat = logFormat ?? "json";
   const transports: TransportSingleOptions[] = [];
 
   // Console transport (only if explicitly enabled)
   if (logConsoleEnabled) {
-    if (nodeEnv !== "production") {
+    if (format === "pretty") {
       transports.push({
         target: "pino-pretty",
         options: { colorize: true },
       });
     } else {
-      // Production: JSON format to stdout
+      // JSON format to stdout
       transports.push({
         target: "pino/file",
         options: { destination: 1 }, // stdout
@@ -164,11 +170,12 @@ function initRootLogger(): pino.Logger {
   const dataDir = process.env["PEGASUS_DATA_DIR"] || "data";
   const logFile = join(dataDir, "logs/pegasus.log");
   const logConsoleEnabled = process.env["PEGASUS_LOG_CONSOLE_ENABLED"] === "true";
+  const logFormat = (process.env["PEGASUS_LOG_FORMAT"] as LogFormat) || "json";
 
   const { transport, isMultiTarget } = resolveTransports(
-    process.env["NODE_ENV"],
     logFile,
     logConsoleEnabled,
+    logFormat,
   );
   return pino(createLoggerOptions(transport, isMultiTarget));
 }
@@ -186,11 +193,15 @@ export function getLogger(name: string): pino.Logger {
  * Reinitialize logger with loaded configuration (called by config.ts after settings are ready).
  * All parameters come from config — no direct env var reads.
  */
-export function reinitLogger(logFile: string, logConsoleEnabled?: boolean, nodeEnv?: string): void {
+export function reinitLogger(
+  logFile: string,
+  logConsoleEnabled?: boolean,
+  logFormat?: LogFormat,
+): void {
   const { transport, isMultiTarget } = resolveTransports(
-    nodeEnv,
     logFile,
     logConsoleEnabled,
+    logFormat,
   );
   const newLogger = pino(createLoggerOptions(transport, isMultiTarget));
 

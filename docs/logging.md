@@ -9,15 +9,18 @@ Pegasus has a built-in logging system with automatic file output, log rotation, 
 ### 1. Automatic File Logging
 
 - **Always Enabled**: Logs are always written to `{dataDir}/logs/pegasus.log`
-- **JSON Format**: File logs use JSON format for easy parsing
 - **Cannot be Disabled**: File logging is a core feature and always active
 
 ### 2. Optional Console Output
 
 - **Disabled by Default**: Console output must be explicitly enabled
-- **Development**: Colorized format (pino-pretty)
-- **Production**: JSON format to stdout
 - **Use Case**: Primarily for debugging and development
+
+### 3. Configurable Log Format
+
+- **JSON** (default): Structured JSON lines, machine-parseable
+- **Pretty**: Colorized human-readable format (via pino-pretty)
+- **Global Setting**: Applies to both file and console outputs
 
 ### 3. Automatic Log Rotation
 
@@ -53,19 +56,21 @@ system:
   logLevel: info
   dataDir: data
   logConsoleEnabled: true   # Enable console output
+  logFormat: pretty         # Use human-readable format
 ```
 
 **Method 2: Environment Variable**
 
 ```bash
 export PEGASUS_LOG_CONSOLE_ENABLED=true
+export PEGASUS_LOG_FORMAT=pretty
 bun run dev
 ```
 
 **Method 3: Temporary Enable**
 
 ```bash
-PEGASUS_LOG_CONSOLE_ENABLED=true bun run dev
+PEGASUS_LOG_CONSOLE_ENABLED=true PEGASUS_LOG_FORMAT=pretty bun run dev
 ```
 
 ### View Logs
@@ -110,8 +115,12 @@ system:
   # Data directory (logs saved to {dataDir}/logs/pegasus.log)
   dataDir: data
 
-  # Enable console logging (default: false)
+  # Log output destination: enable console logging (default: false)
   logConsoleEnabled: false
+
+  # Log output format: json | pretty (default: json)
+  # Applies to both file and console outputs
+  logFormat: json
 ```
 
 ### Environment Variables
@@ -120,11 +129,14 @@ system:
 |----------|-------------|---------|
 | `PEGASUS_LOG_LEVEL` | Log level | `info` |
 | `PEGASUS_DATA_DIR` | Data directory | `data` |
-| `PEGASUS_LOG_CONSOLE_ENABLED` | Enable console logging | `false` |
+| `PEGASUS_LOG_CONSOLE_ENABLED` | Enable console logging (destination) | `false` |
+| `PEGASUS_LOG_FORMAT` | Log output format: `json` or `pretty` | `json` |
 
 **Note**:
 - Log file path is always `{PEGASUS_DATA_DIR}/logs/pegasus.log`
 - File logging cannot be disabled
+- `logConsoleEnabled` controls **where** logs go (destination)
+- `logFormat` controls **how** logs are formatted (format)
 
 ## Use Cases
 
@@ -145,6 +157,7 @@ system:
   logLevel: debug
   dataDir: data
   logConsoleEnabled: true  # Also output to console for debugging
+  logFormat: pretty        # Human-readable colorized output
 ```
 
 ### Scenario 3: Production
@@ -154,6 +167,7 @@ system:
   logLevel: info
   dataDir: /var/lib/pegasus
   logConsoleEnabled: false  # No console output in production
+  logFormat: json           # Structured JSON for log aggregation
   # Logs written to /var/lib/pegasus/logs/pegasus.log
 ```
 
@@ -168,48 +182,36 @@ system:
 
 ## Log Format
 
-### Console Output (When Enabled)
+The `logFormat` setting controls how logs are formatted across **all** outputs (file and console).
 
-**Development**:
-```
-[13:45:23.456] INFO (123): loading_base_config
-    module: "config_loader"
-    path: "config.yml"
-```
+### JSON Format (`logFormat: json`, default)
 
-**Production**:
-```json
-{"level":30,"time":1707734723456,"pid":123,"module":"config_loader","msg":"loading_base_config"}
-```
-
-**Note**: Console output is disabled by default. Set `logConsoleEnabled: true` to enable.
-
-### File Output (Always Enabled)
-
-File logs use JSON format for easy parsing by log aggregation systems:
+Structured JSON lines, ideal for machine parsing and log aggregation:
 
 ```json
-{
-  "level": 30,
-  "time": 1707734723456,
-  "pid": 123,
-  "hostname": "localhost",
-  "module": "config_loader",
-  "msg": "loading_base_config",
-  "path": "config.yml"
-}
+{"level":"info","time":"2026-02-24T10:00:00.000Z","module":"config_loader","msg":"loading_base_config","path":"config.yml"}
 ```
 
 **Field Explanations:**
-- `level`: Log level as number (10=trace, 20=debug, 30=info, 40=warn, 50=error, 60=fatal)
-- `time`: Unix timestamp in milliseconds (e.g., `1707734723456` = 2024-02-12 13:45:23.456 UTC)
-- `pid`: Process ID
+- `level`: Log level as string label (info, warn, error, etc.)
+- `time`: ISO 8601 timestamp
 - `module`: Logger namespace
 - `msg`: Log message
 - Additional fields: Custom data attached to the log entry
 
-**Human-Readable Viewing:**
-Use `bun logs` or `pino-pretty` to convert to readable format:
+### Pretty Format (`logFormat: pretty`)
+
+Colorized human-readable format (via pino-pretty), ideal for development:
+
+```
+[13:45:23.456] INFO (config_loader): loading_base_config
+    path: "config.yml"
+```
+
+### Viewing JSON Logs in Human-Readable Format
+
+When using `logFormat: json` (default), use `pino-pretty` to view logs:
+
 ```bash
 $ bun logs
 [2024-02-12 13:45:23.456] INFO (123): loading_base_config
@@ -321,6 +323,22 @@ If concerned about logging performance:
    - Leverage structured JSON format for queries
 
 ## Design Rationale
+
+### Why Separate Destination and Format?
+
+Log configuration has two independent concerns:
+
+1. **Destination** (`logConsoleEnabled`): Controls **where** logs are sent (file always + console optionally)
+2. **Format** (`logFormat`): Controls **how** logs look (JSON or pretty)
+
+Separating them gives full flexibility:
+
+| Destination | Format | Use Case |
+|------------|--------|----------|
+| File only | JSON | Production default |
+| File + Console | Pretty | Local development |
+| File + Console | JSON | Production with stdout collector |
+| File only | Pretty | Quick debugging (tail log file) |
 
 ### Why Always-On File Logging?
 

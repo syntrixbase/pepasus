@@ -1,13 +1,15 @@
 /**
  * ConfigLoader — Load configuration from YAML files with env var support.
  *
- * Features:
- * - Load from config.yaml (base) + config.local.yaml (override)
- * - config.local.yaml overrides config.yaml settings
- * - Support ${ENV_VAR} interpolation in strings
- * - Environment variables override all file configs
- * - Fallback to env-only mode if no config file found
- * - Custom config path via PEGASUS_CONFIG env var
+ * Loading flow:
+ * 1. Hardcoded defaults (DEFAULT_CONFIG)
+ * 2. config.yml deep-merge override (with ${ENV_VAR} interpolation)
+ * 3. config.local.yml deep-merge override (with ${ENV_VAR} interpolation)
+ * 4. Zod schema validation
+ *
+ * No hardcoded env var names — env var names are user-defined in config YAML
+ * via ${VAR:-default} interpolation syntax. The only exception is PEGASUS_CONFIG
+ * (custom config path).
  */
 import { existsSync, readFileSync } from "fs";
 import yaml from "js-yaml";
@@ -16,6 +18,47 @@ import { getLogger } from "./logger.ts";
 import { SettingsSchema, type Settings } from "./config-schema.ts";
 
 const logger = getLogger("config_loader");
+
+/**
+ * Hardcoded default configuration.
+ * Matches the structure of config.yml with safe default values.
+ * These are used when no config file is present.
+ */
+const DEFAULT_CONFIG = {
+  llm: {
+    provider: "openai",
+    model: "gpt-4o-mini",
+    providers: {},
+    maxConcurrentCalls: 3,
+    timeout: 120,
+  },
+  memory: {
+    dbPath: "data/memory.db",
+    vectorDbPath: "data/vectors",
+  },
+  agent: {
+    maxActiveTasks: 5,
+    maxConcurrentTools: 3,
+    maxCognitiveIterations: 10,
+    heartbeatInterval: 60,
+    taskTimeout: 120,
+  },
+  identity: {
+    personaPath: "data/personas/default.json",
+  },
+  tools: {
+    timeout: 30,
+    allowedPaths: [],
+    mcpServers: [],
+  },
+  system: {
+    logLevel: "info",
+    dataDir: "data",
+    logConsoleEnabled: false,
+    logFormat: "json",
+    nodeEnv: "development",
+  },
+};
 
 /**
  * Interpolate ${VAR_NAME} placeholders with environment variables.
@@ -184,129 +227,71 @@ function findAndMergeConfigs(): any {
 }
 
 /**
- * Convert config file to Settings format, with env var overrides.
+ * Convert merged config (YAML shape) to Settings (flat shape).
+ *
+ * Pure structure mapping — zero env var reads.
+ * All env var resolution happens during YAML interpolation.
  */
-function configToSettings(config: any, env = process.env): Settings {
+function configToSettings(config: any): Settings {
   const llm = config.llm || {};
   const providers = llm.providers || {};
 
-  // Determine active provider
-  const activeProvider = env["LLM_PROVIDER"] || llm.provider || "openai";
-
-  // Map provider aliases
-  let mappedProvider: "openai" | "anthropic" | "openai-compatible";
-  if (activeProvider === "ollama" || activeProvider === "lmstudio") {
-    mappedProvider = "openai-compatible";
-  } else {
-    mappedProvider = activeProvider as any;
+  // Determine active provider with alias mapping
+  let provider = llm.provider || "openai";
+  if (provider === "ollama" || provider === "lmstudio") {
+    provider = "openai-compatible";
   }
 
+  const activeProviderConfig = providers[llm.provider] || {};
+
   return SettingsSchema.parse({
     llm: {
-      provider: mappedProvider,
-      model: env["LLM_MODEL"] || llm.model,
-      openai: {
-        apiKey: env["OPENAI_API_KEY"] || providers.openai?.apiKey || env["LLM_API_KEY"],
-        baseURL: env["OPENAI_BASE_URL"] || providers.openai?.baseURL,
-        model: env["OPENAI_MODEL"] || providers.openai?.model,
-      },
-      anthropic: {
-        apiKey: env["ANTHROPIC_API_KEY"] || providers.anthropic?.apiKey || env["LLM_API_KEY"],
-        baseURL: env["ANTHROPIC_BASE_URL"] || providers.anthropic?.baseURL,
-        model: env["ANTHROPIC_MODEL"] || providers.anthropic?.model,
-      },
-      baseURL: env["LLM_BASE_URL"] || llm.baseURL || providers[activeProvider]?.baseURL,
-      maxConcurrentCalls: Number(env["LLM_MAX_CONCURRENT_CALLS"]) || llm.maxConcurrentCalls,
-      timeout: Number(env["LLM_TIMEOUT"]) || llm.timeout,
+      provider,
+      model: llm.model,
+      openai: providers.openai,
+      anthropic: providers.anthropic,
+      baseURL: llm.baseURL || activeProviderConfig.baseURL,
+      maxConcurrentCalls: llm.maxConcurrentCalls,
+      timeout: llm.timeout,
     },
-    memory: {
-      dbPath: env["MEMORY_DB_PATH"] || config.memory?.dbPath,
-      vectorDbPath: env["MEMORY_VECTOR_DB_PATH"] || config.memory?.vectorDbPath,
-    },
-    agent: {
-      maxActiveTasks: Number(env["AGENT_MAX_ACTIVE_TASKS"]) || config.agent?.maxActiveTasks,
-      maxConcurrentTools: Number(env["AGENT_MAX_CONCURRENT_TOOLS"]) || config.agent?.maxConcurrentTools,
-      maxCognitiveIterations: Number(env["AGENT_MAX_COGNITIVE_ITERATIONS"]) || config.agent?.maxCognitiveIterations,
-      heartbeatInterval: Number(env["AGENT_HEARTBEAT_INTERVAL"]) || config.agent?.heartbeatInterval,
-      taskTimeout: Number(env["AGENT_TASK_TIMEOUT"]) || config.agent?.taskTimeout,
-    },
-    identity: {
-      personaPath: env["IDENTITY_PERSONA_PATH"] || config.identity?.personaPath,
-    },
-    logLevel: env["PEGASUS_LOG_LEVEL"] || config.system?.logLevel,
-    dataDir: env["PEGASUS_DATA_DIR"] || config.system?.dataDir,
-    logConsoleEnabled: env["PEGASUS_LOG_CONSOLE_ENABLED"] === "true" || config.system?.logConsoleEnabled,
-    nodeEnv: env["NODE_ENV"] || config.system?.nodeEnv,
+    memory: config.memory,
+    agent: config.agent,
+    identity: config.identity,
+    tools: config.tools,
+    logLevel: config.system?.logLevel,
+    dataDir: config.system?.dataDir,
+    logConsoleEnabled: config.system?.logConsoleEnabled,
+    logFormat: config.system?.logFormat,
+    nodeEnv: config.system?.nodeEnv,
   });
 }
 
 /**
- * Load from env vars only (fallback when no config file).
- */
-export function loadFromEnv(env = process.env): Settings {
-  return SettingsSchema.parse({
-    llm: {
-      provider: env["LLM_PROVIDER"],
-      model: env["LLM_MODEL"],
-      openai: {
-        apiKey: env["OPENAI_API_KEY"] || env["LLM_API_KEY"],
-        baseURL: env["OPENAI_BASE_URL"],
-        model: env["OPENAI_MODEL"],
-      },
-      anthropic: {
-        apiKey: env["ANTHROPIC_API_KEY"] || env["LLM_API_KEY"],
-        baseURL: env["ANTHROPIC_BASE_URL"],
-        model: env["ANTHROPIC_MODEL"],
-      },
-      baseURL: env["LLM_BASE_URL"],
-      maxConcurrentCalls: env["LLM_MAX_CONCURRENT_CALLS"],
-      timeout: env["LLM_TIMEOUT"],
-    },
-    memory: {
-      dbPath: env["MEMORY_DB_PATH"],
-      vectorDbPath: env["MEMORY_VECTOR_DB_PATH"],
-    },
-    agent: {
-      maxActiveTasks: env["AGENT_MAX_ACTIVE_TASKS"],
-      maxConcurrentTools: env["AGENT_MAX_CONCURRENT_TOOLS"],
-      maxCognitiveIterations: env["AGENT_MAX_COGNITIVE_ITERATIONS"],
-      heartbeatInterval: env["AGENT_HEARTBEAT_INTERVAL"],
-      taskTimeout: env["AGENT_TASK_TIMEOUT"],
-    },
-    identity: {
-      personaPath: env["IDENTITY_PERSONA_PATH"],
-    },
-    logLevel: env["PEGASUS_LOG_LEVEL"],
-    dataDir: env["PEGASUS_DATA_DIR"],
-    logConsoleEnabled: env["PEGASUS_LOG_CONSOLE_ENABLED"] === "true",
-    nodeEnv: env["NODE_ENV"],
-  });
-}
-
-/**
- * Load settings from config file or env vars.
+ * Load settings from config files with hardcoded defaults fallback.
  *
- * Priority:
- * 1. Environment variables (highest)
- * 2. config.local.yml/yaml (overrides base config)
- * 3. config.yml/yaml (base config)
- * 4. Schema defaults
+ * Loading flow:
+ * 1. Start with hardcoded defaults (DEFAULT_CONFIG)
+ * 2. Deep-merge config files (with env var interpolation)
+ * 3. Map to Settings shape and validate via Zod
  */
 export function loadSettings(): Settings {
-  try {
-    const mergedConfig = findAndMergeConfigs();
+  // 1. Start with hardcoded defaults
+  let config = structuredClone(DEFAULT_CONFIG) as any;
 
-    if (mergedConfig) {
-      return configToSettings(mergedConfig);
+  try {
+    // 2. Merge config files (with env var interpolation)
+    const fileConfig = findAndMergeConfigs();
+    if (fileConfig) {
+      config = deepMerge(config, fileConfig);
     }
   } catch (err) {
     // Re-throw ConfigError for conflicts and required env vars
     if (err instanceof ConfigError) {
       throw err;
     }
-    logger.warn({ error: err }, "config_file_load_failed_fallback_to_env");
+    logger.warn({ error: err }, "config_file_load_failed_using_defaults");
   }
 
-  logger.info("loading_config_from_env");
-  return loadFromEnv();
+  // 3. Map to Settings and validate
+  return configToSettings(config);
 }

@@ -47,9 +47,28 @@ export const IdentityConfigSchema = z.object({
   personaPath: z.string().default("data/personas/default.json"),
 });
 
+/**
+ * Preprocess stringified arrays from env var interpolation.
+ * YAML ${VAR:-[]} produces string "[]" instead of an actual array.
+ * This preprocessor parses JSON-like string arrays back to real arrays.
+ */
+function coerceStringArray(val: unknown): unknown {
+  if (typeof val === "string") {
+    const trimmed = val.trim();
+    if (trimmed === "[]" || trimmed === "") return [];
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) return parsed;
+    } catch {
+      // Not valid JSON, return as-is for Zod to validate
+    }
+  }
+  return val;
+}
+
 export const ToolsConfigSchema = z.object({
   timeout: z.coerce.number().int().positive().default(30), // seconds, tool execution timeout
-  allowedPaths: z.array(z.string()).default([]),
+  allowedPaths: z.preprocess(coerceStringArray, z.array(z.string()).default([])),
   webSearch: z
     .object({
       provider: z
@@ -59,16 +78,29 @@ export const ToolsConfigSchema = z.object({
       maxResults: z.coerce.number().int().positive().default(10),
     })
     .optional(),
-  mcpServers: z
-    .array(
+  mcpServers: z.preprocess(
+    coerceStringArray,
+    z.array(
       z.object({
         name: z.string(),
         url: z.string().url(),
         enabled: z.boolean().default(true),
       })
-    )
-    .default([]),
+    ).default([]),
+  ),
 });
+
+/**
+ * Preprocess string-to-boolean for values that may arrive as strings
+ * from YAML env var interpolation (e.g., ${VAR:-false} → "false").
+ */
+const coerceBool = z.preprocess(
+  (val) => {
+    if (typeof val === "string") return val === "true";
+    return val;
+  },
+  z.boolean().default(false),
+);
 
 export const SettingsSchema = z.object({
   llm: LLMConfigSchema.default({}),
@@ -78,8 +110,10 @@ export const SettingsSchema = z.object({
   tools: ToolsConfigSchema.default({}),
   logLevel: z.string().default("info"),
   dataDir: z.string().default("data"),
-  // Log output configuration
-  logConsoleEnabled: z.boolean().default(false), // Enable console logging (default: false)
+  // Log output destination
+  logConsoleEnabled: coerceBool, // Enable console logging (default: false)
+  // Log output format (applies to both file and console)
+  logFormat: z.enum(["json", "pretty"]).default("json"),
   nodeEnv: z.string().default("development"), // NODE_ENV: development | production | test
 });
 
