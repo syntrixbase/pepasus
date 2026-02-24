@@ -325,6 +325,25 @@ describe("TaskFSM", () => {
     expect(fsm.state).toBe(TaskState.ACTING);
   });
 
+  test("ACTING + STEP_COMPLETED → ACTING when plan has more steps", () => {
+    const fsm = new TaskFSM();
+    fsm.context.plan = makePlan(2);
+    fsm.state = TaskState.ACTING;
+
+    fsm.transition(makeEvent(EventType.STEP_COMPLETED));
+    expect(fsm.state).toBe(TaskState.ACTING);
+  });
+
+  test("ACTING + STEP_COMPLETED → REFLECTING when all steps completed", () => {
+    const fsm = new TaskFSM();
+    fsm.context.plan = makePlan(1);
+    markStepDone(fsm.context.plan, 0);
+    fsm.state = TaskState.ACTING;
+
+    fsm.transition(makeEvent(EventType.STEP_COMPLETED));
+    expect(fsm.state as TaskState).toBe(TaskState.REFLECTING);
+  });
+
   test("REFLECTING + REFLECT_DONE verdict=continue → THINKING", () => {
     const fsm = new TaskFSM();
     fsm.state = TaskState.REFLECTING;

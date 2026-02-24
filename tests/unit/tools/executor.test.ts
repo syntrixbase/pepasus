@@ -40,7 +40,8 @@ describe("ToolExecutor", () => {
 
     expect(result.success).toBe(true);
     expect(result.result).toEqual({ test: "result" });
-    expect(events).toHaveLength(2); // REQUESTED + COMPLETED
+    // execute() only emits TOOL_CALL_REQUESTED; COMPLETED is emitted via emitCompletion()
+    expect(events).toHaveLength(1); // REQUESTED only
   });
 
   it("should handle tool not found", async () => {
@@ -61,7 +62,8 @@ describe("ToolExecutor", () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toContain("not found");
-    expect(events).toHaveLength(2); // REQUESTED + FAILED
+    // execute() only emits TOOL_CALL_REQUESTED; FAILED is emitted via emitCompletion()
+    expect(events).toHaveLength(1); // REQUESTED only
   });
 
   it("should handle tool timeout", async () => {
@@ -98,7 +100,8 @@ describe("ToolExecutor", () => {
     expect(result.error).toContain("timed out");
     expect(result.durationMs).toBeGreaterThanOrEqual(100);
     expect(result.durationMs).toBeLessThan(500); // Should timeout quickly
-    expect(events).toHaveLength(2); // REQUESTED + FAILED
+    // execute() only emits TOOL_CALL_REQUESTED; FAILED is emitted via emitCompletion()
+    expect(events).toHaveLength(1); // REQUESTED only
   });
 
   it("should update call statistics on success", async () => {
@@ -169,5 +172,51 @@ describe("ToolExecutor", () => {
 
     expect(statsUpdates).toHaveLength(1);
     expect(statsUpdates[0]).toEqual({ name: "failing_tool", duration: expect.any(Number), success: false });
+  });
+
+  it("emitCompletion emits TOOL_CALL_COMPLETED for success", () => {
+    const events: unknown[] = [];
+    const mockBus = {
+      emit: (event: unknown) => events.push(event),
+    };
+    const registry = {
+      get: mock(() => undefined),
+      updateCallStats: mock(() => {}),
+    };
+
+    const executor = new ToolExecutor(registry, mockBus, 10000);
+    executor.emitCompletion(
+      "test_tool",
+      { success: true, result: { data: 1 }, startedAt: 0, completedAt: 10, durationMs: 10 },
+      { taskId: "task-1" },
+    );
+
+    expect(events).toHaveLength(1);
+    const event = events[0] as { type: number; payload: Record<string, unknown> };
+    expect(event.type).toBe(410); // TOOL_CALL_COMPLETED
+    expect(event.payload).toMatchObject({ toolName: "test_tool", result: { data: 1 } });
+  });
+
+  it("emitCompletion emits TOOL_CALL_FAILED for failure", () => {
+    const events: unknown[] = [];
+    const mockBus = {
+      emit: (event: unknown) => events.push(event),
+    };
+    const registry = {
+      get: mock(() => undefined),
+      updateCallStats: mock(() => {}),
+    };
+
+    const executor = new ToolExecutor(registry, mockBus, 10000);
+    executor.emitCompletion(
+      "test_tool",
+      { success: false, error: "boom", startedAt: 0, completedAt: 10, durationMs: 10 },
+      { taskId: "task-1" },
+    );
+
+    expect(events).toHaveLength(1);
+    const event = events[0] as { type: number; payload: Record<string, unknown> };
+    expect(event.type).toBe(420); // TOOL_CALL_FAILED
+    expect(event.payload).toMatchObject({ toolName: "test_tool", error: "boom" });
   });
 });

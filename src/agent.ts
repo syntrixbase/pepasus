@@ -23,12 +23,29 @@ import type { Persona } from "./identity/persona.ts";
 import { TaskFSM } from "./task/fsm.ts";
 import { TaskRegistry } from "./task/registry.ts";
 import { TaskState } from "./task/states.ts";
-import { currentStep, hasMoreSteps, markStepDone } from "./task/context.ts";
+import { currentStep, markStepDone } from "./task/context.ts";
+import type { TaskContext } from "./task/context.ts";
 import { ToolRegistry } from "./tools/registry.ts";
 import { ToolExecutor } from "./tools/executor.ts";
+import type { ToolResult } from "./tools/types.ts";
 import { allBuiltInTools } from "./tools/builtins/index.ts";
 
 const logger = getLogger("agent");
+
+/** Push a tool result message into context.messages. */
+function context_pushToolResult(
+  context: TaskContext,
+  toolCallId: string,
+  toolResult: ToolResult,
+): void {
+  context.messages.push({
+    role: "tool",
+    content: toolResult.success
+      ? JSON.stringify(toolResult.result)
+      : `Error: ${toolResult.error}`,
+    toolCallId,
+  });
+}
 
 // ── Async Semaphore ──────────────────────────────────
 
@@ -88,6 +105,9 @@ export class Agent {
   private actor: Actor;
   private reflector: Reflector;
 
+  // Tool infrastructure
+  private toolExecutor: ToolExecutor;
+
   // Concurrency control
   private llmSemaphore: Semaphore;
   private toolSemaphore: Semaphore;
@@ -113,12 +133,13 @@ export class Agent {
       this.eventBus,
       (this.settings.tools?.timeout ?? 30) * 1000,
     );
+    this.toolExecutor = toolExecutor;
 
     // Initialize cognitive processors with model + persona
     this.perceiver = new Perceiver(deps.model, deps.persona);
     this.thinker = new Thinker(deps.model, deps.persona, toolRegistry);
     this.planner = new Planner(deps.model, deps.persona);
-    this.actor = new Actor(deps.model, deps.persona, toolExecutor);
+    this.actor = new Actor(deps.model, deps.persona);
     this.reflector = new Reflector(deps.model, deps.persona);
   }
 
@@ -179,6 +200,7 @@ export class Agent {
     bus.subscribe(EventType.THINK_DONE, this._onTaskEvent);
     bus.subscribe(EventType.PLAN_DONE, this._onTaskEvent);
     bus.subscribe(EventType.ACT_DONE, this._onTaskEvent);
+    bus.subscribe(EventType.STEP_COMPLETED, this._onTaskEvent);
     bus.subscribe(EventType.TOOL_CALL_COMPLETED, this._onTaskEvent);
     bus.subscribe(EventType.TOOL_CALL_FAILED, this._onTaskEvent);
     bus.subscribe(EventType.REFLECT_DONE, this._onTaskEvent);
@@ -354,26 +376,7 @@ export class Agent {
 
     const step = currentStep(task.context.plan);
     if (!step) {
-      await this.eventBus.emit(
-        createEvent(EventType.ACT_DONE, {
-          source: "cognitive.act",
-          taskId: task.taskId,
-          parentEventId: trigger.id,
-        }),
-      );
-      return;
-    }
-
-    const result = await this.toolSemaphore.use(() =>
-      this.actor.run(task.context, step),
-    );
-    task.context.actionsDone.push(result);
-    markStepDone(task.context.plan, step.index);
-
-    if (hasMoreSteps(task.context.plan)) {
-      // Still have steps — recurse (stays in ACTING state)
-      this._spawn(this._runAct(task, trigger));
-    } else {
+      // No pending steps — signal act phase is done
       await this.eventBus.emit(
         createEvent(EventType.ACT_DONE, {
           source: "cognitive.act",
@@ -382,7 +385,75 @@ export class Agent {
           parentEventId: trigger.id,
         }),
       );
+      return;
     }
+
+    // Actor.run is fast (no I/O) — gets cognitive decision
+    const actorResult = await this.actor.run(task.context, step);
+
+    if (step.actionType === "tool_call") {
+      // Fire-and-forget tool execution — _runAct returns immediately
+      this._spawn(this.toolSemaphore.use(async () => {
+        const { toolCallId, toolName, toolParams } = step.actionParams as {
+          toolCallId: string;
+          toolName: string;
+          toolParams: Record<string, unknown>;
+        };
+
+        const toolResult = await this.toolExecutor.execute(
+          toolName,
+          toolParams,
+          { taskId: task.context.id },
+        );
+
+        // Push tool result message to context
+        context_pushToolResult(task.context, toolCallId, toolResult);
+
+        // Build final ActionResult from actorResult + toolResult
+        const finalResult = {
+          ...actorResult,
+          result: toolResult.result,
+          success: toolResult.success,
+          error: toolResult.error,
+          completedAt: Date.now(),
+          durationMs: toolResult.durationMs,
+        };
+
+        // Update context BEFORE emitting event (FSM checks plan.steps)
+        task.context.actionsDone.push(finalResult);
+        markStepDone(task.context.plan!, step.index);
+
+        // Emit completion event via ToolExecutor
+        this.toolExecutor.emitCompletion(
+          toolName,
+          {
+            success: toolResult.success,
+            error: toolResult.error,
+            result: toolResult.result,
+            startedAt: actorResult.startedAt,
+            completedAt: Date.now(),
+            durationMs: toolResult.durationMs,
+          },
+          { taskId: task.taskId },
+        );
+      }));
+      // Return immediately — non-blocking
+      return;
+    }
+
+    // respond / stub — synchronous completion
+    task.context.actionsDone.push(actorResult);
+    markStepDone(task.context.plan, step.index);
+
+    // Emit STEP_COMPLETED — event-driven continuation (no direct recursion)
+    await this.eventBus.emit(
+      createEvent(EventType.STEP_COMPLETED, {
+        source: "cognitive.act",
+        taskId: task.taskId,
+        payload: { stepIndex: step.index, actionsCount: task.context.actionsDone.length },
+        parentEventId: trigger.id,
+      }),
+    );
   }
 
   private async _runReflect(task: TaskFSM, trigger: Event): Promise<void> {

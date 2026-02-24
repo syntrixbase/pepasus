@@ -136,7 +136,7 @@ describe("Agent lifecycle", () => {
       expect(types).toContain(EventType.PERCEIVE_DONE);
       expect(types).toContain(EventType.THINK_DONE);
       expect(types).toContain(EventType.PLAN_DONE);
-      expect(types).toContain(EventType.ACT_DONE);
+      expect(types).toContain(EventType.STEP_COMPLETED);
       expect(types).toContain(EventType.REFLECT_DONE);
       expect(types).toContain(EventType.TASK_COMPLETED);
     } finally {

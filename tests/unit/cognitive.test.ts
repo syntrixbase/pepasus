@@ -453,18 +453,9 @@ describe("Actor", () => {
     expect(result.actionInput).toEqual({ prompt: "Generate code" });
   });
 
-  test("executes tool_call step via ToolExecutor", async () => {
+  test("prepares tool_call intent and pushes assistant message", async () => {
     const model = createMockModel("");
-    const mockExecutor = {
-      execute: async (_toolName: string, _params: unknown, _context: any) => ({
-        success: true,
-        result: "2026-02-24T10:00:00Z",
-        startedAt: Date.now(),
-        completedAt: Date.now(),
-        durationMs: 10,
-      }),
-    };
-    const actor = new Actor(model, testPersona, mockExecutor as any);
+    const actor = new Actor(model, testPersona);
 
     const ctx = createTaskContext({ inputText: "What time?" });
     ctx.reasoning = {
@@ -478,30 +469,21 @@ describe("Actor", () => {
 
     const result = await actor.run(ctx, step);
 
+    // Returns pending result — no tool execution
     expect(result.success).toBe(true);
     expect(result.actionType).toBe("tool_call");
-    expect(result.result).toBe("2026-02-24T10:00:00Z");
+    expect(result.result).toBeUndefined();
+    expect(result.completedAt).toBeUndefined();
 
-    // Check messages were pushed to context
-    expect(ctx.messages).toHaveLength(2);
+    // Only assistant message pushed (no tool result message)
+    expect(ctx.messages).toHaveLength(1);
     expect(ctx.messages[0]!.role).toBe("assistant");
     expect(ctx.messages[0]!.toolCalls).toHaveLength(1);
-    expect(ctx.messages[1]!.role).toBe("tool");
-    expect(ctx.messages[1]!.toolCallId).toBe("c1");
   });
 
-  test("handles tool execution failure", async () => {
+  test("tool_call without toolExecutor returns pending result", async () => {
     const model = createMockModel("");
-    const mockExecutor = {
-      execute: async () => ({
-        success: false,
-        error: "File not found",
-        startedAt: Date.now(),
-        completedAt: Date.now(),
-        durationMs: 5,
-      }),
-    };
-    const actor = new Actor(model, testPersona, mockExecutor as any);
+    const actor = new Actor(model, testPersona);
 
     const ctx = createTaskContext({ inputText: "Read missing file" });
     ctx.reasoning = {
@@ -515,15 +497,18 @@ describe("Actor", () => {
 
     const result = await actor.run(ctx, step);
 
-    expect(result.success).toBe(false);
-    expect(result.error).toBe("File not found");
+    // Actor no longer does tool execution — returns pending
+    expect(result.success).toBe(true);
+    expect(result.result).toBeUndefined();
+    expect(result.completedAt).toBeUndefined();
+    expect(result.error).toBeUndefined();
 
+    // Only assistant message, no tool result message
     const toolMsg = ctx.messages.find((m) => m.role === "tool");
-    expect(toolMsg).toBeDefined();
-    expect(toolMsg!.content).toContain("Error: File not found");
+    expect(toolMsg).toBeUndefined();
   });
 
-  test("respond action still works without toolExecutor", async () => {
+  test("respond action works with Actor (no toolExecutor)", async () => {
     const model = createMockModel("");
     const actor = new Actor(model, testPersona);
 

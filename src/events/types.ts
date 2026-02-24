@@ -32,6 +32,7 @@ export const EventType = {
   THINK_DONE: 310,
   PLAN_DONE: 320,
   ACT_DONE: 330,
+  STEP_COMPLETED: 335,  // Non-tool step completed during ACTING phase
   REFLECT_DONE: 340,
   NEED_MORE_INFO: 350,
 
