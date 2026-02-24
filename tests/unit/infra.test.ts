@@ -24,6 +24,7 @@ import {
 } from "@pegasus/infra/errors.ts";
 import { getLogger, rootLogger, resolveTransports } from "@pegasus/infra/logger.ts";
 import type { Message, GenerateTextResult } from "@pegasus/infra/llm-types.ts";
+import { toOpenAIMessages } from "@pegasus/infra/openai-client.ts";
 
 // ── Config ──────────────────────────────────────
 
@@ -386,5 +387,51 @@ describe("LLM Types - Tool support", () => {
       usage: { promptTokens: 10, completionTokens: 5 },
     };
     expect(result.toolCalls).toHaveLength(1);
+  });
+});
+
+// ── OpenAI Client Tool Support ──────────────────────────────────────
+
+describe("OpenAI client tool support", () => {
+  test("toOpenAIMessages converts tool messages", () => {
+    const messages: Message[] = [
+      { role: "user", content: "read config" },
+      {
+        role: "assistant",
+        content: "",
+        toolCalls: [{ id: "c1", name: "read_file", arguments: { path: "config.yml" } }],
+      },
+      { role: "tool", content: '{"data":"hello"}', toolCallId: "c1" },
+    ];
+    const result = toOpenAIMessages(messages);
+
+    expect(result[2]).toMatchObject({
+      role: "tool",
+      content: '{"data":"hello"}',
+      tool_call_id: "c1",
+    });
+
+    expect(result[1]).toMatchObject({
+      role: "assistant",
+      tool_calls: [
+        {
+          id: "c1",
+          type: "function",
+          function: { name: "read_file", arguments: '{"path":"config.yml"}' },
+        },
+      ],
+    });
+  });
+
+  test("toOpenAIMessages passes through regular messages", () => {
+    const messages: Message[] = [
+      { role: "user", content: "hello" },
+      { role: "assistant", content: "hi" },
+    ];
+    const result = toOpenAIMessages(messages);
+    expect(result).toEqual([
+      { role: "user", content: "hello" },
+      { role: "assistant", content: "hi" },
+    ]);
   });
 });
