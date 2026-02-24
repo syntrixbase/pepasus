@@ -10,6 +10,7 @@ import { generateText } from "../infra/llm-utils.ts";
 import { getLogger } from "../infra/logger.ts";
 import type { Persona } from "../identity/persona.ts";
 import { buildSystemPrompt } from "../identity/prompt.ts";
+import type { MemoryIndexEntry } from "../identity/prompt.ts";
 import type { TaskContext } from "../task/context.ts";
 import type { ToolRegistry } from "../tools/registry.ts";
 
@@ -22,10 +23,10 @@ export class Thinker {
     private toolRegistry?: ToolRegistry,
   ) {}
 
-  async run(context: TaskContext): Promise<Record<string, unknown>> {
+  async run(context: TaskContext, memoryIndex?: MemoryIndexEntry[]): Promise<Record<string, unknown>> {
     logger.info({ iteration: context.iteration }, "think_start");
 
-    const system = buildSystemPrompt(this.persona, "think");
+    const system = buildSystemPrompt(this.persona, "think", memoryIndex);
 
     // Build conversation history for multi-turn support
     const messages: Message[] = context.messages.map((m) => ({

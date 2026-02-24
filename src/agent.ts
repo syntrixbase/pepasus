@@ -29,6 +29,7 @@ import { ToolRegistry } from "./tools/registry.ts";
 import { ToolExecutor } from "./tools/executor.ts";
 import type { ToolResult } from "./tools/types.ts";
 import { allBuiltInTools } from "./tools/builtins/index.ts";
+import type { MemoryIndexEntry } from "./identity/prompt.ts";
 
 const logger = getLogger("agent");
 
@@ -335,8 +336,23 @@ export class Agent {
   }
 
   private async _runThink(task: TaskFSM, trigger: Event): Promise<void> {
+    // Fetch memory index (non-blocking, graceful failure)
+    let memoryIndex: MemoryIndexEntry[] | undefined;
+    try {
+      const memResult = await this.toolExecutor.execute(
+        "memory_list",
+        {},
+        { taskId: task.context.id },
+      );
+      if (memResult.success && Array.isArray(memResult.result)) {
+        memoryIndex = memResult.result as MemoryIndexEntry[];
+      }
+    } catch {
+      // Memory unavailable — continue without it
+    }
+
     const reasoning = await this.llmSemaphore.use(() =>
-      this.thinker.run(task.context),
+      this.thinker.run(task.context, memoryIndex),
     );
     task.context.reasoning = reasoning;
 

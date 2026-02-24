@@ -269,6 +269,56 @@ describe("Thinker", () => {
     expect(reasoning.toolCalls).toBeUndefined();
     expect(reasoning.approach).toBe("direct");
   });
+
+  test("thinker should pass memory index to system prompt", async () => {
+    let capturedSystem = "";
+    const mockModel: LanguageModel = {
+      provider: "test",
+      modelId: "test-model",
+      async generate(options: any) {
+        capturedSystem = options.system || "";
+        return {
+          text: "ok",
+          finishReason: "stop",
+          usage: { promptTokens: 0, completionTokens: 0 },
+        };
+      },
+    };
+
+    const memoryIndex = [
+      { path: "facts/user.md", summary: "user name", size: 100 },
+    ];
+
+    const thinker = new Thinker(mockModel, testPersona);
+    const ctx = createTaskContext({ inputText: "hello" });
+    await thinker.run(ctx, memoryIndex);
+
+    expect(capturedSystem).toContain("facts/user.md");
+    expect(capturedSystem).toContain("user name");
+    expect(capturedSystem).toContain("Available memory:");
+  });
+
+  test("thinker works without memory index", async () => {
+    let capturedSystem = "";
+    const mockModel: LanguageModel = {
+      provider: "test",
+      modelId: "test-model",
+      async generate(options: any) {
+        capturedSystem = options.system || "";
+        return {
+          text: "ok",
+          finishReason: "stop",
+          usage: { promptTokens: 0, completionTokens: 0 },
+        };
+      },
+    };
+
+    const thinker = new Thinker(mockModel, testPersona);
+    const ctx = createTaskContext({ inputText: "hello" });
+    await thinker.run(ctx);
+
+    expect(capturedSystem).not.toContain("Available memory:");
+  });
 });
 
 // ── Planner ─────────────────────────────────────────
