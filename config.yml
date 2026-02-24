@@ -92,12 +92,7 @@ system:
   logLevel: ${PEGASUS_LOG_LEVEL:-info}  # debug | info | warn | error
   dataDir: ${PEGASUS_DATA_DIR:-data}
 
-  # Log output destination
-  # File logging is always enabled (saved to {dataDir}/logs/pegasus.log)
-  # Set to true to also output logs to console (useful for debugging)
-  logConsoleEnabled: ${PEGASUS_LOG_CONSOLE_ENABLED:-false}
-
-  # Log output format (applies to both file and console)
-  # json   — structured JSON lines, machine-parseable (default)
-  # pretty — colorized human-readable format (via pino-pretty)
+  # Log output format (file only, no console output)
+  # json — structured JSON lines, machine-parseable (default)
+  # line — human-readable single lines: TIME LEVEL [module] message key=value
   logFormat: ${PEGASUS_LOG_FORMAT:-json}

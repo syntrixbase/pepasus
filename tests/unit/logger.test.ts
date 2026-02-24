@@ -2,7 +2,7 @@
  * Tests for logger.ts
  */
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
-import { resolveTransports, reinitLogger, getLogger } from "../../src/infra/logger.ts";
+import { resolveTransport, reinitLogger, getLogger } from "../../src/infra/logger.ts";
 import { existsSync, rmSync, mkdirSync, writeFileSync, utimesSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
@@ -23,60 +23,30 @@ describe("logger", () => {
     }
   });
 
-  describe("resolveTransports", () => {
-    test("returns file transport only when console disabled", () => {
+  describe("resolveTransport", () => {
+    test("returns pino-roll transport for json format", () => {
       const logFile = join(testDir, "test.log");
-      const { transport, isMultiTarget } = resolveTransports(logFile, false, "json");
+      const transport = resolveTransport(logFile, "json");
 
       expect(transport).toBeDefined();
-      expect(isMultiTarget).toBe(false);
       expect((transport as any).target).toBe("pino-roll");
       expect((transport as any).options.file).toBe(logFile);
     });
 
-    test("returns multi-transport with console enabled and pretty format", () => {
+    test("returns line-transport for line format", () => {
       const logFile = join(testDir, "test.log");
-      const { transport, isMultiTarget } = resolveTransports(logFile, true, "pretty");
+      const transport = resolveTransport(logFile, "line");
 
       expect(transport).toBeDefined();
-      expect(isMultiTarget).toBe(true);
-      expect((transport as any).targets).toBeDefined();
-      expect((transport as any).targets).toHaveLength(2);
-
-      const targets = (transport as any).targets;
-      // Console: pino-pretty with color
-      expect(targets[0].target).toBe("pino-pretty");
-      expect(targets[0].options.colorize).toBe(true);
-      // File: pipeline (pino-pretty no color → pino-roll)
-      expect(targets[1].pipeline).toBeDefined();
-      expect(targets[1].pipeline).toHaveLength(2);
-      expect(targets[1].pipeline[0].target).toBe("pino-pretty");
-      expect(targets[1].pipeline[0].options.colorize).toBe(false);
-      expect(targets[1].pipeline[1].target).toBe("pino-roll");
-    });
-
-    test("returns multi-transport with console enabled and json format", () => {
-      const logFile = join(testDir, "test.log");
-      const { transport, isMultiTarget } = resolveTransports(logFile, true, "json");
-
-      expect(transport).toBeDefined();
-      expect(isMultiTarget).toBe(true);
-      expect((transport as any).targets).toBeDefined();
-      expect((transport as any).targets).toHaveLength(2);
-
-      const targets = (transport as any).targets;
-      expect(targets[0].target).toBe("pino/file");
-      expect(targets[0].options.destination).toBe(1); // stdout
-      expect(targets[1].target).toBe("pino-roll");
+      expect((transport as any).target).toContain("line-transport");
+      expect((transport as any).options.file).toBe(logFile);
     });
 
     test("defaults to json format when logFormat not specified", () => {
       const logFile = join(testDir, "test.log");
-      const { transport, isMultiTarget } = resolveTransports(logFile, true);
+      const transport = resolveTransport(logFile);
 
-      expect(isMultiTarget).toBe(true);
-      const targets = (transport as any).targets;
-      expect(targets[0].target).toBe("pino/file"); // json = pino/file for console
+      expect((transport as any).target).toBe("pino-roll");
     });
 
     test("creates log directory if it doesn't exist", () => {
@@ -85,23 +55,9 @@ describe("logger", () => {
 
       expect(existsSync(logDir)).toBe(false);
 
-      resolveTransports(logFile, false, "json");
+      resolveTransport(logFile, "json");
 
       expect(existsSync(logDir)).toBe(true);
-    });
-
-    test("file transport uses pipeline with pino-pretty when format is pretty", () => {
-      const logFile = join(testDir, "test.log");
-      const { transport, isMultiTarget } = resolveTransports(logFile, false, "pretty");
-
-      expect(transport).toBeDefined();
-      // Single transport (file only), but it's a pipeline
-      expect(isMultiTarget).toBe(false);
-      expect((transport as any).pipeline).toBeDefined();
-      expect((transport as any).pipeline).toHaveLength(2);
-      expect((transport as any).pipeline[0].target).toBe("pino-pretty");
-      expect((transport as any).pipeline[0].options.colorize).toBe(false);
-      expect((transport as any).pipeline[1].target).toBe("pino-roll");
     });
   });
 
@@ -109,29 +65,29 @@ describe("logger", () => {
     test("reinitializes logger without errors", () => {
       const logFile = join(testDir, "reinit.log");
 
-      expect(() => reinitLogger(logFile, false)).not.toThrow();
+      expect(() => reinitLogger(logFile)).not.toThrow();
     });
 
     test("reinitializes logger and getLogger still works", () => {
       const logFile = join(testDir, "reinit.log");
 
-      reinitLogger(logFile, false);
+      reinitLogger(logFile);
 
       const logger = getLogger("test-module");
       expect(logger).toBeDefined();
       expect(typeof logger.info).toBe("function");
     });
 
-    test("reinitializes logger with console enabled", () => {
+    test("reinitializes logger with line format", () => {
       const logFile = join(testDir, "reinit.log");
 
-      expect(() => reinitLogger(logFile, true)).not.toThrow();
+      expect(() => reinitLogger(logFile, "line")).not.toThrow();
     });
 
-    test("reinitializes logger with pretty format", () => {
+    test("reinitializes logger with custom log level", () => {
       const logFile = join(testDir, "reinit.log");
 
-      expect(() => reinitLogger(logFile, false, "pretty")).not.toThrow();
+      expect(() => reinitLogger(logFile, "json", "debug")).not.toThrow();
     });
   });
 
@@ -158,8 +114,8 @@ describe("logger", () => {
       expect(existsSync(oldLogFile)).toBe(true);
       expect(existsSync(recentLogFile)).toBe(true);
 
-      // Trigger cleanup by initializing logger
-      resolveTransports(logFile, false, "json");
+      // Trigger cleanup by resolving transport
+      resolveTransport(logFile, "json");
 
       // Old log should be deleted, recent log should remain
       expect(existsSync(oldLogFile)).toBe(false);
@@ -182,7 +138,7 @@ describe("logger", () => {
       expect(existsSync(otherFile)).toBe(true);
 
       // Trigger cleanup
-      resolveTransports(logFile, false, "json");
+      resolveTransport(logFile, "json");
 
       // Non-log file should not be deleted
       expect(existsSync(otherFile)).toBe(true);
@@ -192,7 +148,7 @@ describe("logger", () => {
       const logFile = join(testDir, "nonexistent/dir/pegasus.log");
 
       // Should not throw even if directory doesn't exist
-      expect(() => resolveTransports(logFile, false, "json")).not.toThrow();
+      expect(() => resolveTransport(logFile, "json")).not.toThrow();
     });
   });
 });

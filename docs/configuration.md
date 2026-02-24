@@ -74,8 +74,7 @@ identity:
 system:
   logLevel: info  # debug | info | warn | error | silent
   dataDir: data
-  logConsoleEnabled: false  # Enable console logging (default: false)
-  logFormat: json  # Log format: json | pretty (default: json)
+  logFormat: json  # Log format: json | line (default: json)
 ```
 
 ### 配置文件查找策略
@@ -450,40 +449,31 @@ llm:
 |------|------|--------|------|
 | `system.logLevel` | string | `"info"` | 日志级别 (debug/info/warn/error/silent) |
 | `system.dataDir` | string | `"data"` | 数据目录 |
-| `system.logConsoleEnabled` | boolean | `false` | 启用控制台日志输出 (目的地) |
-| `system.logFormat` | string | `"json"` | 日志输出格式: `json` 或 `pretty` (格式) |
+| `system.logFormat` | string | `"json"` | 日志输出格式: `json` 或 `line` (格式) |
 
 **注意**:
 - 文件日志永远启用，保存到 `{dataDir}/logs/pegasus.log`，无法禁用
-- `logConsoleEnabled` 控制日志**输出位置** (目的地)
-- `logFormat` 控制日志**输出格式** (格式)，同时作用于 file 和 console
+- 日志只输出到文件，不输出到控制台
+- `logFormat` 控制日志**输出格式** (格式)
 
 ## 📝 日志配置
 
-Pegasus 的日志系统永远将日志写入文件，并支持可选的控制台输出。
+Pegasus 的日志系统永远将日志写入文件，不输出到控制台。
 
 ### 默认行为
 
 - ✅ **文件日志**: 永远启用，无法禁用，保存到 `{dataDir}/logs/pegasus.log`
-- ❌ **控制台日志**: 默认禁用，可以按需启用
 
-### 启用控制台输出
+### 查看日志
 
-**config.yml**:
-```yaml
-system:
-  logLevel: info
-  dataDir: data
-  # 启用控制台输出（用于开发调试）
-  logConsoleEnabled: true
-  # 使用 pretty 格式更方便阅读
-  logFormat: pretty
-```
+使用标准 Unix 工具查看日志文件：
 
-**或通过环境变量**:
 ```bash
-export PEGASUS_LOG_CONSOLE_ENABLED=true  # 启用控制台日志
-export PEGASUS_LOG_FORMAT=pretty          # 使用 pretty 格式
+# 实时跟踪日志
+tail -f data/logs/pegasus.log
+
+# 使用 line 格式获取人类可读输出
+# 在 config.yml 中设置 logFormat: line
 ```
 
 ### 日志特性
@@ -495,28 +485,21 @@ export PEGASUS_LOG_FORMAT=pretty          # 使用 pretty 格式
 
 ### 日志格式
 
-日志系统将**输出位置**和**输出格式**作为两个独立配置：
-
-- **`logConsoleEnabled`**: 控制日志输出到哪里（目的地）
-- **`logFormat`**: 控制日志的格式（json 或 pretty），同时作用于 file 和 console
+日志系统的格式通过 `logFormat` 配置：
 
 | 格式 | 说明 |
 |------|------|
 | `json` (默认) | 结构化 JSON 行，适合机器解析和日志聚合 |
-| `pretty` | 彩色人类可读格式（via pino-pretty），适合开发调试 |
-
-- **文件输出**: 始终启用
-- **控制台输出**: 按需启用
+| `line` | 人类可读单行格式：`2026-02-24T10:00:00.000Z INFO  [module] message key=value` |
 
 ### 示例配置
 
-**开发环境（文件 + 控制台）**:
+**开发环境（人类可读格式）**:
 ```yaml
 system:
   logLevel: debug
   dataDir: data
-  logConsoleEnabled: true   # 同时输出到控制台
-  logFormat: pretty          # 使用 pretty 格式方便阅读
+  logFormat: line  # 人类可读单行格式
 ```
 
 **生产环境（仅文件）**:
@@ -524,7 +507,6 @@ system:
 system:
   logLevel: info
   dataDir: /var/lib/pegasus
-  # 仅文件日志，无控制台输出（默认）
   logFormat: json  # JSON 格式供日志聚合系统解析
 ```
 

@@ -11,16 +11,11 @@ Pegasus has a built-in logging system with automatic file output, log rotation, 
 - **Always Enabled**: Logs are always written to `{dataDir}/logs/pegasus.log`
 - **Cannot be Disabled**: File logging is a core feature and always active
 
-### 2. Optional Console Output
-
-- **Disabled by Default**: Console output must be explicitly enabled
-- **Use Case**: Primarily for debugging and development
-
-### 3. Configurable Log Format
+### 2. Configurable Log Format
 
 - **JSON** (default): Structured JSON lines, machine-parseable
-- **Pretty**: Colorized human-readable format (via pino-pretty)
-- **Global Setting**: Applies to both file and console outputs
+- **Line**: Human-readable single-line format with timestamp, level, module, message, and key=value pairs
+- **Global Setting**: Applies to file output
 
 ### 3. Automatic Log Rotation
 
@@ -41,52 +36,9 @@ Pegasus has a built-in logging system with automatic file output, log rotation, 
 
 By default, Pegasus:
 - ✅ **Always** writes logs to file (`data/logs/pegasus.log`)
-- ❌ Does not output logs to console
-
-### Enable Console Output
-
-To view logs in console (e.g., during debugging):
-
-**Method 1: Configuration File**
-
-Edit `config.yml` or `config.local.yml`:
-
-```yaml
-system:
-  logLevel: info
-  dataDir: data
-  logConsoleEnabled: true   # Enable console output
-  logFormat: pretty         # Use human-readable format
-```
-
-**Method 2: Environment Variable**
-
-```bash
-export PEGASUS_LOG_CONSOLE_ENABLED=true
-export PEGASUS_LOG_FORMAT=pretty
-bun run dev
-```
-
-**Method 3: Temporary Enable**
-
-```bash
-PEGASUS_LOG_CONSOLE_ENABLED=true PEGASUS_LOG_FORMAT=pretty bun run dev
-```
+- Logs only go to file — no console output
 
 ### View Logs
-
-**Using pino-pretty (Recommended)**:
-```bash
-# View logs with human-readable format
-bun logs
-
-# View all historical logs
-bun logs:all
-
-# Or use pino-pretty directly
-tail -f data/logs/pegasus.log | pino-pretty
-cat data/logs/pegasus.log | pino-pretty
-```
 
 **Using standard Unix tools**:
 ```bash
@@ -115,11 +67,7 @@ system:
   # Data directory (logs saved to {dataDir}/logs/pegasus.log)
   dataDir: data
 
-  # Log output destination: enable console logging (default: false)
-  logConsoleEnabled: false
-
-  # Log output format: json | pretty (default: json)
-  # Applies to both file and console outputs
+  # Log output format: json | line (default: json)
   logFormat: json
 ```
 
@@ -129,13 +77,11 @@ system:
 |----------|-------------|---------|
 | `PEGASUS_LOG_LEVEL` | Log level | `info` |
 | `PEGASUS_DATA_DIR` | Data directory | `data` |
-| `PEGASUS_LOG_CONSOLE_ENABLED` | Enable console logging (destination) | `false` |
-| `PEGASUS_LOG_FORMAT` | Log output format: `json` or `pretty` | `json` |
+| `PEGASUS_LOG_FORMAT` | Log output format: `json` or `line` | `json` |
 
 **Note**:
 - Log file path is always `{PEGASUS_DATA_DIR}/logs/pegasus.log`
 - File logging cannot be disabled
-- `logConsoleEnabled` controls **where** logs go (destination)
 - `logFormat` controls **how** logs are formatted (format)
 
 ## Use Cases
@@ -150,14 +96,13 @@ system:
   # No console output
 ```
 
-### Scenario 2: Development (With Console)
+### Scenario 2: Development (Human-Readable Logs)
 
 ```yaml
 system:
   logLevel: debug
   dataDir: data
-  logConsoleEnabled: true  # Also output to console for debugging
-  logFormat: pretty        # Human-readable colorized output
+  logFormat: line  # Human-readable single-line format
 ```
 
 ### Scenario 3: Production
@@ -166,7 +111,6 @@ system:
 system:
   logLevel: info
   dataDir: /var/lib/pegasus
-  logConsoleEnabled: false  # No console output in production
   logFormat: json           # Structured JSON for log aggregation
   # Logs written to /var/lib/pegasus/logs/pegasus.log
 ```
@@ -182,7 +126,7 @@ system:
 
 ## Log Format
 
-The `logFormat` setting controls how logs are formatted across **all** outputs (file and console).
+The `logFormat` setting controls how logs are formatted in the log file.
 
 ### JSON Format (`logFormat: json`, default)
 
@@ -199,24 +143,24 @@ Structured JSON lines, ideal for machine parsing and log aggregation:
 - `msg`: Log message
 - Additional fields: Custom data attached to the log entry
 
-### Pretty Format (`logFormat: pretty`)
+### Line Format (`logFormat: line`)
 
-Colorized human-readable format (via pino-pretty), ideal for development:
+Human-readable single-line format, ideal for development and quick debugging:
 
 ```
-[13:45:23.456] INFO (config_loader): loading_base_config
-    path: "config.yml"
+2026-02-24T10:00:00.000Z INFO  [config_loader] loading_base_config path=config.yml
 ```
 
 ### Viewing JSON Logs in Human-Readable Format
 
-When using `logFormat: json` (default), use `pino-pretty` to view logs:
+When using `logFormat: json` (default), use `jq` or switch to `line` format to view logs:
 
 ```bash
-$ bun logs
-[2024-02-12 13:45:23.456] INFO (123): loading_base_config
-    module: "config_loader"
-    path: "config.yml"
+$ tail -f data/logs/pegasus.log
+{"level":"info","time":"2026-02-24T10:00:00.000Z","module":"config_loader","msg":"loading_base_config","path":"config.yml"}
+
+# Or use jq for pretty-printed JSON
+$ tail -f data/logs/pegasus.log | jq '.'
 ```
 
 ## Log Rotation
@@ -279,9 +223,9 @@ If disk space is a concern:
 
 ### No Console Output
 
-If you don't see console logs:
-- Check `logConsoleEnabled` is set to `true` (default: `false`)
-- Temporarily enable: `PEGASUS_LOG_CONSOLE_ENABLED=true bun run dev`
+Logs only go to file. To view logs in real-time, use:
+- `tail -f data/logs/pegasus.log`
+- For human-readable format, set `logFormat: line`
 
 ### Log File Too Large
 
@@ -294,25 +238,23 @@ Solutions:
 
 If concerned about logging performance:
 1. Use `warn` or `error` level to reduce log volume
-2. Console output is disabled by default (no performance impact)
-3. File logging uses efficient buffered writes
-4. Use `silent` level for performance testing (minimal logging)
+2. File logging uses efficient buffered writes
+3. Use `silent` level for performance testing (minimal logging)
 
 ## Best Practices
 
 1. **Development**
    - Use `debug` level for detailed logs
-   - Enable console output for real-time feedback
-   - File logs provide persistent record
+   - Use `line` format for human-readable output
+   - Use `tail -f` to follow log file in real-time
 
 2. **Testing**
    - Use `info` level
    - File logs available for post-mortem analysis
-   - Optional console output for real-time monitoring
 
 3. **Production**
    - Use `info` or `warn` level
-   - File logging only (no console output)
+   - Use `json` format for log aggregation
    - Configure log aggregation system to collect from file
    - Monitor disk space for log directory
 
@@ -324,21 +266,14 @@ If concerned about logging performance:
 
 ## Design Rationale
 
-### Why Separate Destination and Format?
+### Why Two Log Formats?
 
-Log configuration has two independent concerns:
+The `logFormat` setting provides flexibility for different environments:
 
-1. **Destination** (`logConsoleEnabled`): Controls **where** logs are sent (file always + console optionally)
-2. **Format** (`logFormat`): Controls **how** logs look (JSON or pretty)
-
-Separating them gives full flexibility:
-
-| Destination | Format | Use Case |
-|------------|--------|----------|
-| File only | JSON | Production default |
-| File + Console | Pretty | Local development |
-| File + Console | JSON | Production with stdout collector |
-| File only | Pretty | Quick debugging (tail log file) |
+| Format | Use Case |
+|--------|----------|
+| `json` (default) | Production — machine-parseable, ideal for log aggregation |
+| `line` | Development — human-readable single-line format for quick debugging |
 
 ### Why Always-On File Logging?
 
@@ -346,12 +281,6 @@ Separating them gives full flexibility:
 2. **Debugging**: Complete audit trail for troubleshooting
 3. **Simplicity**: No configuration needed
 4. **Safety**: Prevents accidental loss of important logs
-
-### Why Optional Console Output?
-
-1. **Performance**: Console I/O is slower than file I/O
-2. **Clarity**: Production logs should go to centralized systems
-3. **Flexibility**: Enable when needed for development
 
 ## References
 
