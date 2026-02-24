@@ -11,11 +11,3 @@ export interface ToolCall {
   name: string;
   arguments: Record<string, unknown>;
 }
-
-export interface ToolResult {
-  toolCallId: string;
-  name: string;
-  result?: unknown;
-  error?: string;
-  success: boolean;
-}
