@@ -3,6 +3,7 @@
  */
 
 import type { Message } from "../infra/llm-types.ts";
+import { shortId } from "../infra/id.ts";
 
 // ── PlanStep ─────────────────────────────────────────
 
@@ -100,7 +101,7 @@ export function createTaskContext(
   } = {},
 ): TaskContext {
   return {
-    id: opts.id ?? crypto.randomUUID(),
+    id: opts.id ?? shortId(),
     inputText: opts.inputText ?? "",
     inputMetadata: opts.inputMetadata ?? {},
     source: opts.source ?? "",
