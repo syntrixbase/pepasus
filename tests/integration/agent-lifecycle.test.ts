@@ -3,6 +3,7 @@ import { Agent } from "@pegasus/agent.ts";
 import type { AgentDeps } from "@pegasus/agent.ts";
 import { createEvent, EventType } from "@pegasus/events/types.ts";
 import { TaskState } from "@pegasus/task/states.ts";
+import type { TaskFSM } from "@pegasus/task/fsm.ts";
 import { SettingsSchema } from "@pegasus/infra/config.ts";
 import type { LanguageModel } from "@pegasus/infra/llm-types.ts";
 import type { Persona } from "@pegasus/identity/persona.ts";
@@ -154,6 +155,34 @@ describe("Agent lifecycle", () => {
 
       const task = await agent.waitForTask(taskId, 5000);
       expect(task.state).toBe(TaskState.COMPLETED);
+    } finally {
+      await agent.stop();
+    }
+  }, 10_000);
+
+  test("onTaskComplete fires asynchronously", async () => {
+    const agent = new Agent(testAgentDeps());
+    await agent.start();
+
+    try {
+      const taskId = await agent.submit("async callback test");
+      expect(taskId).toBeTruthy();
+
+      const completedTask = await new Promise<TaskFSM>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error("onTaskComplete timed out")), 5000);
+        agent.onTaskComplete(taskId, (task) => {
+          clearTimeout(timeout);
+          resolve(task);
+        });
+      });
+
+      expect(completedTask.state).toBe(TaskState.COMPLETED);
+      expect(completedTask.taskId).toBe(taskId);
+      expect(completedTask.context.inputText).toBe("async callback test");
+      expect(completedTask.context.finalResult).not.toBeNull();
+
+      const result = completedTask.context.finalResult as Record<string, unknown>;
+      expect(result["taskId"]).toBe(taskId);
     } finally {
       await agent.stop();
     }

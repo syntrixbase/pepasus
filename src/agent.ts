@@ -303,6 +303,14 @@ export class Agent {
 
       case TaskState.FAILED:
         logger.error({ taskId: task.taskId, error: task.context.error }, "task_failed");
+        await this.eventBus.emit(
+          createEvent(EventType.TASK_FAILED, {
+            source: "agent",
+            taskId: task.taskId,
+            payload: { error: task.context.error },
+            parentEventId: trigger.id,
+          }),
+        );
         break;
     }
   }
@@ -503,6 +511,29 @@ export class Agent {
   // ═══════════════════════════════════════════════════
   // Public API (convenience methods)
   // ═══════════════════════════════════════════════════
+
+  /** Register a one-shot callback for task completion (or failure). */
+  onTaskComplete(taskId: string, callback: (task: TaskFSM) => void): void {
+    // Check if already terminal (race condition safety)
+    const existing = this.taskRegistry.getOrNull(taskId);
+    if (existing?.isTerminal) {
+      callback(existing);
+      return;
+    }
+
+    // Subscribe to both TASK_COMPLETED and TASK_FAILED
+    const handler = async (event: Event): Promise<void> => {
+      if (event.taskId !== taskId) return;
+      const task = this.taskRegistry.getOrNull(taskId);
+      if (!task) return;
+      this.eventBus.unsubscribe(EventType.TASK_COMPLETED, handler);
+      this.eventBus.unsubscribe(EventType.TASK_FAILED, handler);
+      callback(task);
+    };
+
+    this.eventBus.subscribe(EventType.TASK_COMPLETED, handler);
+    this.eventBus.subscribe(EventType.TASK_FAILED, handler);
+  }
 
   /** Submit a task. Returns the taskId. */
   async submit(text: string, source: string = "user"): Promise<string> {
