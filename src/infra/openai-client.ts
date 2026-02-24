@@ -4,6 +4,9 @@
  */
 import OpenAI from "openai";
 import type { LanguageModel, Message } from "./llm-types.ts";
+import { getLogger } from "./logger.ts";
+
+const logger = getLogger("llm.openai");
 
 export interface OpenAIClientConfig {
   apiKey: string;
@@ -86,7 +89,35 @@ export function createOpenAICompatibleModel(config: OpenAIClientConfig): Languag
         }
       }
 
-      const response = await client.chat.completions.create(params);
+      const startTime = Date.now();
+      logger.info(
+        {
+          model: config.model,
+          messageCount: messages.length,
+          hasTools: !!options.tools?.length,
+          toolCount: options.tools?.length ?? 0,
+          toolChoice: options.toolChoice,
+        },
+        "llm_request_start",
+      );
+
+      let response: OpenAI.Chat.ChatCompletion;
+      try {
+        response = await client.chat.completions.create(params);
+      } catch (error) {
+        const durationMs = Date.now() - startTime;
+        logger.error(
+          {
+            model: config.model,
+            durationMs,
+            error: error instanceof Error ? error.message : String(error),
+          },
+          "llm_request_error",
+        );
+        throw error;
+      }
+
+      const durationMs = Date.now() - startTime;
       const choice = response.choices[0];
       if (!choice) {
         throw new Error("No response from OpenAI model");
@@ -99,6 +130,18 @@ export function createOpenAICompatibleModel(config: OpenAIClientConfig): Languag
           name: tc.function.name,
           arguments: JSON.parse(tc.function.arguments) as Record<string, unknown>,
         }));
+
+      logger.info(
+        {
+          model: config.model,
+          durationMs,
+          finishReason: choice.finish_reason,
+          promptTokens: response.usage?.prompt_tokens ?? 0,
+          completionTokens: response.usage?.completion_tokens ?? 0,
+          toolCallCount: toolCalls?.length ?? 0,
+        },
+        "llm_request_done",
+      );
 
       return {
         text: choice.message.content || "",

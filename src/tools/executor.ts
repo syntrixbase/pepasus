@@ -11,6 +11,9 @@ import {
 } from "./errors.ts";
 import type { EventType } from "../events/types.ts";
 import { createEvent } from "../events/types.ts";
+import { getLogger } from "../infra/logger.ts";
+
+const logger = getLogger("tools.executor");
 
 export class ToolExecutor {
   constructor(
@@ -28,6 +31,11 @@ export class ToolExecutor {
     context: ToolContext,
   ): Promise<ToolResult> {
     const startedAt = Date.now();
+
+    logger.info(
+      { toolName, taskId: context.taskId, params },
+      "tool_execute_start",
+    );
 
     // Emit TOOL_CALL_REQUESTED event
     this.bus.emit(
@@ -55,11 +63,18 @@ export class ToolExecutor {
         context,
       );
 
+      const durationMs = Date.now() - startedAt;
+
       // Update call statistics
       this.registry.updateCallStats(
         toolName,
         result.durationMs ?? 0,
         result.success,
+      );
+
+      logger.info(
+        { toolName, taskId: context.taskId, success: true, durationMs },
+        "tool_execute_done",
       );
 
       // Emit TOOL_CALL_COMPLETED event
@@ -73,17 +88,24 @@ export class ToolExecutor {
 
       return result;
     } catch (error) {
+      const durationMs = Date.now() - startedAt;
+      const errorMessage = error instanceof Error ? error.message : String(error);
+
       const errorResult: ToolResult = {
         success: false,
-        error: error instanceof Error ? error.message : String(error),
+        error: errorMessage,
         startedAt,
         completedAt: Date.now(),
-        durationMs: Date.now() - startedAt,
+        durationMs,
       };
 
       // Update call statistics
-      const durationMs = Date.now() - startedAt;
       this.registry.updateCallStats(toolName, durationMs, false);
+
+      logger.error(
+        { toolName, taskId: context.taskId, durationMs, error: errorMessage },
+        "tool_execute_error",
+      );
 
       // Emit TOOL_CALL_FAILED event
       this.bus.emit(

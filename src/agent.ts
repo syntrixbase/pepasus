@@ -111,7 +111,7 @@ export class Agent {
     const toolExecutor = new ToolExecutor(
       toolRegistry,
       this.eventBus,
-      this.settings.tools?.timeout ?? 30000,
+      (this.settings.tools?.timeout ?? 30) * 1000,
     );
 
     // Initialize cognitive processors with model + persona
@@ -455,13 +455,14 @@ export class Agent {
   }
 
   /** Wait for a task to complete (for testing and simple scenarios). */
-  async waitForTask(taskId: string, timeout: number = 120_000): Promise<TaskFSM> {
-    const deadline = Date.now() + timeout;
+  async waitForTask(taskId: string, timeout?: number): Promise<TaskFSM> {
+    const effectiveTimeout = timeout ?? this.settings.agent.taskTimeout * 1000;
+    const deadline = Date.now() + effectiveTimeout;
     while (Date.now() < deadline) {
       const task = this.taskRegistry.getOrNull(taskId);
       if (task?.isTerminal) return task;
       await Bun.sleep(50);
     }
-    throw new Error(`Task ${taskId} did not complete within ${timeout}ms`);
+    throw new Error(`Task ${taskId} did not complete within ${effectiveTimeout}ms`);
   }
 }

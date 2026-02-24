@@ -228,6 +228,7 @@ function configToSettings(config: any, env = process.env): Settings {
       maxConcurrentTools: Number(env["AGENT_MAX_CONCURRENT_TOOLS"]) || config.agent?.maxConcurrentTools,
       maxCognitiveIterations: Number(env["AGENT_MAX_COGNITIVE_ITERATIONS"]) || config.agent?.maxCognitiveIterations,
       heartbeatInterval: Number(env["AGENT_HEARTBEAT_INTERVAL"]) || config.agent?.heartbeatInterval,
+      taskTimeout: Number(env["AGENT_TASK_TIMEOUT"]) || config.agent?.taskTimeout,
     },
     identity: {
       personaPath: env["IDENTITY_PERSONA_PATH"] || config.identity?.personaPath,
@@ -235,6 +236,7 @@ function configToSettings(config: any, env = process.env): Settings {
     logLevel: env["PEGASUS_LOG_LEVEL"] || config.system?.logLevel,
     dataDir: env["PEGASUS_DATA_DIR"] || config.system?.dataDir,
     logConsoleEnabled: env["PEGASUS_LOG_CONSOLE_ENABLED"] === "true" || config.system?.logConsoleEnabled,
+    nodeEnv: env["NODE_ENV"] || config.system?.nodeEnv,
   });
 }
 
@@ -269,6 +271,7 @@ export function loadFromEnv(env = process.env): Settings {
       maxConcurrentTools: env["AGENT_MAX_CONCURRENT_TOOLS"],
       maxCognitiveIterations: env["AGENT_MAX_COGNITIVE_ITERATIONS"],
       heartbeatInterval: env["AGENT_HEARTBEAT_INTERVAL"],
+      taskTimeout: env["AGENT_TASK_TIMEOUT"],
     },
     identity: {
       personaPath: env["IDENTITY_PERSONA_PATH"],
@@ -276,6 +279,7 @@ export function loadFromEnv(env = process.env): Settings {
     logLevel: env["PEGASUS_LOG_LEVEL"],
     dataDir: env["PEGASUS_DATA_DIR"],
     logConsoleEnabled: env["PEGASUS_LOG_CONSOLE_ENABLED"] === "true",
+    nodeEnv: env["NODE_ENV"],
   });
 }
 

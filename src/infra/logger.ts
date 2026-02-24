@@ -10,6 +10,8 @@ import type { TransportSingleOptions, TransportMultiOptions } from "pino";
 import { existsSync, mkdirSync, readdirSync, statSync, unlinkSync } from "fs";
 import { dirname, join, basename } from "path";
 
+// Bootstrap phase: read log level from env before config is available.
+// Will be overridden when reinitLogger() is called with loaded config.
 const level = process.env["PEGASUS_LOG_LEVEL"] ?? "info";
 
 /**
@@ -29,6 +31,7 @@ function createLoggerOptions(
   const opts: pino.LoggerOptions = {
     level,
     transport,
+    base: undefined, // Remove pid and hostname from log output
   };
 
   if (!isMultiTarget) {
@@ -153,9 +156,11 @@ export function resolveTransports(
 
 /**
  * Initialize root logger with file output.
+ *
+ * Bootstrap phase: config is not yet loaded, so we read env vars directly.
+ * This logger will be replaced by reinitLogger() once config is available.
  */
 function initRootLogger(): pino.Logger {
-  // Get log config from environment variables
   const dataDir = process.env["PEGASUS_DATA_DIR"] || "data";
   const logFile = join(dataDir, "logs/pegasus.log");
   const logConsoleEnabled = process.env["PEGASUS_LOG_CONSOLE_ENABLED"] === "true";
@@ -178,11 +183,12 @@ export function getLogger(name: string): pino.Logger {
 }
 
 /**
- * Reinitialize logger with new configuration (used after config is loaded).
+ * Reinitialize logger with loaded configuration (called by config.ts after settings are ready).
+ * All parameters come from config — no direct env var reads.
  */
-export function reinitLogger(logFile: string, logConsoleEnabled?: boolean): void {
+export function reinitLogger(logFile: string, logConsoleEnabled?: boolean, nodeEnv?: string): void {
   const { transport, isMultiTarget } = resolveTransports(
-    process.env["NODE_ENV"],
+    nodeEnv,
     logFile,
     logConsoleEnabled,
   );

@@ -3,6 +3,9 @@
  */
 import Anthropic from "@anthropic-ai/sdk";
 import type { LanguageModel, Message } from "./llm-types.ts";
+import { getLogger } from "./logger.ts";
+
+const logger = getLogger("llm.anthropic");
 
 export interface AnthropicClientConfig {
   apiKey: string;
@@ -82,7 +85,34 @@ export function createAnthropicCompatibleModel(config: AnthropicClientConfig): L
         }));
       }
 
-      const response = await client.messages.create(params);
+      const startTime = Date.now();
+      logger.info(
+        {
+          model: config.model,
+          messageCount: messages.length,
+          hasTools: !!options.tools?.length,
+          toolCount: options.tools?.length ?? 0,
+        },
+        "llm_request_start",
+      );
+
+      let response: Anthropic.Message;
+      try {
+        response = await client.messages.create(params);
+      } catch (error) {
+        const durationMs = Date.now() - startTime;
+        logger.error(
+          {
+            model: config.model,
+            durationMs,
+            error: error instanceof Error ? error.message : String(error),
+          },
+          "llm_request_error",
+        );
+        throw error;
+      }
+
+      const durationMs = Date.now() - startTime;
 
       const textContent = response.content
         .filter((c): c is Anthropic.TextBlock => c.type === "text")
@@ -97,6 +127,18 @@ export function createAnthropicCompatibleModel(config: AnthropicClientConfig): L
         name: c.name,
         arguments: c.input as Record<string, unknown>,
       }));
+
+      logger.info(
+        {
+          model: config.model,
+          durationMs,
+          finishReason: response.stop_reason ?? "stop",
+          promptTokens: response.usage.input_tokens,
+          completionTokens: response.usage.output_tokens,
+          toolCallCount: toolCalls.length,
+        },
+        "llm_request_done",
+      );
 
       return {
         text: textContent,

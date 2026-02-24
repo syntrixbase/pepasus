@@ -63,6 +63,7 @@ describe("Config schemas", () => {
     expect(config.maxConcurrentTools).toBe(3);
     expect(config.maxCognitiveIterations).toBe(10);
     expect(config.heartbeatInterval).toBe(60);
+    expect(config.taskTimeout).toBe(120);
   });
 
   test("SettingsSchema applies nested defaults", () => {

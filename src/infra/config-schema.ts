@@ -40,6 +40,7 @@ export const AgentConfigSchema = z.object({
   maxConcurrentTools: z.coerce.number().int().positive().default(3),
   maxCognitiveIterations: z.coerce.number().int().positive().default(10),
   heartbeatInterval: z.coerce.number().positive().default(60),
+  taskTimeout: z.coerce.number().int().positive().default(120), // seconds, default 2 minutes
 });
 
 export const IdentityConfigSchema = z.object({
@@ -47,7 +48,7 @@ export const IdentityConfigSchema = z.object({
 });
 
 export const ToolsConfigSchema = z.object({
-  timeout: z.coerce.number().int().positive().default(30000),
+  timeout: z.coerce.number().int().positive().default(30), // seconds, tool execution timeout
   allowedPaths: z.array(z.string()).default([]),
   webSearch: z
     .object({
@@ -79,6 +80,7 @@ export const SettingsSchema = z.object({
   dataDir: z.string().default("data"),
   // Log output configuration
   logConsoleEnabled: z.boolean().default(false), // Enable console logging (default: false)
+  nodeEnv: z.string().default("development"), // NODE_ENV: development | production | test
 });
 
 export type LLMConfig = z.infer<typeof LLMConfigSchema>;

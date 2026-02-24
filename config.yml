@@ -64,10 +64,11 @@ agent:
   maxConcurrentTools: 3
   maxCognitiveIterations: 10
   heartbeatInterval: 60  # seconds
+  taskTimeout: 300  # seconds, max wait time for task completion
 
 tools:
-  # Tool execution timeout (milliseconds)
-  timeout: ${TOOLS_TIMEOUT:-30000}
+  # Tool execution timeout (seconds)
+  timeout: ${TOOLS_TIMEOUT:-60}
 
   # Allowed paths for file operations (empty = no restriction)
   # Supports both absolute paths (/path/to/dir) and relative paths (./data)
