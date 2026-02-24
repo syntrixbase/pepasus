@@ -1,34 +1,17 @@
 /**
- * Configuration — Zod-validated settings loaded from env vars or config file.
+ * Configuration — Zod-validated settings loaded from config files + hardcoded defaults.
+ *
+ * Loading flow:
+ * 1. Hardcoded defaults (in config-loader.ts)
+ * 2. config.yml deep-merge override (with ${ENV_VAR} interpolation)
+ * 3. config.local.yml deep-merge override (with ${ENV_VAR} interpolation)
+ * 4. Zod schema validation
+ *
+ * Env var names are user-defined in config YAML via ${VAR:-default} syntax.
+ * No hardcoded env var names in the loader (except PEGASUS_CONFIG for custom path).
  */
 export * from "./config-schema.ts";
 import type { Settings } from "./config-schema.ts";
-
-/**
- * Load settings from environment variables.
- *
- * Env vars:
- *   LLM_PROVIDER - Active provider (openai, anthropic, openai-compatible)
- *   LLM_MODEL - Default model name
- *
- *   # OpenAI provider
- *   OPENAI_API_KEY, OPENAI_BASE_URL, OPENAI_MODEL
- *
- *   # Anthropic provider
- *   ANTHROPIC_API_KEY, ANTHROPIC_BASE_URL, ANTHROPIC_MODEL
- *
- *   # OpenAI-compatible (Ollama, LM Studio, etc.)
- *   LLM_BASE_URL - Base URL for compatible provider
- *
- *   # Legacy support
- *   LLM_API_KEY - Falls back to provider-specific key
- *
- *   # System settings
- *   LLM_MAX_CONCURRENT_CALLS, LLM_TIMEOUT
- *   MEMORY_DB_PATH, MEMORY_VECTOR_DB_PATH
- *   AGENT_MAX_ACTIVE_TASKS, AGENT_MAX_CONCURRENT_TOOLS, ...
- *   PEGASUS_LOG_LEVEL, PEGASUS_DATA_DIR
- */
 
 // Singleton
 let _settings: Settings | null = null;
@@ -43,7 +26,7 @@ export function getSettings(): Settings {
     const { reinitLogger } = require("./logger.ts") as typeof import("./logger.ts");
     const { join } = require("path") as typeof import("path");
     const logFile = join(_settings.dataDir, "logs/pegasus.log");
-    reinitLogger(logFile, _settings.logConsoleEnabled, _settings.nodeEnv);
+    reinitLogger(logFile, _settings.logConsoleEnabled, _settings.logFormat);
   }
   return _settings;
 }
@@ -53,7 +36,7 @@ export function setSettings(s: Settings): void {
   _settings = s;
 }
 
-/** Reset settings singleton so next getSettings() reloads from env (for testing) */
+/** Reset settings singleton so next getSettings() reloads from config (for testing) */
 export function resetSettings(): void {
   _settings = null;
 }

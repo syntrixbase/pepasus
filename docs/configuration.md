@@ -75,6 +75,7 @@ system:
   logLevel: info  # debug | info | warn | error | silent
   dataDir: data
   logConsoleEnabled: false  # Enable console logging (default: false)
+  logFormat: json  # Log format: json | pretty (default: json)
 ```
 
 ### 配置文件查找策略
@@ -449,9 +450,13 @@ llm:
 |------|------|--------|------|
 | `system.logLevel` | string | `"info"` | 日志级别 (debug/info/warn/error/silent) |
 | `system.dataDir` | string | `"data"` | 数据目录 |
-| `system.logConsoleEnabled` | boolean | `false` | 启用控制台日志输出 |
+| `system.logConsoleEnabled` | boolean | `false` | 启用控制台日志输出 (目的地) |
+| `system.logFormat` | string | `"json"` | 日志输出格式: `json` 或 `pretty` (格式) |
 
-**注意**: 文件日志永远启用，保存到 `{dataDir}/logs/pegasus.log`，无法禁用。
+**注意**:
+- 文件日志永远启用，保存到 `{dataDir}/logs/pegasus.log`，无法禁用
+- `logConsoleEnabled` 控制日志**输出位置** (目的地)
+- `logFormat` 控制日志**输出格式** (格式)，同时作用于 file 和 console
 
 ## 📝 日志配置
 
@@ -471,11 +476,14 @@ system:
   dataDir: data
   # 启用控制台输出（用于开发调试）
   logConsoleEnabled: true
+  # 使用 pretty 格式更方便阅读
+  logFormat: pretty
 ```
 
 **或通过环境变量**:
 ```bash
 export PEGASUS_LOG_CONSOLE_ENABLED=true  # 启用控制台日志
+export PEGASUS_LOG_FORMAT=pretty          # 使用 pretty 格式
 ```
 
 ### 日志特性
@@ -487,10 +495,18 @@ export PEGASUS_LOG_CONSOLE_ENABLED=true  # 启用控制台日志
 
 ### 日志格式
 
-- **文件输出**: 始终是 JSON 格式
-- **控制台输出**:
-  - 开发环境: 彩色格式 (pino-pretty)
-  - 生产环境: JSON 格式
+日志系统将**输出位置**和**输出格式**作为两个独立配置：
+
+- **`logConsoleEnabled`**: 控制日志输出到哪里（目的地）
+- **`logFormat`**: 控制日志的格式（json 或 pretty），同时作用于 file 和 console
+
+| 格式 | 说明 |
+|------|------|
+| `json` (默认) | 结构化 JSON 行，适合机器解析和日志聚合 |
+| `pretty` | 彩色人类可读格式（via pino-pretty），适合开发调试 |
+
+- **文件输出**: 始终启用
+- **控制台输出**: 按需启用
 
 ### 示例配置
 
@@ -500,6 +516,7 @@ system:
   logLevel: debug
   dataDir: data
   logConsoleEnabled: true   # 同时输出到控制台
+  logFormat: pretty          # 使用 pretty 格式方便阅读
 ```
 
 **生产环境（仅文件）**:
@@ -508,6 +525,7 @@ system:
   logLevel: info
   dataDir: /var/lib/pegasus
   # 仅文件日志，无控制台输出（默认）
+  logFormat: json  # JSON 格式供日志聚合系统解析
 ```
 
 更多详细信息，请参考 [日志文档](./logging.md)。

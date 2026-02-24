@@ -73,6 +73,28 @@ describe("Config schemas", () => {
     expect(settings.agent.maxActiveTasks).toBe(5);
     expect(settings.logLevel).toBe("info");
     expect(settings.dataDir).toBe("data");
+    expect(settings.logFormat).toBe("json");
+    expect(settings.logConsoleEnabled).toBe(false);
+  });
+
+  test("SettingsSchema accepts custom logFormat", () => {
+    const settings = SettingsSchema.parse({ logFormat: "pretty" });
+    expect(settings.logFormat).toBe("pretty");
+  });
+
+  test("SettingsSchema rejects invalid logFormat", () => {
+    expect(() => SettingsSchema.parse({ logFormat: "xml" })).toThrow();
+  });
+
+  test("SettingsSchema coerces string 'false' to boolean for logConsoleEnabled", () => {
+    // YAML env var interpolation produces strings like "false" instead of boolean false
+    const settings = SettingsSchema.parse({ logConsoleEnabled: "false" });
+    expect(settings.logConsoleEnabled).toBe(false);
+  });
+
+  test("SettingsSchema coerces string 'true' to boolean for logConsoleEnabled", () => {
+    const settings = SettingsSchema.parse({ logConsoleEnabled: "true" });
+    expect(settings.logConsoleEnabled).toBe(true);
   });
 });
 
@@ -126,8 +148,8 @@ describe("getSettings / setSettings", () => {
     expect(reloaded.llm.provider).toBe("openai"); // default from env/schema
   });
 
-  test("loadFromEnv reads all env var fields", () => {
-    // Reset and let it load from current env (which uses defaults via Zod)
+  test("loads default settings from schema defaults", () => {
+    // Reset and let it load from defaults (no config file, Zod defaults apply)
     resetSettings();
     const s = getSettings();
     // Verify the full structure is populated
@@ -254,14 +276,14 @@ describe("Logger", () => {
 });
 
 describe("resolveTransports", () => {
-  test("returns file transport for production", () => {
-    const { transport } = resolveTransports("production", "test.log", false);
+  test("returns file transport for json format", () => {
+    const { transport } = resolveTransports("test.log", false, "json");
     expect(transport).toBeDefined();
     expect((transport as any).target).toBe("pino-roll");
   });
 
   test("returns multi-transport when console enabled", () => {
-    const { transport, isMultiTarget } = resolveTransports("development", "test.log", true);
+    const { transport, isMultiTarget } = resolveTransports("test.log", true, "pretty");
     expect(transport).toBeDefined();
     expect(isMultiTarget).toBe(true);
     expect((transport as any).targets).toBeDefined();
@@ -269,7 +291,7 @@ describe("resolveTransports", () => {
   });
 
   test("always includes file transport", () => {
-    const { transport } = resolveTransports("production", "test.log", false);
+    const { transport } = resolveTransports("test.log", false, "pretty");
     expect(transport).toBeDefined();
   });
 });

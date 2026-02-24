@@ -18,7 +18,7 @@ describe("logger", () => {
   afterEach(() => {
     try {
       rmSync(testDir, { recursive: true, force: true });
-    } catch (err) {
+    } catch (_err) {
       // Ignore cleanup errors
     }
   });
@@ -26,7 +26,7 @@ describe("logger", () => {
   describe("resolveTransports", () => {
     test("returns file transport only when console disabled", () => {
       const logFile = join(testDir, "test.log");
-      const { transport, isMultiTarget } = resolveTransports("production", logFile, false);
+      const { transport, isMultiTarget } = resolveTransports(logFile, false, "json");
 
       expect(transport).toBeDefined();
       expect(isMultiTarget).toBe(false);
@@ -34,9 +34,9 @@ describe("logger", () => {
       expect((transport as any).options.file).toBe(logFile);
     });
 
-    test("returns multi-transport with console enabled in dev", () => {
+    test("returns multi-transport with console enabled and pretty format", () => {
       const logFile = join(testDir, "test.log");
-      const { transport, isMultiTarget } = resolveTransports("development", logFile, true);
+      const { transport, isMultiTarget } = resolveTransports(logFile, true, "pretty");
 
       expect(transport).toBeDefined();
       expect(isMultiTarget).toBe(true);
@@ -48,9 +48,9 @@ describe("logger", () => {
       expect(targets[1].target).toBe("pino-roll");
     });
 
-    test("returns multi-transport with console enabled in production", () => {
+    test("returns multi-transport with console enabled and json format", () => {
       const logFile = join(testDir, "test.log");
-      const { transport, isMultiTarget } = resolveTransports("production", logFile, true);
+      const { transport, isMultiTarget } = resolveTransports(logFile, true, "json");
 
       expect(transport).toBeDefined();
       expect(isMultiTarget).toBe(true);
@@ -63,20 +63,29 @@ describe("logger", () => {
       expect(targets[1].target).toBe("pino-roll");
     });
 
+    test("defaults to json format when logFormat not specified", () => {
+      const logFile = join(testDir, "test.log");
+      const { transport, isMultiTarget } = resolveTransports(logFile, true);
+
+      expect(isMultiTarget).toBe(true);
+      const targets = (transport as any).targets;
+      expect(targets[0].target).toBe("pino/file"); // json = pino/file for console
+    });
+
     test("creates log directory if it doesn't exist", () => {
       const logFile = join(testDir, "nested/dir/test.log");
       const logDir = join(testDir, "nested/dir");
 
       expect(existsSync(logDir)).toBe(false);
 
-      resolveTransports("production", logFile, false);
+      resolveTransports(logFile, false, "json");
 
       expect(existsSync(logDir)).toBe(true);
     });
 
     test("always creates file transport", () => {
       const logFile = join(testDir, "test.log");
-      const { transport } = resolveTransports("development", logFile, false);
+      const { transport } = resolveTransports(logFile, false, "pretty");
 
       expect(transport).toBeDefined();
       expect((transport as any).target).toBe("pino-roll");
@@ -105,6 +114,12 @@ describe("logger", () => {
 
       expect(() => reinitLogger(logFile, true)).not.toThrow();
     });
+
+    test("reinitializes logger with pretty format", () => {
+      const logFile = join(testDir, "reinit.log");
+
+      expect(() => reinitLogger(logFile, false, "pretty")).not.toThrow();
+    });
   });
 
   describe("automatic log cleanup", () => {
@@ -131,7 +146,7 @@ describe("logger", () => {
       expect(existsSync(recentLogFile)).toBe(true);
 
       // Trigger cleanup by initializing logger
-      resolveTransports("production", logFile, false);
+      resolveTransports(logFile, false, "json");
 
       // Old log should be deleted, recent log should remain
       expect(existsSync(oldLogFile)).toBe(false);
@@ -154,7 +169,7 @@ describe("logger", () => {
       expect(existsSync(otherFile)).toBe(true);
 
       // Trigger cleanup
-      resolveTransports("production", logFile, false);
+      resolveTransports(logFile, false, "json");
 
       // Non-log file should not be deleted
       expect(existsSync(otherFile)).toBe(true);
@@ -164,7 +179,7 @@ describe("logger", () => {
       const logFile = join(testDir, "nonexistent/dir/pegasus.log");
 
       // Should not throw even if directory doesn't exist
-      expect(() => resolveTransports("production", logFile, false)).not.toThrow();
+      expect(() => resolveTransports(logFile, false, "json")).not.toThrow();
     });
   });
 });
