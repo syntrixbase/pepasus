@@ -350,16 +350,6 @@ describe("TaskPersister", () => {
         createdAt,
         "TOOL_CALL_COMPLETED",
         {
-          action: {
-            stepIndex: 0,
-            actionType: "tool_call",
-            actionInput: { toolName: "web_search", query: "info" },
-            result: "found some info",
-            success: true,
-            startedAt: createdAt,
-            completedAt: createdAt + 100,
-            durationMs: 100,
-          },
           newMessages: [
             { role: "tool", content: "found some info", toolCallId: "tc1" },
           ],
@@ -383,10 +373,7 @@ describe("TaskPersister", () => {
       const filePath = `${testDir}/tasks/2026-02-25/${taskId}.jsonl`;
       const ctx = await TaskPersister.replay(filePath);
 
-      expect(ctx.actionsDone).toHaveLength(1);
-      expect(ctx.actionsDone[0]!.actionType).toBe("tool_call");
-      expect(ctx.actionsDone[0]!.success).toBe(true);
-      expect(ctx.actionsDone[0]!.result).toBe("found some info");
+      expect(ctx.actionsDone).toHaveLength(0);
       // Messages: 2 from REASON_DONE + 1 from TOOL_CALL_COMPLETED + 1 from TASK_COMPLETED
       expect(ctx.messages).toHaveLength(4);
       expect(ctx.messages[2]!.role).toBe("tool");
@@ -446,16 +433,6 @@ describe("TaskPersister", () => {
         inputMetadata: {},
       });
       await persister._appendForTest(taskId, createdAt, "TOOL_CALL_FAILED", {
-        action: {
-          stepIndex: 0,
-          actionType: "tool_call",
-          actionInput: { toolName: "broken_tool" },
-          success: false,
-          error: "tool not found",
-          startedAt: createdAt,
-          completedAt: createdAt + 50,
-          durationMs: 50,
-        },
         newMessages: [
           { role: "tool", content: "Error: tool not found", toolCallId: "tc2" },
         ],
@@ -464,9 +441,7 @@ describe("TaskPersister", () => {
       const filePath = `${testDir}/tasks/2026-02-25/${taskId}.jsonl`;
       const ctx = await TaskPersister.replay(filePath);
 
-      expect(ctx.actionsDone).toHaveLength(1);
-      expect(ctx.actionsDone[0]!.success).toBe(false);
-      expect(ctx.actionsDone[0]!.error).toBe("tool not found");
+      expect(ctx.actionsDone).toHaveLength(0);
       expect(ctx.messages).toHaveLength(1);
       expect(ctx.messages[0]!.role).toBe("tool");
     });
