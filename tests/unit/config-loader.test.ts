@@ -44,6 +44,9 @@ describe("config-loader", () => {
 
   describe("DEFAULT_CONFIG (no config file)", () => {
     test("uses hardcoded defaults when no config file exists", () => {
+      // dataDir is required — provide a minimal config so loadSettings() succeeds
+      writeFileSync("config.yml", "system:\n  dataDir: data\n");
+
       const settings = loadSettings();
 
       expect(settings.llm.provider).toBe("openai");
@@ -68,6 +71,8 @@ llm:
   provider: anthropic
   model: claude-sonnet-4
   maxConcurrentCalls: 10
+system:
+  dataDir: data
 `;
       writeFileSync("config.yml", yamlContent);
 
@@ -96,6 +101,8 @@ llm:
     openai:
       model: gpt-4o
       apiKey: yaml-key
+system:
+  dataDir: /tmp/test
 `;
 
       writeFileSync("config.yaml", yamlContent);
@@ -115,6 +122,8 @@ llm:
     openai:
       apiKey: config-key
       model: gpt-4o-mini
+system:
+  dataDir: /tmp/test
 `;
       const localConfig = `
 llm:
@@ -144,6 +153,8 @@ llm:
     anthropic:
       apiKey: \${ANTHROPIC_API_KEY}
       model: claude-sonnet-4
+system:
+  dataDir: /tmp/test
 `;
 
       process.env.ANTHROPIC_API_KEY = "test-yaml-key";
@@ -171,6 +182,8 @@ llm:
   timeout: 120
 agent:
   maxActiveTasks: 5
+system:
+  dataDir: /tmp/test
 `;
 
       // Local config overrides some fields
@@ -214,6 +227,8 @@ llm:
     anthropic:
       model: claude-base
       apiKey: base-anthropic-key
+system:
+  dataDir: /tmp/test
 `;
 
       const localConfig = `
@@ -251,6 +266,8 @@ llm:
       apiKey: dummy
       model: llama3.2
       baseURL: http://localhost:11434/v1
+system:
+  dataDir: /tmp/test
 `;
 
       writeFileSync("config.yaml", config);
@@ -271,6 +288,8 @@ llm:
     lmstudio:
       model: llama3
       baseURL: http://localhost:1234/v1
+system:
+  dataDir: /tmp/test
 `;
 
       writeFileSync("config.yaml", config);
@@ -292,6 +311,8 @@ llm:
     openai:
       apiKey: \${MISSING_KEY}
       model: gpt-4o-mini
+system:
+  dataDir: /tmp/test
 `;
 
       writeFileSync("config.yaml", config);
@@ -313,6 +334,8 @@ llm:
     openai:
       apiKey: \${OPENAI_API_KEY:-sk-default-key}
       model: \${OPENAI_MODEL:-gpt-4o-mini}
+system:
+  dataDir: /tmp/test
 `;
 
       writeFileSync("config.yaml", config);
@@ -334,6 +357,8 @@ llm:
     openai:
       apiKey: \${OPENAI_API_KEY:-sk-default-key}
       model: \${OPENAI_MODEL:-gpt-4o-mini}
+system:
+  dataDir: /tmp/test
 `;
 
       writeFileSync("config.yaml", config);
@@ -355,6 +380,8 @@ llm:
     openai:
       apiKey: \${TEST_VAR:=assigned-default}
       model: gpt-4o-mini
+system:
+  dataDir: /tmp/test
 `;
 
       writeFileSync("config.yaml", config);
@@ -378,6 +405,8 @@ llm:
     openai:
       apiKey: \${REQUIRED_KEY:?API key is required}
       model: gpt-4o-mini
+system:
+  dataDir: /tmp/test
 `;
 
       writeFileSync("config.yaml", config);
@@ -396,6 +425,8 @@ llm:
     openai:
       apiKey: \${REQUIRED_KEY:?API key is required}
       model: gpt-4o-mini
+system:
+  dataDir: /tmp/test
 `;
 
       writeFileSync("config.yaml", config);
@@ -416,6 +447,8 @@ llm:
     openai:
       baseURL: \${USE_PROXY:+https://proxy.example.com/v1}
       model: gpt-4o-mini
+system:
+  dataDir: /tmp/test
 `;
 
       writeFileSync("config.yaml", config);
@@ -436,6 +469,8 @@ llm:
     openai:
       baseURL: \${USE_PROXY:+https://proxy.example.com/v1}
       model: gpt-4o-mini
+system:
+  dataDir: /tmp/test
 `;
 
       writeFileSync("config.yaml", config);
@@ -511,6 +546,8 @@ llm:
     openai:
       model: gpt-4o
       apiKey: yml-key
+system:
+  dataDir: /tmp/test
 `;
 
       writeFileSync("config.yml", yamlContent);
@@ -525,7 +562,7 @@ llm:
     test("loads config.local.yml when config.local.yaml does not exist", () => {
       resetSettings();
 
-      writeFileSync("config.yaml", "llm:\n  provider: openai\n");
+      writeFileSync("config.yaml", "llm:\n  provider: openai\nsystem:\n  dataDir: /tmp/test\n");
 
       const localContent = `
 llm:
@@ -553,6 +590,7 @@ llm:
 llm:
   provider: openai
 system:
+  dataDir: /tmp/test
   logFormat: \${PEGASUS_LOG_FORMAT:-json}
 `;
 
@@ -571,6 +609,7 @@ system:
 llm:
   provider: openai
 system:
+  dataDir: /tmp/test
   logFormat: \${PEGASUS_LOG_FORMAT:-json}
 `;
 

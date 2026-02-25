@@ -66,26 +66,27 @@ describe("Config schemas", () => {
   });
 
   test("SettingsSchema applies nested defaults", () => {
-    const settings = SettingsSchema.parse({});
+    const settings = SettingsSchema.parse({ dataDir: "/tmp/pegasus-test" });
     expect(settings.llm.provider).toBe("openai");
     expect(settings.agent.maxActiveTasks).toBe(5);
     expect(settings.logLevel).toBe("info");
-    expect(settings.dataDir).toBe("data");
+    expect(settings.dataDir).toBe("/tmp/pegasus-test");
     expect(settings.logFormat).toBe("json");
     expect(settings.logFormat).toBe("json");
   });
 
   test("SettingsSchema accepts custom logFormat", () => {
-    const settings = SettingsSchema.parse({ logFormat: "line" });
+    const settings = SettingsSchema.parse({ dataDir: "/tmp/pegasus-test", logFormat: "line" });
     expect(settings.logFormat).toBe("line");
   });
 
   test("SettingsSchema rejects invalid logFormat", () => {
-    expect(() => SettingsSchema.parse({ logFormat: "xml" })).toThrow();
+    expect(() => SettingsSchema.parse({ dataDir: "/tmp/pegasus-test", logFormat: "xml" })).toThrow();
   });
 
   test("SettingsSchema coerces JSON string array for allowedPaths", () => {
     const settings = SettingsSchema.parse({
+      dataDir: "/tmp/pegasus-test",
       tools: { allowedPaths: '["./data", "/tmp"]' },
     });
     expect(settings.tools.allowedPaths).toEqual(["./data", "/tmp"]);
@@ -94,7 +95,7 @@ describe("Config schemas", () => {
   test("SettingsSchema passes through invalid JSON string for allowedPaths to Zod", () => {
     // Non-JSON string that's not "[]" — Zod will validate/reject it
     expect(() =>
-      SettingsSchema.parse({ tools: { allowedPaths: "not-json" } }),
+      SettingsSchema.parse({ dataDir: "/tmp/pegasus-test", tools: { allowedPaths: "not-json" } }),
     ).toThrow();
   });
 });
@@ -137,7 +138,7 @@ describe("getSettings / setSettings", () => {
     expect(first).toBeDefined();
 
     // Override with custom
-    const custom = SettingsSchema.parse({ logLevel: "error" });
+    const custom = SettingsSchema.parse({ dataDir: "/tmp/pegasus-test", logLevel: "error" });
     setSettings(custom);
     expect(getSettings().logLevel).toBe("error");
 
@@ -306,6 +307,7 @@ describe("resolveTransport", () => {
 describe("getActiveProviderConfig", () => {
   test("returns OpenAI config when provider is openai", () => {
     const settings = SettingsSchema.parse({
+      dataDir: "/tmp/pegasus-test",
       llm: {
         provider: "openai",
         model: "gpt-4",
@@ -325,6 +327,7 @@ describe("getActiveProviderConfig", () => {
 
   test("returns Anthropic config when provider is anthropic", () => {
     const settings = SettingsSchema.parse({
+      dataDir: "/tmp/pegasus-test",
       llm: {
         provider: "anthropic",
         model: "default-model",
@@ -343,6 +346,7 @@ describe("getActiveProviderConfig", () => {
 
   test("falls back to global model if provider-specific not set", () => {
     const settings = SettingsSchema.parse({
+      dataDir: "/tmp/pegasus-test",
       llm: {
         provider: "openai",
         model: "gpt-4o-mini",
@@ -358,6 +362,7 @@ describe("getActiveProviderConfig", () => {
 
   test("returns compatible config with LLM_BASE_URL", () => {
     const settings = SettingsSchema.parse({
+      dataDir: "/tmp/pegasus-test",
       llm: {
         provider: "openai-compatible",
         model: "llama3",
