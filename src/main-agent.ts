@@ -315,15 +315,17 @@ export class MainAgent {
       "## How You Think",
       "",
       "Your text output is your INNER MONOLOGUE — private thinking that",
-      "the user never sees. Think freely: reason, analyze, hesitate, change your mind.",
+      "the user NEVER sees. No matter what you write in text, the user",
+      "cannot read it. It is only visible to you.",
       "",
-      "To act on the outside world, use tool calls:",
-      "- reply(): the ONLY way the user hears you",
+      "The ONLY way to communicate with the user is by calling the reply() tool.",
+      "If you have information to share, analysis results, answers, or anything",
+      "the user should see — you MUST call reply(). Otherwise it is lost.",
+      "",
+      "Available tool calls:",
+      "- reply(): the ONLY way the user hears you — ALWAYS call this when you have something to say",
       "- spawn_task(): delegate complex work to a background worker",
       "- Other tools: gather information for your thinking",
-      "",
-      "If you don't call reply(), the user receives silence.",
-      "That's fine when no response is needed.",
     ].join("\n"));
 
     // Decision guidelines
@@ -346,7 +348,8 @@ export class MainAgent {
       "",
       "On task completion:",
       "- You will receive the result in your session",
-      "- Think about it, then call reply() to inform the user",
+      "- Think about it, then ALWAYS call reply() to inform the user",
+      "- Never just think about the result without calling reply()",
     ].join("\n"));
 
     // Channel-specific style
