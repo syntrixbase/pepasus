@@ -6,10 +6,10 @@
 
 - 🔄 **事件驱动架构** — 一切皆事件，通过 EventBus 分发，无阻塞并发
 - 🤖 **状态机任务管理** — TaskFSM 精确控制任务生命周期，可挂起/恢复
-- 🧠 **五阶段认知循环** — Perceive → Think → Plan → Act → Reflect
+- 🧠 **三阶段认知循环** — Reason → Act → Reflect
 - 🎭 **身份系统** — 可配置的 persona，保持一致的人格和行为风格
 - 🔧 **内置工具系统** — 文件、网络、系统、数据工具 + LLM 函数调用
-- 💾 **记忆系统** — Working / Episodic / Semantic 多层记忆（规划中）
+- 💾 **记忆系统** — 长期记忆（facts + episodes），基于 Markdown 文件
 
 ## 🚀 快速开始
 
@@ -101,7 +101,7 @@ bun run dev
   Pegasus: 你好！我是 Pegasus，很高兴认识你。有什么我可以帮你的吗？
 ```
 
-详细配置说明请查看 [docs/running-m1.md](./docs/running-m1.md)。
+详细配置说明请查看 [docs/running.md](./docs/running.md)。
 
 ## 🧪 开发
 
@@ -124,8 +124,8 @@ make check
 ### 代码质量
 
 项目要求：
-- ✅ 测试覆盖率 ≥ 95%（当前：**99.51%**）
-- ✅ 所有测试必须通过（当前：**332 tests**）
+- ✅ 测试覆盖率 ≥ 95%（当前：**99.53%**）
+- ✅ 所有测试必须通过（当前：**359 tests**）
 - ✅ TypeScript 类型检查通过
 
 Git hooks 会在 push 前自动运行检查。
@@ -137,13 +137,13 @@ Git hooks 会在 push 前自动运行检查。
 | **M0: 骨架跑通** | ✅ 完成 | EventBus + TaskFSM + Agent 核心架构 |
 | **M1: 能对话** | ✅ 完成 | CLI 对话 + Identity 系统 + LLM 集成 |
 | **M3: 能行动** | ✅ 完成 | 内置工具系统 + LLM 函数调用 + 事件驱动 Actor |
-| **M2: 有记忆** | 📋 待开始 | 记忆系统（Working/Episodic/Semantic） |
+| **M2: 有记忆** | ✅ 完成 | 长期记忆系统（facts + episodes） |
 | **M4: 会思考** | 📋 待开始 | 复杂任务分解和规划 |
 | **M5: 能并发** | 📋 待验证 | 多任务并发处理 |
 | **M6: 能挂起** | 📋 待开始 | 任务挂起/恢复机制 |
 | **M7: 能学习** | 📋 待开始 | 从历史经验中学习改进 |
 
-当前测试覆盖率：**99.51%** ✅ | 测试数：**332 pass**
+当前测试覆盖率：**99.53%** ✅ | 测试数：**359 pass**
 
 ## 🏗️ 架构设计
 
@@ -153,7 +153,7 @@ Git hooks 会在 push 前自动运行检查。
 2. **任务即状态机** — 每个任务是独立的 TaskFSM，有明确的状态转换规则
 3. **Agent 是事件处理器** — 没有阻塞循环，只有事件驱动的状态转换
 4. **无阻塞、纯异步** — 多任务交错执行，共享算力
-5. **认知处理器无状态** — Perceiver/Thinker/Planner/Actor/Reflector 可被任意任务复用
+5. **认知处理器无状态** — Thinker/Planner/Actor/Reflector 可被任意任务复用
 
 ### 系统架构
 
@@ -166,17 +166,16 @@ Git hooks 会在 push 前自动运行检查。
 │    Agent (事件处理器 + 状态转换)     │
 ├─────────────────────────────────────┤
 │  TaskFSM Layer (任务状态机)          │
-│  IDLE → PERCEIVING → THINKING       │
-│     → PLANNING → ACTING             │
+│  IDLE → REASONING → ACTING          │
 │     → REFLECTING → COMPLETED        │
 ├─────────────────────────────────────┤
 │  Cognitive Processors (认知处理器)   │
-│  Perceiver │ Thinker │ Planner      │
-│  Actor │ Reflector                  │
+│  Thinker │ Planner │ Actor          │
+│  Reflector                          │
 ├─────────────────────────────────────┤
 │  Identity Layer (身份系统)           │
 ├─────────────────────────────────────┤
-│  Memory System (记忆系统 - 规划中)   │
+│  Memory System (长期记忆)            │
 ├─────────────────────────────────────┤
 │  Tool System (内置工具 + 执行器)     │
 ├─────────────────────────────────────┤
@@ -202,12 +201,12 @@ pegasus/
 │   ├── cli.ts              # CLI 交互界面
 │   ├── events/             # 事件系统（Event + EventBus）
 │   ├── task/               # 任务状态机（TaskFSM + Context）
-│   ├── cognitive/          # 认知处理器（5 阶段）
+│   ├── cognitive/          # 认知处理器（3 阶段：Reason → Act → Reflect）
 │   ├── identity/           # 身份系统（Persona + Prompt）
 │   ├── tools/              # 工具系统
 │   │   ├── registry.ts     # 工具注册表
 │   │   ├── executor.ts     # 工具执行器（事件驱动 + 超时控制）
-│   │   └── builtins/       # 内置工具（system/file/network/data）
+│   │   └── builtins/       # 内置工具（system/file/network/data/memory）
 │   └── infra/              # 基础设施（Config + Logger + LLM clients）
 ├── tests/
 │   ├── unit/               # 单元测试
@@ -256,13 +255,11 @@ PR 到 `main` 分支会自动触发 CI 检查：
 
 ## 📚 文档
 
-- [运行 M1 CLI](./docs/running-m1.md) - 配置和使用说明
+- [运行指南](./docs/running.md) - 配置和使用说明
 - [配置指南](./docs/configuration.md) - YAML 配置 + 环境变量插值
 - [日志系统](./docs/logging.md) - 日志格式、输出目标、log rotation
 - [系统架构](./docs/architecture.md) - 架构设计总览
-- [MVP 计划](./docs/plans/mvp-plan.md) - 开发路线图
-- [M1 计划](./docs/plans/m1-plan.md) - M1 对话能力
-- [M3 计划](./docs/plans/m3-plan.md) - M3 工具系统
+- [记忆系统](./docs/memory-system.md) - 长期记忆设计
 - [项目结构](./docs/project-structure.md) - 代码组织说明
 
 ## 📄 许可证
@@ -271,4 +268,4 @@ MIT
 
 ---
 
-**Status**: M3 完成 ✅ | 覆盖率 99.51% ✅ | 下一步: M2 有记忆 / M4 会思考
+**Status**: M2 完成 ✅ | 覆盖率 99.53% ✅ | 下一步: M4 会思考
