@@ -342,7 +342,7 @@ export class Agent {
       const memResult = await this.toolExecutor.execute(
         "memory_list",
         {},
-        { taskId: task.context.id },
+        { taskId: task.context.id, dataDir: this.settings.memory.dataDir },
       );
       if (memResult.success && Array.isArray(memResult.result)) {
         memoryIndex = memResult.result as MemoryIndexEntry[];
@@ -427,7 +427,7 @@ export class Agent {
         const toolResult = await this.toolExecutor.execute(
           toolName,
           toolParams,
-          { taskId: task.context.id },
+          { taskId: task.context.id, dataDir: this.settings.memory.dataDir },
         );
 
         // Push tool result message to context
