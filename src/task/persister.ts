@@ -158,6 +158,15 @@ export class TaskPersister {
         case "TASK_SUSPENDED":
           ctx.suspendedState = (entry.data.suspendedState as string) ?? null;
           ctx.suspendReason = (entry.data.suspendReason as string) ?? null;
+          if (entry.data.reasoning) {
+            ctx.reasoning = entry.data.reasoning as Record<string, unknown>;
+          }
+          if (entry.data.plan) {
+            ctx.plan = entry.data.plan as Plan;
+          }
+          if (Array.isArray(entry.data.newMessages)) {
+            ctx.messages.push(...(entry.data.newMessages as Message[]));
+          }
           break;
 
         case "REFLECT_DONE":
@@ -322,15 +331,21 @@ export class TaskPersister {
       }
     });
 
-    // TASK_SUSPENDED
+    // TASK_SUSPENDED — persist full context snapshot for crash recovery
     this.bus.subscribe(EventType.TASK_SUSPENDED, async (event) => {
       if (!event.taskId) return;
       const task = this.registry.getOrNull(event.taskId);
       if (!task) return;
       try {
+        const lastIdx = this.messageIndex.get(event.taskId) ?? 0;
+        const newMessages = task.context.messages.slice(lastIdx);
+        this.messageIndex.set(event.taskId, task.context.messages.length);
         await this._append(event.taskId, task.createdAt, "TASK_SUSPENDED", {
           suspendedState: task.context.suspendedState,
           suspendReason: task.context.suspendReason,
+          reasoning: task.context.reasoning,
+          plan: task.context.plan,
+          newMessages,
         });
       } catch (err) {
         logger.warn({ taskId: event.taskId, error: err }, "persist_suspended_failed");
