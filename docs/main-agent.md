@@ -214,7 +214,40 @@ Inner monologue: "The task failed with a permission error. This is expected —
 → reply("没有权限读取该文件。需要我换一种方式吗？")
 ```
 
-## Session
+## Task Communication
+
+Task System pushes notifications directly into Main Agent's message queue. Main Agent does not poll or subscribe to EventBus for task events.
+
+### Notification Callback
+
+Main Agent registers a callback with the Task System at startup:
+
+```typescript
+this.agent.onNotify((taskId, type, data) => {
+  this.queue.push({ kind: "task_notify", taskId, type, data });
+  this._processQueue();
+});
+```
+
+The Task System calls this whenever something noteworthy happens — it does not need to know what Main Agent is, only that there's a callback to invoke.
+
+### What gets notified (and what doesn't)
+
+| Notify | Don't notify |
+|--------|-------------|
+| Task completed (final result) | Each REASON_DONE / tool call step |
+| Task failed (error) | Internal state transitions |
+| Needs user clarification (NEED_MORE_INFO) | Progress percentages |
+
+**Principle: only notify Main Agent with information that matters to the user.** Internal tool calls, intermediate reasoning, FSM transitions — these are Task System's internal business. Main Agent only needs to know outcomes and decisions that require its attention.
+
+### Replaces onTaskComplete
+
+The old per-task `onTaskComplete(taskId, callback)` pattern is replaced by this global notification callback. Benefits:
+
+- No per-task callback registration (callbacks survive restart)
+- Task can notify multiple times (not just on completion)
+- Task System recovery can notify about failed pending tasks through the same channel
 
 Main Agent maintains a session-level message history. This is the record of its inner monologue and all interactions.
 
@@ -245,6 +278,52 @@ data/main/
 ```
 
 Session is persisted as append-only JSONL. When token count exceeds threshold, the current session is compacted: renamed to a timestamped file, replaced with a summary that references the archived file.
+
+### Startup Recovery
+
+Two independent recovery processes, each handled by its own layer:
+
+**Session recovery** (SessionStore's responsibility):
+
+SessionStore.load() automatically repairs unclosed tool calls before returning messages. If the process crashed mid-thinking, the last assistant message may have tool calls without matching tool results:
+
+```
+[assistant] toolCalls: [spawn_task("查天气"), reply("好的")]
+← process crashed — no tool result for either
+```
+
+SessionStore injects cancellation results to close them:
+
+```
+[tool] {"cancelled": true, "reason": "process restarted"}   ← for spawn_task
+[tool] {"cancelled": true, "reason": "process restarted"}   ← for reply
+```
+
+This is purely a session data integrity concern — SessionStore doesn't know or care about tasks. It just ensures every tool call has a matching tool result so the message history is well-formed for the next LLM call.
+
+**Task recovery** (Task System's responsibility):
+
+Handled by Agent during its own `start()`, completely independent of Main Agent:
+
+1. TaskPersister scans `data/tasks/pending.json` for unfinished tasks
+2. For each: append `TASK_FAILED` to its JSONL log, remove from `pending.json`
+3. Push failure notification through the `onNotify` callback → enters Main Agent queue
+
+Main Agent receives these as normal `task_notify` events. It doesn't know or care that they came from recovery vs normal execution.
+
+**Startup sequence:**
+
+```
+MainAgent.start()
+  1. sessionMessages = sessionStore.load()    ← repair happens inside load()
+  2. agent.onNotify(callback)                 ← register before agent.start()
+  3. agent.start()                            ← Task System recovers pending tasks
+     → TaskPersister.recoverPending()
+     → onNotify called for each failed task → enters Main Agent queue
+  4. processQueue()                           ← handle recovery notifications
+```
+
+Main Agent is fully passive in recovery — it just loads its session (already repaired) and waits for notifications to arrive through the normal queue.
 
 ### Token Counting & Compaction
 
@@ -393,5 +472,7 @@ Main Agent and the Task System are separate layers:
 | Tools | reply + spawn_task + simple tools | Full tool suite |
 | Persistence | data/main/ (session JSONL) | data/tasks/ (task JSONL) |
 | Lifetime | Entire session | Single task |
+| Communication | Receives notifications via callback | Pushes results to Main Agent queue |
+| Recovery | Repairs unclosed tool calls in session | Marks pending tasks as failed |
 
-The Task System (Agent, TaskFSM, cognitive pipeline, EventBus) is unchanged. Main Agent creates tasks through `spawn_task`, receives results via internal events, and does not interfere with task execution.
+The Task System (Agent, TaskFSM, cognitive pipeline, EventBus) is unchanged internally. Main Agent creates tasks through `spawn_task`, and receives results via the `onNotify` callback pushed directly into its message queue.

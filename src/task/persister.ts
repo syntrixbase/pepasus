@@ -224,6 +224,51 @@ export class TaskPersister {
     return path.join(tasksDir, date, `${taskId}.jsonl`);
   }
 
+  /**
+   * Recover pending tasks from a previous run.
+   * Marks each as TASK_FAILED in its JSONL log and clears pending.json.
+   * Returns the list of recovered taskIds for notification.
+   */
+  static async recoverPending(tasksDir: string): Promise<string[]> {
+    const pendingPath = path.join(tasksDir, "pending.json");
+
+    let pending: Array<{ taskId: string; ts: number }> = [];
+    try {
+      const content = await readFile(pendingPath, "utf-8");
+      pending = JSON.parse(content);
+    } catch {
+      return []; // No pending file
+    }
+
+    if (pending.length === 0) return [];
+
+    const index = await TaskPersister.loadIndex(tasksDir);
+    const recovered: string[] = [];
+
+    for (const { taskId } of pending) {
+      const date = index.get(taskId);
+      if (date) {
+        const filePath = path.join(tasksDir, date, `${taskId}.jsonl`);
+        await appendFile(
+          filePath,
+          JSON.stringify({
+            ts: Date.now(),
+            event: "TASK_FAILED",
+            taskId,
+            data: { error: "process restarted, task cancelled" },
+          }) + "\n",
+          "utf-8",
+        );
+      }
+      recovered.push(taskId);
+    }
+
+    // Clear pending
+    await writeFile(pendingPath, "[]", "utf-8");
+
+    return recovered;
+  }
+
   // ── Internals ──
 
   private _dateStr(ts: number): string {

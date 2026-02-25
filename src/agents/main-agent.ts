@@ -18,6 +18,7 @@ import { ToolExecutor } from "../tools/executor.ts";
 import type { InboundMessage, OutboundMessage } from "../channels/types.ts";
 import { SessionStore } from "../session/store.ts";
 import { Agent } from "./agent.ts";
+import type { TaskNotification } from "./agent.ts";
 import type { ToolCall } from "../models/tool.ts";
 
 // Main Agent's curated tool set
@@ -33,7 +34,7 @@ export interface MainAgentDeps {
 
 type QueueItem =
   | { kind: "message"; message: InboundMessage }
-  | { kind: "task_result"; taskId: string; result: unknown; error?: string }
+  | { kind: "task_notify"; notification: TaskNotification }
   | { kind: "think"; channel: { type: string; channelId: string; replyTo?: string } };
 
 export class MainAgent {
@@ -77,6 +78,12 @@ export class MainAgent {
     // Load session history from disk
     this.sessionMessages = await this.sessionStore.load();
 
+    // Register notification callback BEFORE agent.start()
+    this.agent.onNotify((notification) => {
+      this.queue.push({ kind: "task_notify", notification });
+      this._processQueue();
+    });
+
     // Start task execution engine
     await this.agent.start();
 
@@ -103,16 +110,6 @@ export class MainAgent {
     this._processQueue();
   }
 
-  /** Internal: notify Main Agent of task completion. */
-  private _onTaskResult(
-    taskId: string,
-    result: unknown,
-    error?: string,
-  ): void {
-    this.queue.push({ kind: "task_result", taskId, result, error });
-    this._processQueue();
-  }
-
   // ── Queue processing ──
 
   private _processQueue(): void {
@@ -129,8 +126,8 @@ export class MainAgent {
       try {
         if (item.kind === "message") {
           await this._handleMessage(item.message);
-        } else if (item.kind === "task_result") {
-          await this._handleTaskResult(item.taskId, item.result, item.error);
+        } else if (item.kind === "task_notify") {
+          await this._handleTaskNotify(item.notification);
         } else if (item.kind === "think") {
           await this._think(item.channel);
         }
@@ -253,11 +250,8 @@ export class MainAgent {
 
   private async _handleSpawnTask(tc: ToolCall): Promise<void> {
     const { input } = tc.arguments as { description: string; input: string };
-
-    // Spawn task via existing Agent
     const taskId = await this.agent.submit(input, "main-agent");
 
-    // Reply with acknowledgment (tool result in session)
     const toolMsg: Message = {
       role: "tool",
       content: JSON.stringify({ taskId, status: "spawned" }),
@@ -266,35 +260,24 @@ export class MainAgent {
     this.sessionMessages.push(toolMsg);
     await this.sessionStore.append(toolMsg);
 
-    // Register completion callback
-    this.agent.onTaskComplete(taskId, (task) => {
-      const result = task.context.finalResult;
-      const error = task.context.error ?? undefined;
-      this._onTaskResult(taskId, result, error);
-    });
-
+    // No per-task callback — Agent calls onNotify automatically
     logger.info({ taskId, input }, "task_spawned");
   }
 
-  // ── Task result handling ──
+  // ── Task notification handling ──
 
-  private async _handleTaskResult(
-    taskId: string,
-    result: unknown,
-    error?: string,
-  ): Promise<void> {
-    const resultText = error
-      ? `[Task ${taskId} failed]\nError: ${error}`
-      : `[Task ${taskId} completed]\nResult: ${JSON.stringify(result)}`;
+  private async _handleTaskNotify(notification: TaskNotification): Promise<void> {
+    const resultText = notification.type === "failed"
+      ? `[Task ${notification.taskId} failed]\nError: ${notification.error}`
+      : `[Task ${notification.taskId} completed]\nResult: ${JSON.stringify(notification.result)}`;
 
     const systemMsg: Message = { role: "user", content: resultText };
     this.sessionMessages.push(systemMsg);
     await this.sessionStore.append(systemMsg, {
-      type: "task_result",
-      taskId,
+      type: "task_notify",
+      taskId: notification.taskId,
     });
 
-    // Queue a think step — Main Agent will process the result
     const lastChannel = this._getLastChannel();
     if (lastChannel) {
       this.queue.push({ kind: "think", channel: lastChannel });
