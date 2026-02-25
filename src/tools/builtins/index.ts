@@ -51,6 +51,13 @@ const memory_append = memoryToolsModule.memory_append;
 
 export { memory_list, memory_read, memory_write, memory_append };
 
+// Task tools
+import * as taskToolsModule from "./task-tools.ts";
+const task_list = taskToolsModule.task_list;
+const task_replay = taskToolsModule.task_replay;
+
+export { task_list, task_replay };
+
 // Re-export all tools as array
 export const systemTools: Tool[] = [
   current_time,
@@ -89,10 +96,16 @@ export const memoryTools: Tool[] = [
   memory_append,
 ];
 
+export const taskTools: Tool[] = [
+  task_list,
+  task_replay,
+];
+
 export const allBuiltInTools: Tool[] = [
   ...systemTools,
   ...fileTools,
   ...networkTools,
   ...dataTools,
   ...memoryTools,
+  ...taskTools,
 ];

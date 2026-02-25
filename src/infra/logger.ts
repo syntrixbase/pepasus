@@ -119,12 +119,23 @@ export function resolveTransport(
 }
 
 /**
- * Initialize root logger with hardcoded defaults (json format, data/logs/).
+ * Initialize root logger with hardcoded defaults.
  *
  * Bootstrap phase: config is not yet loaded.
  * This logger will be replaced by reinitLogger() once config is available.
+ *
+ * Reads PEGASUS_LOG_LEVEL env var — when "silent" (set by Makefile/hooks
+ * during tests), skips file transport setup to avoid creating data/logs/.
  */
 function initRootLogger(): pino.Logger {
+  const envLevel = process.env["PEGASUS_LOG_LEVEL"];
+  if (envLevel) currentLevel = envLevel;
+
+  if (currentLevel === "silent") {
+    // Silent mode: no file I/O, no directory creation
+    return pino({ level: "silent" });
+  }
+
   const logFile = join("data", "logs/pegasus.log");
   const transport = resolveTransport(logFile, "json");
   return pino(createLoggerOptions(transport));
@@ -151,6 +162,14 @@ export function reinitLogger(
   if (logLevel) {
     currentLevel = logLevel;
   }
+
+  // Silent mode: no file I/O needed
+  if (currentLevel === "silent") {
+    const newLogger = pino({ level: "silent" });
+    Object.assign(rootLogger, newLogger);
+    return;
+  }
+
   const transport = resolveTransport(logFile, logFormat);
   const newLogger = pino(createLoggerOptions(transport));
 
