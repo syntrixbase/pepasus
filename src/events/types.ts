@@ -28,11 +28,9 @@ export const EventType = {
   TASK_RESUMED: 250,
 
   // Cognitive stages (300-399)
-  PERCEIVE_DONE: 300,
-  THINK_DONE: 310,
-  PLAN_DONE: 320,
+  REASON_DONE: 300,
   ACT_DONE: 330,
-  STEP_COMPLETED: 335,  // Non-tool step completed during ACTING phase
+  STEP_COMPLETED: 335,
   REFLECT_DONE: 340,
   NEED_MORE_INFO: 350,
 
