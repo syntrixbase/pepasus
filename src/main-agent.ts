@@ -25,6 +25,7 @@ import { current_time } from "./tools/builtins/system-tools.ts";
 import { memory_list, memory_read } from "./tools/builtins/memory-tools.ts";
 import { task_list, task_replay } from "./tools/builtins/task-tools.ts";
 import { spawn_task } from "./tools/builtins/spawn-task-tool.ts";
+import { reply } from "./tools/builtins/reply-tool.ts";
 
 const logger = getLogger("main_agent");
 
@@ -71,6 +72,7 @@ export class MainAgent {
       task_list,
       task_replay,
       spawn_task,
+      reply,
     ]);
 
     // Tool executor for Main Agent's simple tools (no EventBus needed)
@@ -201,7 +203,23 @@ export class MainAgent {
 
         // Execute each tool call
         for (const tc of result.toolCalls) {
-          if (tc.name === "spawn_task") {
+          if (tc.name === "reply") {
+            // Reply tool — deliver to user via callback
+            const { text, channelId, replyTo } = tc.arguments as { text: string; channelId: string; replyTo?: string };
+            const toolMsg: Message = {
+              role: "tool",
+              content: JSON.stringify({ delivered: true }),
+              toolCallId: tc.id,
+            };
+            this.sessionMessages.push(toolMsg);
+            await this.sessionStore.append(toolMsg);
+            if (this.replyCallback) {
+              this.replyCallback({
+                text,
+                channel: { type: message.channel.type, channelId, replyTo },
+              });
+            }
+          } else if (tc.name === "spawn_task") {
             // Handle spawn_task specially
             await this._handleSpawnTask(tc, message);
           } else {
@@ -230,24 +248,14 @@ export class MainAgent {
         continue;
       }
 
-      // No tool calls — direct text response
+      // No tool calls — inner monologue only (user doesn't see this)
       if (result.text) {
-        const assistantMsg: Message = {
-          role: "assistant",
-          content: result.text,
-        };
+        const assistantMsg: Message = { role: "assistant", content: result.text };
         this.sessionMessages.push(assistantMsg);
         await this.sessionStore.append(assistantMsg);
-
-        if (this.replyCallback) {
-          this.replyCallback({
-            text: result.text,
-            channel: message.channel,
-          });
-        }
       }
 
-      // Done with this message
+      // LLM finished thinking without calling any more tools — done
       break;
     }
   }
@@ -305,26 +313,9 @@ export class MainAgent {
     const lastChannel = this._getLastChannel();
     if (!lastChannel) return;
 
-    // LLM call to format the result for the user
+    // Use the same LLM loop — LLM will think and call reply() if needed
     const system = this._buildSystemPrompt({ text: "", channel: lastChannel });
-    const llmResult = await generateText({
-      model: this.model,
-      system,
-      messages: this.sessionMessages,
-    });
-
-    if (llmResult.text) {
-      const assistantMsg: Message = {
-        role: "assistant",
-        content: llmResult.text,
-      };
-      this.sessionMessages.push(assistantMsg);
-      await this.sessionStore.append(assistantMsg);
-
-      if (this.replyCallback) {
-        this.replyCallback({ text: llmResult.text, channel: lastChannel });
-      }
-    }
+    await this._llmLoop({ text: "", channel: lastChannel }, system);
   }
 
   // ── Helpers ──
@@ -342,24 +333,51 @@ export class MainAgent {
       lines.push("", `Background: ${this.persona.background}`);
     }
 
-    lines.push("", `The user is messaging via ${message.channel.type}.`);
-
-    lines.push(
+    // Inner monologue explanation
+    lines.push("", [
+      "## How You Think",
       "",
-      [
-        "You are the user's primary conversation partner.",
-        "",
-        "You have direct access to these tools:",
-        "- current_time: Get current date/time",
-        "- memory_list / memory_read: Access long-term memory",
-        "- task_list / task_replay: Check task history",
-        "- spawn_task: Launch a background task for complex operations",
-        "",
-        "Handle directly: simple conversation, follow-ups, memory lookups, quick tool calls.",
-        "Spawn a task: file I/O, shell commands, web search, multi-step work.",
-        "If unsure whether it's simple, spawn a task.",
-      ].join("\n"),
-    );
+      "Your text output is your INNER MONOLOGUE — private thinking that",
+      "the user never sees. Think freely: reason, analyze, hesitate, change your mind.",
+      "",
+      "To act on the outside world, use tool calls:",
+      "- reply(): the ONLY way the user hears you",
+      "- spawn_task(): delegate complex work to a background worker",
+      "- Other tools: gather information for your thinking",
+      "",
+      "If you don't call reply(), the user receives silence.",
+      "That's fine when no response is needed.",
+    ].join("\n"));
+
+    // Decision guidelines
+    lines.push("", [
+      "## When to Reply vs Spawn",
+      "",
+      "Reply directly (via reply tool) when:",
+      "- Simple conversation, greetings, opinions, follow-ups",
+      "- You can answer from session context or memory",
+      "- A quick tool call is enough (time, memory lookup)",
+      "",
+      "Spawn a task when:",
+      "- You need file I/O, shell commands, or web requests",
+      "- The work requires multiple steps",
+      "- You're unsure — err on the side of spawning",
+      "",
+      "On task completion:",
+      "- You will receive the result in your session",
+      "- Think about it, then call reply() to inform the user",
+    ].join("\n"));
+
+    // Channel-specific style
+    const channelType = message.channel.type;
+    const styleGuides: Record<string, string> = {
+      cli: "You are in a terminal session. Use detailed responses, code blocks are welcome. No character limit.",
+      sms: "You are communicating via SMS. Keep replies under 160 characters. Be extremely concise.",
+      slack: "You are in a Slack workspace. Use markdown formatting. Use threads for long discussions.",
+      web: "You are on a web interface. You can use rich formatting and links.",
+    };
+    const style = styleGuides[channelType] ?? "Adapt your response style to the channel.";
+    lines.push("", `## Response Style\n\n${style}`);
 
     return lines.join("\n");
   }
