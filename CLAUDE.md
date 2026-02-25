@@ -52,5 +52,5 @@ Before ANY change:
 
 - Uses `bun` for frontend package scripts.
 - `README.md` is the doc entry.
-- Design docs are located in `docs` folder
-- Tasks/plans are located in `docs/plans` folder, it's local only.
+- `docs/` — persistent system design docs (no implementation details).
+- `docs/plans/` — disposable working documents (plans, design drafts, reviews). Local only, gitignored. Throw away after use.
