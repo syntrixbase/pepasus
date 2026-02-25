@@ -29,6 +29,7 @@ import { ToolExecutor } from "./tools/executor.ts";
 import type { ToolResult } from "./tools/types.ts";
 import { allBuiltInTools } from "./tools/builtins/index.ts";
 import type { MemoryIndexEntry } from "./identity/prompt.ts";
+import path from "node:path";
 
 const logger = getLogger("agent");
 
@@ -314,7 +315,7 @@ export class Agent {
       const memResult = await this.toolExecutor.execute(
         "memory_list",
         {},
-        { taskId: task.context.id, dataDir: this.settings.memory.dataDir },
+        { taskId: task.context.id, memoryDir: path.join(this.settings.dataDir, "memory") },
       );
       if (memResult.success && Array.isArray(memResult.result)) {
         memoryIndex = memResult.result as MemoryIndexEntry[];
@@ -390,7 +391,7 @@ export class Agent {
         const toolResult = await this.toolExecutor.execute(
           toolName,
           toolParams,
-          { taskId: task.context.id, dataDir: this.settings.memory.dataDir },
+          { taskId: task.context.id, memoryDir: path.join(this.settings.dataDir, "memory") },
         );
 
         // Push tool result message to context

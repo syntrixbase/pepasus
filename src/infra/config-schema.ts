@@ -30,9 +30,7 @@ export const LLMConfigSchema = z.object({
   timeout: z.coerce.number().int().positive().default(120),
 });
 
-export const MemoryConfigSchema = z.object({
-  dataDir: z.string().default("data/memory"),
-});
+export const MemoryConfigSchema = z.object({});
 
 export const AgentConfigSchema = z.object({
   maxActiveTasks: z.coerce.number().int().positive().default(5),

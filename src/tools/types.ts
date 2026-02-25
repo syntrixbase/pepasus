@@ -58,7 +58,7 @@ export interface ToolContext {
   taskId: string;
   userId?: string;
   allowedPaths?: string[];
-  dataDir?: string;
+  memoryDir?: string;
 }
 
 // ── ToolStats ─────────────────────────────────

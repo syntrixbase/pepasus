@@ -36,7 +36,7 @@ export const read_file: Tool = {
       }
 
       // Read file
-      const filePath = normalizePath(originalPath, context.dataDir);
+      const filePath = normalizePath(originalPath);
       const content = await Bun.file(filePath).text();
 
       // Get file stats
@@ -95,7 +95,7 @@ export const write_file: Tool = {
       }
 
       // Write file
-      const filePath = normalizePath(originalPath, context.dataDir);
+      const filePath = normalizePath(originalPath);
 
       // Ensure parent directory exists
       const parentDir = path.dirname(filePath);
@@ -153,7 +153,7 @@ export const list_files: Tool = {
     try {
       // Check path permissions
       const allowedPaths = context.allowedPaths;
-      const dirPath = normalizePath(originalPath || ".", context.dataDir);
+      const dirPath = normalizePath(originalPath || ".");
 
       if (allowedPaths && allowedPaths.length > 0) {
         if (!isPathAllowed(dirPath, allowedPaths)) {
@@ -296,7 +296,7 @@ export const delete_file: Tool = {
       }
 
       // Delete file
-      const filePath = normalizePath(originalPath, context.dataDir);
+      const filePath = normalizePath(originalPath);
       await rm(filePath, { recursive: true, force: true });
 
       return {
@@ -351,8 +351,8 @@ export const move_file: Tool = {
       }
 
       // Move file
-      const normalizedFrom = normalizePath(fromPath, context.dataDir);
-      const normalizedTo = normalizePath(toPath, context.dataDir);
+      const normalizedFrom = normalizePath(fromPath);
+      const normalizedTo = normalizePath(toPath);
 
       await Bun.write(normalizedTo, await Bun.file(normalizedFrom).text());
       await rm(normalizedFrom, { recursive: true, force: true });
@@ -403,7 +403,7 @@ export const get_file_info: Tool = {
       }
 
       // Get file stats
-      const filePath = normalizePath(originalPath, context.dataDir);
+      const filePath = normalizePath(originalPath);
       const stat = await Bun.file(filePath).stat();
 
       return {
