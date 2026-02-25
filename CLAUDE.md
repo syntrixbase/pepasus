@@ -51,5 +51,6 @@ Before ANY change:
 ## Preference
 
 - Uses `bun` for frontend package scripts.
-- Tasks/plans are located in `docs/plans` folder
-- Design docs are located in `docs/design` folder
+- `README.md` is the doc entry.
+- Design docs are located in `docs` folder
+- Tasks/plans are located in `docs/plans` folder, it's local only.
