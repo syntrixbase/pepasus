@@ -26,8 +26,8 @@ const testPersona: Persona = {
  * In inner monologue mode, only the `reply` tool call produces user-visible
  * output. Plain text from the LLM is inner monologue (private thinking).
  *
- * After the reply tool call, the _llmLoop continues — the model must return
- * a stop (no tool calls) on the next iteration to end the loop.
+ * After the reply tool call, _think queues another think step — the model
+ * must return a stop (no tool calls) on the next invocation to end thinking.
  */
 function createReplyModel(
   replyText: string,
@@ -184,8 +184,8 @@ describe("MainAgent", () => {
 
   it("should queue messages and process sequentially", async () => {
     let callCount = 0;
-    // Track which calls are "fresh" (first call per _llmLoop invocation).
-    // The _llmLoop continues after tool calls, so each message triggers:
+    // Track which calls are "fresh" (first call per _think invocation).
+    // _think queues another think step after tool calls, so each message triggers:
     //   call N (reply tool) → call N+1 (stop).
     // We use odd/even to alternate: odd calls return reply, even calls stop.
     const model: LanguageModel = {
@@ -342,7 +342,7 @@ describe("MainAgent", () => {
 
   it("should handle spawn_task tool call and task completion", async () => {
     let callCount = 0;
-    // Track whether each _llmLoop invocation has already replied
+    // Track whether each _think invocation has already replied
     let hasRepliedThisLoop = false;
     const model: LanguageModel = {
       provider: "test",

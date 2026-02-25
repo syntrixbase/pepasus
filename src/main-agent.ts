@@ -37,7 +37,8 @@ export interface MainAgentDeps {
 
 type QueueItem =
   | { kind: "message"; message: InboundMessage }
-  | { kind: "task_result"; taskId: string; result: unknown; error?: string };
+  | { kind: "task_result"; taskId: string; result: unknown; error?: string }
+  | { kind: "think"; channel: { type: string; channelId: string; replyTo?: string } };
 
 export class MainAgent {
   private model: LanguageModel;
@@ -140,12 +141,13 @@ export class MainAgent {
       try {
         if (item.kind === "message") {
           await this._handleMessage(item.message);
-        } else {
+        } else if (item.kind === "task_result") {
           await this._handleTaskResult(item.taskId, item.result, item.error);
+        } else if (item.kind === "think") {
+          await this._think(item.channel);
         }
       } catch (err) {
         logger.error({ error: err }, "main_agent_process_error");
-        // Send error reply if possible
         if (item.kind === "message" && this.replyCallback) {
           this.replyCallback({
             text: "Sorry, I encountered an internal error. Please try again.",
@@ -164,108 +166,98 @@ export class MainAgent {
     this.sessionMessages.push(userMsg);
     await this.sessionStore.append(userMsg, { channel: message.channel });
 
-    // Build system prompt
-    const system = this._buildSystemPrompt(message);
-
-    // LLM call with tool support
-    await this._llmLoop(message, system);
+    // One step of thinking
+    await this._think(message.channel);
   }
 
-  private async _llmLoop(
-    message: InboundMessage,
-    system: string,
-  ): Promise<void> {
+  /**
+   * One step of thinking: single LLM call → execute tools → results back to queue.
+   *
+   * This is NOT a loop. Each call does exactly one LLM invocation.
+   * If the LLM returns tool calls, tool results are queued as a new event,
+   * which will trigger another _think when processed.
+   */
+  private async _think(channel: { type: string; channelId: string; replyTo?: string }): Promise<void> {
+    const system = this._buildSystemPrompt({ text: "", channel });
     const tools = this.toolRegistry.toLLMTools();
-    let iterations = 0;
-    const maxIterations = 10;
 
-    while (iterations < maxIterations) {
-      iterations++;
+    const result = await generateText({
+      model: this.model,
+      system,
+      messages: this.sessionMessages,
+      tools: tools.length ? tools : undefined,
+      toolChoice: tools.length ? "auto" : undefined,
+    });
 
-      const result = await generateText({
-        model: this.model,
-        system,
-        messages: this.sessionMessages,
-        tools: tools.length ? tools : undefined,
-        toolChoice: tools.length ? "auto" : undefined,
-      });
+    // Handle tool calls
+    if (result.toolCalls?.length) {
+      // Push assistant message with tool calls
+      const assistantMsg: Message = {
+        role: "assistant",
+        content: result.text ?? "",
+        toolCalls: result.toolCalls,
+      };
+      this.sessionMessages.push(assistantMsg);
+      await this.sessionStore.append(assistantMsg);
 
-      // Handle tool calls
-      if (result.toolCalls?.length) {
-        // Push assistant message with tool calls
-        const assistantMsg: Message = {
-          role: "assistant",
-          content: result.text ?? "",
-          toolCalls: result.toolCalls,
-        };
-        this.sessionMessages.push(assistantMsg);
-        await this.sessionStore.append(assistantMsg);
-
-        // Execute each tool call
-        for (const tc of result.toolCalls) {
-          if (tc.name === "reply") {
-            // Reply tool — deliver to user via callback
-            const { text, channelId, replyTo } = tc.arguments as { text: string; channelId: string; replyTo?: string };
-            const toolMsg: Message = {
-              role: "tool",
-              content: JSON.stringify({ delivered: true }),
-              toolCallId: tc.id,
-            };
-            this.sessionMessages.push(toolMsg);
-            await this.sessionStore.append(toolMsg);
-            if (this.replyCallback) {
-              this.replyCallback({
-                text,
-                channel: { type: message.channel.type, channelId, replyTo },
-              });
-            }
-          } else if (tc.name === "spawn_task") {
-            // Handle spawn_task specially
-            await this._handleSpawnTask(tc, message);
-          } else {
-            // Execute simple tool directly
-            const toolResult = await this.toolExecutor.execute(
-              tc.name,
-              tc.arguments,
-              {
-                taskId: "main-agent",
-                memoryDir: `${this.settings.dataDir}/memory`,
-              },
-            );
-            const toolMsg: Message = {
-              role: "tool",
-              content: toolResult.success
-                ? JSON.stringify(toolResult.result)
-                : `Error: ${toolResult.error}`,
-              toolCallId: tc.id,
-            };
-            this.sessionMessages.push(toolMsg);
-            await this.sessionStore.append(toolMsg);
+      // Execute all tool calls and collect results
+      for (const tc of result.toolCalls) {
+        if (tc.name === "reply") {
+          const { text, channelId, replyTo } = tc.arguments as { text: string; channelId: string; replyTo?: string };
+          const toolMsg: Message = {
+            role: "tool",
+            content: JSON.stringify({ delivered: true }),
+            toolCallId: tc.id,
+          };
+          this.sessionMessages.push(toolMsg);
+          await this.sessionStore.append(toolMsg);
+          if (this.replyCallback) {
+            this.replyCallback({
+              text,
+              channel: { type: channel.type, channelId, replyTo },
+            });
           }
+        } else if (tc.name === "spawn_task") {
+          await this._handleSpawnTask(tc);
+        } else {
+          // Execute simple tool directly
+          const toolResult = await this.toolExecutor.execute(
+            tc.name,
+            tc.arguments,
+            {
+              taskId: "main-agent",
+              memoryDir: `${this.settings.dataDir}/memory`,
+            },
+          );
+          const toolMsg: Message = {
+            role: "tool",
+            content: toolResult.success
+              ? JSON.stringify(toolResult.result)
+              : `Error: ${toolResult.error}`,
+            toolCallId: tc.id,
+          };
+          this.sessionMessages.push(toolMsg);
+          await this.sessionStore.append(toolMsg);
         }
-
-        // Continue loop — LLM will process tool results
-        continue;
       }
 
-      // No tool calls — inner monologue only (user doesn't see this)
-      if (result.text) {
-        const assistantMsg: Message = { role: "assistant", content: result.text };
-        this.sessionMessages.push(assistantMsg);
-        await this.sessionStore.append(assistantMsg);
-      }
-
-      // LLM finished thinking without calling any more tools — done
-      break;
+      // Tool results are now in session — queue another think step
+      this.queue.push({ kind: "think", channel });
+      return;
     }
+
+    // No tool calls — inner monologue only (user doesn't see this)
+    if (result.text) {
+      const assistantMsg: Message = { role: "assistant", content: result.text };
+      this.sessionMessages.push(assistantMsg);
+      await this.sessionStore.append(assistantMsg);
+    }
+    // Done thinking for now. Next event will trigger new thinking.
   }
 
   // ── Task spawning ──
 
-  private async _handleSpawnTask(
-    tc: ToolCall,
-    _message: InboundMessage,
-  ): Promise<void> {
+  private async _handleSpawnTask(tc: ToolCall): Promise<void> {
     const { input } = tc.arguments as { description: string; input: string };
 
     // Spawn task via existing Agent
@@ -297,7 +289,6 @@ export class MainAgent {
     result: unknown,
     error?: string,
   ): Promise<void> {
-    // Inject task result as system message into session
     const resultText = error
       ? `[Task ${taskId} failed]\nError: ${error}`
       : `[Task ${taskId} completed]\nResult: ${JSON.stringify(result)}`;
@@ -309,13 +300,11 @@ export class MainAgent {
       taskId,
     });
 
-    // Determine channel from last user message
+    // Queue a think step — Main Agent will process the result
     const lastChannel = this._getLastChannel();
-    if (!lastChannel) return;
-
-    // Use the same LLM loop — LLM will think and call reply() if needed
-    const system = this._buildSystemPrompt({ text: "", channel: lastChannel });
-    await this._llmLoop({ text: "", channel: lastChannel }, system);
+    if (lastChannel) {
+      this.queue.push({ kind: "think", channel: lastChannel });
+    }
   }
 
   // ── Helpers ──
@@ -362,6 +351,10 @@ export class MainAgent {
       "- You need file I/O, shell commands, or web requests",
       "- The work requires multiple steps",
       "- You're unsure — err on the side of spawning",
+      "",
+      "After calling spawn_task, the task runs in the background.",
+      "You will receive the result automatically when it completes.",
+      "Do NOT poll with task_replay — just wait for the result to arrive.",
       "",
       "On task completion:",
       "- You will receive the result in your session",
