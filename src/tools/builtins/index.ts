@@ -64,6 +64,12 @@ const spawn_task = spawnTaskModule.spawn_task;
 
 export { spawn_task };
 
+// Reply tool (for Main Agent inner monologue)
+import * as replyToolModule from "./reply-tool.ts";
+const reply = replyToolModule.reply;
+
+export { reply };
+
 // Re-export all tools as array
 export const systemTools: Tool[] = [
   current_time,
@@ -71,6 +77,7 @@ export const systemTools: Tool[] = [
   get_env,
   set_env,
   spawn_task,
+  reply,
 ];
 
 export const fileTools: Tool[] = [
