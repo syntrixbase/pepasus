@@ -280,20 +280,18 @@ startCLI()
   ↓
 用户输入 → agent.submit(text) → TaskFSM 认知循环
   ↓
-PERCEIVING → THINKING → PLANNING → ACTING → REFLECTING
+REASONING → ACTING → REFLECTING
   ↓
 agent.waitForTask(id) → 提取 response → 显示给用户
 ```
 
 ## 下一步
 
-- **M2: 有记忆** — 实现对话历史记录和检索
-- **M3: 能行动** — 集成 MCP 工具调用能力
 - **M4: 会思考** — 增强复杂任务分解能力
+- **M5: 能并发** — 多任务并发处理验证
 
 ## 相关文档
 
-- [Architecture](../docs/architecture.md) - 系统架构总览
-- [M1 Plan](../docs/plans/m1-plan.md) - M1 实现计划
-- [Identity System](../src/identity/) - 身份系统代码
-- [Cognitive Processors](../src/cognitive/) - 认知处理器
+- [Architecture](./architecture.md) - 系统架构总览
+- [Memory System](./memory-system.md) - 长期记忆设计
+- [Cognitive Processors](./cognitive.md) - 认知处理器

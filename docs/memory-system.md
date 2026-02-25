@@ -1,6 +1,6 @@
 # M2: Memory System Design
 
-> Status: **Draft**
+> Status: **✅ Completed** (PR #17, #18)
 > Date: 2026-02-25
 
 ## 1. Core Philosophy
@@ -239,7 +239,7 @@ The memory system integrates **entirely through the tool mechanism**. No modific
 
 - EventBus
 - TaskFSM state machine
-- Cognitive loop (perceive → think → plan → act → reflect)
+- Cognitive loop (reason → act → reflect)
 - Agent event dispatch
 
 The only changes are:
