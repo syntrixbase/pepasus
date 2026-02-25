@@ -24,6 +24,7 @@ export class TaskPersister {
   private bus: EventBus;
   private registry: TaskRegistry;
   private messageIndex = new Map<string, number>(); // taskId → last written message index
+  private pendingLock: Promise<void> = Promise.resolve(); // serialize pending.json writes
 
   constructor(bus: EventBus, registry: TaskRegistry, dataDir: string) {
     this.bus = bus;
@@ -57,27 +58,32 @@ export class TaskPersister {
     await appendFile(filePath, line, "utf-8");
   }
 
-  /** Add or remove a task from pending.json */
-  private async _updatePending(
+  /** Add or remove a task from pending.json (serialized to avoid concurrent read-write corruption). */
+  private _updatePending(
     action: "add" | "remove",
     taskId: string,
     ts?: number,
   ): Promise<void> {
-    await mkdir(this.tasksDir, { recursive: true });
-    const filePath = path.join(this.tasksDir, "pending.json");
-    let arr: Array<{ taskId: string; ts: number }> = [];
-    try {
-      const content = await readFile(filePath, "utf-8");
-      arr = JSON.parse(content);
-    } catch {
-      // File doesn't exist yet
-    }
-    if (action === "add") {
-      arr.push({ taskId, ts: ts ?? Date.now() });
-    } else {
-      arr = arr.filter((e) => e.taskId !== taskId);
-    }
-    await writeFile(filePath, JSON.stringify(arr, null, 2), "utf-8");
+    const op = async () => {
+      await mkdir(this.tasksDir, { recursive: true });
+      const filePath = path.join(this.tasksDir, "pending.json");
+      let arr: Array<{ taskId: string; ts: number }> = [];
+      try {
+        const content = await readFile(filePath, "utf-8");
+        arr = JSON.parse(content);
+      } catch {
+        // File doesn't exist yet
+      }
+      if (action === "add") {
+        arr.push({ taskId, ts: ts ?? Date.now() });
+      } else {
+        arr = arr.filter((e) => e.taskId !== taskId);
+      }
+      await writeFile(filePath, JSON.stringify(arr, null, 2), "utf-8");
+    };
+    // Chain operations to serialize access
+    this.pendingLock = this.pendingLock.then(op, op);
+    return this.pendingLock;
   }
 
   // ── Test helpers ──
@@ -147,6 +153,11 @@ export class TaskPersister {
 
         case "ACT_DONE":
           // No-op, informational only
+          break;
+
+        case "TASK_SUSPENDED":
+          ctx.suspendedState = (entry.data.suspendedState as string) ?? null;
+          ctx.suspendReason = (entry.data.suspendReason as string) ?? null;
           break;
 
         case "REFLECT_DONE":
@@ -308,6 +319,21 @@ export class TaskPersister {
         });
       } catch (err) {
         logger.warn({ taskId: event.taskId, error: err }, "persist_needinfo_failed");
+      }
+    });
+
+    // TASK_SUSPENDED
+    this.bus.subscribe(EventType.TASK_SUSPENDED, async (event) => {
+      if (!event.taskId) return;
+      const task = this.registry.getOrNull(event.taskId);
+      if (!task) return;
+      try {
+        await this._append(event.taskId, task.createdAt, "TASK_SUSPENDED", {
+          suspendedState: task.context.suspendedState,
+          suspendReason: task.context.suspendReason,
+        });
+      } catch (err) {
+        logger.warn({ taskId: event.taskId, error: err }, "persist_suspended_failed");
       }
     });
 
