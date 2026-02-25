@@ -496,7 +496,7 @@ export class Agent {
 
   private _compileResult(task: TaskFSM): Record<string, unknown> {
     // For conversation tasks, extract the response text from the last "respond" action
-    const respondAction = task.context.actionsDone.find((a) => a.actionType === "respond");
+    const respondAction = task.context.actionsDone.findLast((a) => a.actionType === "respond");
     const responseText = respondAction?.result as string | undefined;
 
     return {

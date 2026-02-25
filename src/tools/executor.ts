@@ -19,7 +19,7 @@ import {
   ToolTimeoutError,
 } from "./errors.ts";
 import type { EventType } from "../events/types.ts";
-import { createEvent } from "../events/types.ts";
+import { EventType as ET, createEvent } from "../events/types.ts";
 import { getLogger } from "../infra/logger.ts";
 
 const logger = getLogger("tools.executor");
@@ -52,7 +52,7 @@ export class ToolExecutor {
 
     // Emit TOOL_CALL_REQUESTED event
     this.bus.emit(
-      createEvent(400 as EventType, {
+      createEvent(ET.TOOL_CALL_REQUESTED as EventType, {
         source: "tools.executor",
         taskId: context.taskId,
         payload: { toolName, params },
@@ -128,7 +128,7 @@ export class ToolExecutor {
   ): void {
     if (result.success) {
       this.bus.emit(
-        createEvent(410 as EventType, {
+        createEvent(ET.TOOL_CALL_COMPLETED as EventType, {
           source: "tools.executor",
           taskId: context.taskId,
           payload: { toolName, result: result.result, durationMs: result.durationMs },
@@ -136,7 +136,7 @@ export class ToolExecutor {
       );
     } else {
       this.bus.emit(
-        createEvent(420 as EventType, {
+        createEvent(ET.TOOL_CALL_FAILED as EventType, {
           source: "tools.executor",
           taskId: context.taskId,
           payload: { toolName, error: result.error },
