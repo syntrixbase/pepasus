@@ -11,6 +11,9 @@ import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { getLogger } from "../infra/logger.ts";
 import { EventType } from "../events/types.ts";
+import { createTaskContext } from "./context.ts";
+import type { TaskContext, Plan, ActionResult, Reflection } from "./context.ts";
+import type { Message } from "../infra/llm-types.ts";
 import type { EventBus } from "../events/bus.ts";
 import type { TaskRegistry } from "./registry.ts";
 
@@ -100,6 +103,110 @@ export class TaskPersister {
     ts?: number,
   ) {
     return this._updatePending(action, taskId, ts);
+  }
+
+  // ── Static replay methods ──
+
+  /** Reconstruct full TaskContext from a JSONL event log file. */
+  static async replay(filePath: string): Promise<TaskContext> {
+    const content = await readFile(filePath, "utf-8");
+    const lines = content.trim().split("\n").filter(Boolean);
+
+    const ctx = createTaskContext();
+
+    for (const line of lines) {
+      const entry = JSON.parse(line) as {
+        ts: number;
+        event: string;
+        taskId: string;
+        data: Record<string, unknown>;
+      };
+
+      switch (entry.event) {
+        case "TASK_CREATED":
+          ctx.id = entry.taskId;
+          ctx.inputText = (entry.data.inputText as string) ?? "";
+          ctx.source = (entry.data.source as string) ?? "";
+          ctx.inputMetadata =
+            (entry.data.inputMetadata as Record<string, unknown>) ?? {};
+          break;
+
+        case "REASON_DONE":
+          ctx.reasoning =
+            (entry.data.reasoning as Record<string, unknown>) ?? null;
+          ctx.plan = (entry.data.plan as Plan) ?? null;
+          if (Array.isArray(entry.data.newMessages)) {
+            ctx.messages.push(...(entry.data.newMessages as Message[]));
+          }
+          break;
+
+        case "TOOL_CALL_COMPLETED":
+        case "TOOL_CALL_FAILED":
+          if (entry.data.action) {
+            ctx.actionsDone.push(entry.data.action as ActionResult);
+          }
+          if (Array.isArray(entry.data.newMessages)) {
+            ctx.messages.push(...(entry.data.newMessages as Message[]));
+          }
+          break;
+
+        case "ACT_DONE":
+          // No-op, informational only
+          break;
+
+        case "REFLECT_DONE":
+          if (entry.data.reflection) {
+            ctx.reflections.push(entry.data.reflection as Reflection);
+          }
+          break;
+
+        case "NEED_MORE_INFO":
+          ctx.reasoning =
+            (entry.data.reasoning as Record<string, unknown>) ?? null;
+          break;
+
+        case "TASK_COMPLETED":
+          ctx.finalResult = entry.data.finalResult ?? null;
+          ctx.iteration = (entry.data.iterations as number) ?? 0;
+          if (Array.isArray(entry.data.newMessages)) {
+            ctx.messages.push(...(entry.data.newMessages as Message[]));
+          }
+          break;
+
+        case "TASK_FAILED":
+          ctx.error = (entry.data.error as string) ?? null;
+          break;
+      }
+    }
+
+    return ctx;
+  }
+
+  /** Build index from index.jsonl: taskId → date. */
+  static async loadIndex(tasksDir: string): Promise<Map<string, string>> {
+    const indexPath = path.join(tasksDir, "index.jsonl");
+    const map = new Map<string, string>();
+    try {
+      const content = await readFile(indexPath, "utf-8");
+      for (const line of content.trim().split("\n").filter(Boolean)) {
+        const entry = JSON.parse(line) as { taskId: string; date: string };
+        map.set(entry.taskId, entry.date);
+      }
+    } catch {
+      // Index doesn't exist yet
+    }
+    return map;
+  }
+
+  /** Resolve taskId → JSONL file path using index. */
+  static async resolveTaskPath(
+    tasksDir: string,
+    taskId: string,
+  ): Promise<string | null> {
+    const index = await TaskPersister.loadIndex(tasksDir);
+    const date = index.get(taskId);
+    if (!date) return null;
+    return path.join(tasksDir, date, `${taskId}.jsonl`);
   }
 
   // ── Internals ──
