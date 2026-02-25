@@ -154,18 +154,20 @@ export class ToolExecutor {
     context: ToolContext,
   ): Promise<ToolResult> {
     const resultPromise = tool.execute(params, context);
-    const timeoutPromise = new Promise<ToolResult>((_, reject) =>
-      setTimeout(() => reject(new ToolTimeoutError(tool.name, this.timeout)), this.timeout),
-    );
+    let timerId: ReturnType<typeof setTimeout>;
+    const timeoutPromise = new Promise<ToolResult>((_, reject) => {
+      timerId = setTimeout(() => reject(new ToolTimeoutError(tool.name, this.timeout)), this.timeout);
+    });
 
     try {
-      return (await Promise.race([resultPromise, timeoutPromise])) as ToolResult;
+      const result = await Promise.race([resultPromise, timeoutPromise]);
+      clearTimeout(timerId!);
+      return result as ToolResult;
     } catch (error) {
-      // Re-throw ToolTimeoutError to be caught by outer try-catch
+      clearTimeout(timerId!);
       if (error instanceof ToolTimeoutError) {
         throw error;
       }
-      // Handle Zod validation errors
       if (error && typeof error === "object" && "issues" in error) {
         throw new ToolValidationError(tool.name, error);
       }

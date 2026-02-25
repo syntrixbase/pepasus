@@ -213,6 +213,7 @@ export class Agent {
   // ═══════════════════════════════════════════════════
 
   private _onExternalInput = async (event: Event): Promise<void> => {
+    if (!this._running) return;
     const task = TaskFSM.fromEvent(event);
     this.taskRegistry.register(task);
 
@@ -226,6 +227,7 @@ export class Agent {
   };
 
   private _onTaskEvent = async (event: Event): Promise<void> => {
+    if (!this._running) return;
     if (!event.taskId) {
       logger.warn({ eventType: event.type }, "task_event_no_task_id");
       return;
@@ -490,8 +492,11 @@ export class Agent {
   // ═══════════════════════════════════════════════════
 
   private _spawn(promise: Promise<void>): void {
-    this.backgroundTasks.add(promise);
-    promise.finally(() => this.backgroundTasks.delete(promise));
+    const tracked = promise.catch((err) => {
+      logger.error({ error: err }, "spawned_task_error");
+    });
+    this.backgroundTasks.add(tracked);
+    tracked.finally(() => this.backgroundTasks.delete(tracked));
   }
 
   private _compileResult(task: TaskFSM): Record<string, unknown> {
