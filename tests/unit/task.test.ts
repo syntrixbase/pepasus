@@ -52,9 +52,7 @@ function makePlan(stepCount: number = 2): Plan {
 describe("TaskState", () => {
   test("defines all expected states", () => {
     expect(TaskState.IDLE).toBe("idle");
-    expect(TaskState.PERCEIVING).toBe("perceiving");
-    expect(TaskState.THINKING).toBe("thinking");
-    expect(TaskState.PLANNING).toBe("planning");
+    expect(TaskState.REASONING).toBe("reasoning");
     expect(TaskState.ACTING).toBe("acting");
     expect(TaskState.REFLECTING).toBe("reflecting");
     expect(TaskState.SUSPENDED).toBe("suspended");
@@ -70,12 +68,10 @@ describe("TaskState", () => {
   });
 
   test("SUSPENDABLE_STATES contains cognitive stages", () => {
-    expect(SUSPENDABLE_STATES.has(TaskState.PERCEIVING)).toBe(true);
-    expect(SUSPENDABLE_STATES.has(TaskState.THINKING)).toBe(true);
-    expect(SUSPENDABLE_STATES.has(TaskState.PLANNING)).toBe(true);
+    expect(SUSPENDABLE_STATES.has(TaskState.REASONING)).toBe(true);
     expect(SUSPENDABLE_STATES.has(TaskState.ACTING)).toBe(true);
     expect(SUSPENDABLE_STATES.has(TaskState.REFLECTING)).toBe(true);
-    expect(SUSPENDABLE_STATES.size).toBe(5);
+    expect(SUSPENDABLE_STATES.size).toBe(3);
     expect(SUSPENDABLE_STATES.has(TaskState.IDLE)).toBe(false);
     expect(SUSPENDABLE_STATES.has(TaskState.SUSPENDED)).toBe(false);
   });
@@ -127,7 +123,6 @@ describe("TaskContext", () => {
     expect(ctx.inputText).toBe("");
     expect(ctx.inputMetadata).toEqual({});
     expect(ctx.source).toBe("");
-    expect(ctx.perception).toBeNull();
     expect(ctx.reasoning).toBeNull();
     expect(ctx.plan).toBeNull();
     expect(ctx.actionsDone).toEqual([]);
@@ -228,24 +223,16 @@ describe("TaskFSM", () => {
 
   // ── Happy path: full lifecycle ──
 
-  test("full lifecycle: IDLE → PERCEIVING → THINKING → PLANNING → ACTING → REFLECTING → COMPLETED", () => {
+  test("full lifecycle: IDLE → REASONING → ACTING → REFLECTING → COMPLETED", () => {
     const fsm = new TaskFSM();
 
-    // IDLE → PERCEIVING
+    // IDLE → REASONING
     fsm.transition(makeEvent(EventType.TASK_CREATED));
-    expect(fsm.state).toBe(TaskState.PERCEIVING);
+    expect(fsm.state).toBe(TaskState.REASONING);
     expect(fsm.isActive).toBe(true);
 
-    // PERCEIVING → THINKING
-    fsm.transition(makeEvent(EventType.PERCEIVE_DONE));
-    expect(fsm.state).toBe(TaskState.THINKING);
-
-    // THINKING → PLANNING
-    fsm.transition(makeEvent(EventType.THINK_DONE));
-    expect(fsm.state).toBe(TaskState.PLANNING);
-
-    // PLANNING → ACTING
-    fsm.transition(makeEvent(EventType.PLAN_DONE));
+    // REASONING → ACTING
+    fsm.transition(makeEvent(EventType.REASON_DONE));
     expect(fsm.state).toBe(TaskState.ACTING);
 
     // ACTING → REFLECTING (via ACT_DONE)
@@ -259,7 +246,7 @@ describe("TaskFSM", () => {
     expect(fsm.isActive).toBe(false);
 
     // History should record all transitions
-    expect(fsm.history).toHaveLength(6);
+    expect(fsm.history).toHaveLength(4);
   });
 
   // ── Transition history ──
@@ -272,7 +259,7 @@ describe("TaskFSM", () => {
     expect(fsm.history).toHaveLength(1);
     const entry: StateTransition = fsm.history[0]!;
     expect(entry.fromState).toBe(TaskState.IDLE);
-    expect(entry.toState).toBe(TaskState.PERCEIVING);
+    expect(entry.toState).toBe(TaskState.REASONING);
     expect(entry.triggerEventType).toBe(EventType.TASK_CREATED);
     expect(entry.triggerEventId).toBe(event.id);
     expect(entry.timestamp).toBeGreaterThan(0);
@@ -344,44 +331,44 @@ describe("TaskFSM", () => {
     expect(fsm.state as TaskState).toBe(TaskState.REFLECTING);
   });
 
-  test("REFLECTING + REFLECT_DONE verdict=continue → THINKING", () => {
+  test("REFLECTING + REFLECT_DONE verdict=continue → REASONING", () => {
     const fsm = new TaskFSM();
     fsm.state = TaskState.REFLECTING;
 
     fsm.transition(makeEvent(EventType.REFLECT_DONE, { payload: { verdict: "continue" } }));
-    expect(fsm.state as TaskState).toBe(TaskState.THINKING);
+    expect(fsm.state as TaskState).toBe(TaskState.REASONING);
   });
 
-  test("REFLECTING + REFLECT_DONE verdict=replan → PLANNING", () => {
+  test("REFLECTING + REFLECT_DONE verdict=replan → REASONING", () => {
     const fsm = new TaskFSM();
     fsm.state = TaskState.REFLECTING;
 
     fsm.transition(makeEvent(EventType.REFLECT_DONE, { payload: { verdict: "replan" } }));
-    expect(fsm.state as TaskState).toBe(TaskState.PLANNING);
+    expect(fsm.state as TaskState).toBe(TaskState.REASONING);
   });
 
-  test("REFLECTING + REFLECT_DONE no verdict → defaults to THINKING", () => {
+  test("REFLECTING + REFLECT_DONE no verdict → defaults to REASONING", () => {
     const fsm = new TaskFSM();
     fsm.state = TaskState.REFLECTING;
 
     fsm.transition(makeEvent(EventType.REFLECT_DONE));
-    expect(fsm.state as TaskState).toBe(TaskState.THINKING);
+    expect(fsm.state as TaskState).toBe(TaskState.REASONING);
   });
 
   // ── Suspend / Resume ──
 
-  test("suspend from THINKING and resume back", () => {
+  test("suspend from REASONING and resume back", () => {
     const fsm = new TaskFSM();
-    fsm.state = TaskState.THINKING;
+    fsm.state = TaskState.REASONING;
 
     fsm.transition(makeEvent(EventType.TASK_SUSPENDED, { payload: { reason: "awaiting input" } }));
     expect(fsm.state as TaskState).toBe(TaskState.SUSPENDED);
-    expect(fsm.context.suspendedState).toBe(TaskState.THINKING);
+    expect(fsm.context.suspendedState).toBe(TaskState.REASONING);
     expect(fsm.context.suspendReason).toBe("awaiting input");
     expect(fsm.isActive).toBe(false);
 
     fsm.transition(makeEvent(EventType.TASK_RESUMED));
-    expect(fsm.state as TaskState).toBe(TaskState.THINKING);
+    expect(fsm.state as TaskState).toBe(TaskState.REASONING);
     expect(fsm.context.suspendedState).toBeNull();
     expect(fsm.context.suspendReason).toBeNull();
   });
@@ -396,28 +383,28 @@ describe("TaskFSM", () => {
     }
   });
 
-  test("SUSPENDED + MESSAGE_RECEIVED → THINKING", () => {
+  test("SUSPENDED + MESSAGE_RECEIVED → REASONING", () => {
     const fsm = new TaskFSM();
     fsm.state = TaskState.SUSPENDED;
 
     fsm.transition(makeEvent(EventType.MESSAGE_RECEIVED));
-    expect(fsm.state as TaskState).toBe(TaskState.THINKING);
+    expect(fsm.state as TaskState).toBe(TaskState.REASONING);
   });
 
-  test("resume with no suspendedState falls back to THINKING", () => {
+  test("resume with no suspendedState falls back to REASONING", () => {
     const fsm = new TaskFSM();
     fsm.state = TaskState.SUSPENDED;
     fsm.context.suspendedState = null;
 
     fsm.transition(makeEvent(EventType.TASK_RESUMED));
-    expect(fsm.state as TaskState).toBe(TaskState.THINKING); // fallback
+    expect(fsm.state as TaskState).toBe(TaskState.REASONING); // fallback
   });
 
   // ── NEED_MORE_INFO ──
 
-  test("THINKING + NEED_MORE_INFO → SUSPENDED", () => {
+  test("REASONING + NEED_MORE_INFO → SUSPENDED", () => {
     const fsm = new TaskFSM();
-    fsm.state = TaskState.THINKING;
+    fsm.state = TaskState.REASONING;
 
     fsm.transition(makeEvent(EventType.NEED_MORE_INFO));
     expect(fsm.state as TaskState).toBe(TaskState.SUSPENDED);
@@ -428,9 +415,7 @@ describe("TaskFSM", () => {
   test("TASK_FAILED transitions to FAILED from any non-terminal state", () => {
     const nonTerminalStates: TaskState[] = [
       TaskState.IDLE,
-      TaskState.PERCEIVING,
-      TaskState.THINKING,
-      TaskState.PLANNING,
+      TaskState.REASONING,
       TaskState.ACTING,
       TaskState.REFLECTING,
       TaskState.SUSPENDED,
@@ -448,7 +433,7 @@ describe("TaskFSM", () => {
   test("throws InvalidStateTransition for undefined transition", () => {
     const fsm = new TaskFSM();
     expect(() => {
-      fsm.transition(makeEvent(EventType.PLAN_DONE)); // IDLE + PLAN_DONE is invalid
+      fsm.transition(makeEvent(EventType.ACT_DONE)); // IDLE + ACT_DONE is invalid
     }).toThrow(InvalidStateTransition);
   });
 
@@ -484,7 +469,6 @@ describe("TaskFSM", () => {
 
   test("canTransition returns false for invalid transitions", () => {
     const fsm = new TaskFSM();
-    expect(fsm.canTransition(EventType.PLAN_DONE)).toBe(false);
     expect(fsm.canTransition(EventType.ACT_DONE)).toBe(false);
   });
 
@@ -522,9 +506,7 @@ describe("TaskFSM", () => {
   test("isActive is true for cognitive stages only", () => {
     const fsm = new TaskFSM();
     const activeStates = [
-      TaskState.PERCEIVING,
-      TaskState.THINKING,
-      TaskState.PLANNING,
+      TaskState.REASONING,
       TaskState.ACTING,
       TaskState.REFLECTING,
     ];
@@ -604,7 +586,7 @@ describe("TaskRegistry", () => {
 
     const idle = new TaskFSM(); // IDLE → not active
     const active = new TaskFSM();
-    active.state = TaskState.THINKING;
+    active.state = TaskState.REASONING;
     const completed = new TaskFSM();
     completed.state = TaskState.COMPLETED;
 
@@ -630,20 +612,20 @@ describe("TaskRegistry", () => {
   test("listByState filters by specific state", () => {
     const registry = new TaskRegistry();
 
-    const thinking1 = new TaskFSM();
-    thinking1.state = TaskState.THINKING;
-    const thinking2 = new TaskFSM();
-    thinking2.state = TaskState.THINKING;
+    const reasoning1 = new TaskFSM();
+    reasoning1.state = TaskState.REASONING;
+    const reasoning2 = new TaskFSM();
+    reasoning2.state = TaskState.REASONING;
     const acting = new TaskFSM();
     acting.state = TaskState.ACTING;
     const idle = new TaskFSM();
 
-    registry.register(thinking1);
-    registry.register(thinking2);
+    registry.register(reasoning1);
+    registry.register(reasoning2);
     registry.register(acting);
     registry.register(idle);
 
-    expect(registry.listByState(TaskState.THINKING)).toHaveLength(2);
+    expect(registry.listByState(TaskState.REASONING)).toHaveLength(2);
     expect(registry.listByState(TaskState.ACTING)).toHaveLength(1);
     expect(registry.listByState(TaskState.IDLE)).toHaveLength(1);
     expect(registry.listByState(TaskState.COMPLETED)).toHaveLength(0);
@@ -654,7 +636,7 @@ describe("TaskRegistry", () => {
 
     const idle = new TaskFSM();
     const active1 = new TaskFSM();
-    active1.state = TaskState.PLANNING;
+    active1.state = TaskState.REASONING;
     const active2 = new TaskFSM();
     active2.state = TaskState.ACTING;
 
@@ -669,7 +651,7 @@ describe("TaskRegistry", () => {
     const registry = new TaskRegistry();
 
     const active = new TaskFSM();
-    active.state = TaskState.THINKING;
+    active.state = TaskState.REASONING;
     const completed = new TaskFSM();
     completed.state = TaskState.COMPLETED;
     const failed = new TaskFSM();
@@ -702,11 +684,11 @@ describe("TaskRegistry", () => {
   test("maxActive emits warning but does not block", () => {
     const registry = new TaskRegistry(2);
     const t1 = new TaskFSM();
-    t1.state = TaskState.THINKING;
+    t1.state = TaskState.REASONING;
     const t2 = new TaskFSM();
     t2.state = TaskState.ACTING;
     const t3 = new TaskFSM();
-    t3.state = TaskState.PLANNING;
+    t3.state = TaskState.REASONING;
 
     registry.register(t1);
     registry.register(t2);

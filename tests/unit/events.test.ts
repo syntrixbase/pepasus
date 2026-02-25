@@ -25,8 +25,8 @@ describe("EventType", () => {
     expect(EventType.TASK_CREATED).toBeGreaterThanOrEqual(200);
     expect(EventType.TASK_CREATED).toBeLessThan(300);
 
-    expect(EventType.PERCEIVE_DONE).toBeGreaterThanOrEqual(300);
-    expect(EventType.PERCEIVE_DONE).toBeLessThan(400);
+    expect(EventType.REASON_DONE).toBeGreaterThanOrEqual(300);
+    expect(EventType.REASON_DONE).toBeLessThan(400);
 
     expect(EventType.TOOL_CALL_REQUESTED).toBeGreaterThanOrEqual(400);
     expect(EventType.TOOL_CALL_REQUESTED).toBeLessThan(500);
@@ -67,10 +67,10 @@ describe("Event", () => {
       source: "user",
       taskId: "task-1",
     });
-    const child = deriveEvent(parent, EventType.PERCEIVE_DONE, {
+    const child = deriveEvent(parent, EventType.REASON_DONE, {
       payload: { result: "ok" },
     });
-    expect(child.type).toBe(EventType.PERCEIVE_DONE);
+    expect(child.type).toBe(EventType.REASON_DONE);
     expect(child.taskId).toBe("task-1");
     expect(child.source).toBe("user");
     expect(child.parentEventId).toBe(parent.id);

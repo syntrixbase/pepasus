@@ -10,18 +10,12 @@ import type { Persona } from "@pegasus/identity/persona.ts";
 
 /** Minimal mock LanguageModel that returns stub text. */
 function createMockModel(): LanguageModel {
-  const responseText = JSON.stringify({
-    taskType: "conversation",
-    intent: "test",
-    urgency: "normal",
-    keyEntities: [],
-  });
   return {
     provider: "test",
     modelId: "test-model",
     async generate() {
       return {
-        text: responseText,
+        text: "Hello! I am a helpful assistant.",
         finishReason: "stop",
         usage: { promptTokens: 10, completionTokens: 10 },
       };

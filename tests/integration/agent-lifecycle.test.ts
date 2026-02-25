@@ -10,18 +10,12 @@ import type { Persona } from "@pegasus/identity/persona.ts";
 
 /** Minimal mock LanguageModel that returns stub text. */
 function createMockModel(): LanguageModel {
-  const responseText = JSON.stringify({
-    taskType: "conversation",
-    intent: "test",
-    urgency: "normal",
-    keyEntities: [],
-  });
   return {
     provider: "test",
     modelId: "test-model",
     async generate() {
       return {
-        text: responseText,
+        text: "Hello! I am a helpful assistant.",
         finishReason: "stop",
         usage: { promptTokens: 10, completionTokens: 10 },
       };
@@ -76,7 +70,6 @@ describe("Agent lifecycle", () => {
 
       const task = completed[0]!;
       expect(task.context.inputText).toBe("Hello world");
-      expect(task.context.perception).not.toBeNull();
       expect(task.context.reasoning).not.toBeNull();
       expect(task.context.plan).not.toBeNull();
       expect(task.context.actionsDone.length).toBeGreaterThan(0);
@@ -134,9 +127,7 @@ describe("Agent lifecycle", () => {
       expect(types).toContain(EventType.SYSTEM_STARTED);
       expect(types).toContain(EventType.MESSAGE_RECEIVED);
       expect(types).toContain(EventType.TASK_CREATED);
-      expect(types).toContain(EventType.PERCEIVE_DONE);
-      expect(types).toContain(EventType.THINK_DONE);
-      expect(types).toContain(EventType.PLAN_DONE);
+      expect(types).toContain(EventType.REASON_DONE);
       expect(types).toContain(EventType.STEP_COMPLETED);
       expect(types).toContain(EventType.REFLECT_DONE);
       expect(types).toContain(EventType.TASK_COMPLETED);

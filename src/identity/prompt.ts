@@ -52,12 +52,8 @@ export function buildSystemPrompt(
 
   if (stage) {
     const stageInstructions: Record<string, string> = {
-      perceive:
-        "Your current task is to understand the user's input. Extract the intent, task type, urgency, and key entities. Respond in JSON format with fields: taskType, intent, urgency, keyEntities.",
-      think:
+      reason:
         "Your current task is to reason about what to do and compose a helpful response to the user. Respond naturally in the persona described above.",
-      plan:
-        "Your current task is to create an execution plan. Respond in JSON with fields: goal, reasoning, steps (array of {description, actionType, actionParams}).",
       reflect:
         "Your current task is to evaluate the results. Respond in JSON with fields: verdict (complete|continue|replan), assessment, lessons (array).",
     };

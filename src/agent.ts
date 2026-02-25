@@ -10,7 +10,6 @@ import type { LanguageModel } from "./infra/llm-types.ts";
 import type { Event } from "./events/types.ts";
 import { EventType, createEvent } from "./events/types.ts";
 import { EventBus } from "./events/bus.ts";
-import { Perceiver } from "./cognitive/perceive.ts";
 import { Thinker } from "./cognitive/think.ts";
 import { Planner } from "./cognitive/plan.ts";
 import { Actor } from "./cognitive/act.ts";
@@ -100,7 +99,6 @@ export class Agent {
   readonly taskRegistry: TaskRegistry;
 
   // Cognitive processors (stateless)
-  private perceiver: Perceiver;
   private thinker: Thinker;
   private planner: Planner;
   private actor: Actor;
@@ -137,7 +135,6 @@ export class Agent {
     this.toolExecutor = toolExecutor;
 
     // Initialize cognitive processors with model + persona
-    this.perceiver = new Perceiver(deps.model, deps.persona);
     this.thinker = new Thinker(deps.model, deps.persona, toolRegistry);
     this.planner = new Planner(deps.model, deps.persona);
     this.actor = new Actor(deps.model, deps.persona);
@@ -197,9 +194,7 @@ export class Agent {
     bus.subscribe(EventType.TASK_RESUMED, this._onTaskEvent);
 
     // Cognitive stage completions
-    bus.subscribe(EventType.PERCEIVE_DONE, this._onTaskEvent);
-    bus.subscribe(EventType.THINK_DONE, this._onTaskEvent);
-    bus.subscribe(EventType.PLAN_DONE, this._onTaskEvent);
+    bus.subscribe(EventType.REASON_DONE, this._onTaskEvent);
     bus.subscribe(EventType.ACT_DONE, this._onTaskEvent);
     bus.subscribe(EventType.STEP_COMPLETED, this._onTaskEvent);
     bus.subscribe(EventType.TOOL_CALL_COMPLETED, this._onTaskEvent);
@@ -266,16 +261,8 @@ export class Agent {
     trigger: Event,
   ): Promise<void> {
     switch (state) {
-      case TaskState.PERCEIVING:
-        this._spawn(this._runPerceive(task, trigger));
-        break;
-
-      case TaskState.THINKING:
-        this._spawn(this._runThink(task, trigger));
-        break;
-
-      case TaskState.PLANNING:
-        this._spawn(this._runPlan(task, trigger));
+      case TaskState.REASONING:
+        this._spawn(this._runReason(task, trigger));
         break;
 
       case TaskState.ACTING:
@@ -320,22 +307,7 @@ export class Agent {
   // Cognitive stage execution (async, non-blocking)
   // ═══════════════════════════════════════════════════
 
-  private async _runPerceive(task: TaskFSM, trigger: Event): Promise<void> {
-    const perception = await this.llmSemaphore.use(() =>
-      this.perceiver.run(task.context),
-    );
-    task.context.perception = perception;
-    await this.eventBus.emit(
-      createEvent(EventType.PERCEIVE_DONE, {
-        source: "cognitive.perceive",
-        taskId: task.taskId,
-        payload: perception,
-        parentEventId: trigger.id,
-      }),
-    );
-  }
-
-  private async _runThink(task: TaskFSM, trigger: Event): Promise<void> {
+  private async _runReason(task: TaskFSM, trigger: Event): Promise<void> {
     // Fetch memory index (non-blocking, graceful failure)
     let memoryIndex: MemoryIndexEntry[] | undefined;
     try {
@@ -356,10 +328,16 @@ export class Agent {
     );
     task.context.reasoning = reasoning;
 
+    // Plan inline — no separate planning stage
+    const plan = await this.llmSemaphore.use(() =>
+      this.planner.run(task.context),
+    );
+    task.context.plan = plan;
+
     if (reasoning["needsClarification"]) {
       await this.eventBus.emit(
         createEvent(EventType.NEED_MORE_INFO, {
-          source: "cognitive.think",
+          source: "cognitive.reason",
           taskId: task.taskId,
           payload: reasoning,
           parentEventId: trigger.id,
@@ -367,29 +345,14 @@ export class Agent {
       );
     } else {
       await this.eventBus.emit(
-        createEvent(EventType.THINK_DONE, {
-          source: "cognitive.think",
+        createEvent(EventType.REASON_DONE, {
+          source: "cognitive.reason",
           taskId: task.taskId,
           payload: reasoning,
           parentEventId: trigger.id,
         }),
       );
     }
-  }
-
-  private async _runPlan(task: TaskFSM, trigger: Event): Promise<void> {
-    const plan = await this.llmSemaphore.use(() =>
-      this.planner.run(task.context),
-    );
-    task.context.plan = plan;
-    await this.eventBus.emit(
-      createEvent(EventType.PLAN_DONE, {
-        source: "cognitive.plan",
-        taskId: task.taskId,
-        payload: { ...plan },
-        parentEventId: trigger.id,
-      }),
-    );
   }
 
   private async _runAct(task: TaskFSM, trigger: Event): Promise<void> {

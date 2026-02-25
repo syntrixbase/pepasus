@@ -3,7 +3,6 @@ import type { LanguageModel, Message } from "@pegasus/infra/llm-types.ts";
 import type { Persona } from "@pegasus/identity/persona.ts";
 import { createTaskContext } from "@pegasus/task/context.ts";
 import type { PlanStep, ActionResult } from "@pegasus/task/context.ts";
-import { Perceiver } from "@pegasus/cognitive/perceive.ts";
 import { Thinker } from "@pegasus/cognitive/think.ts";
 import { Planner } from "@pegasus/cognitive/plan.ts";
 import { Actor } from "@pegasus/cognitive/act.ts";
@@ -77,79 +76,6 @@ function makePlanStep(overrides: Partial<PlanStep> = {}): PlanStep {
     ...overrides,
   };
 }
-
-// ── Perceiver ───────────────────────────────────────
-
-describe("Perceiver", () => {
-  test("parses valid JSON response from model", async () => {
-    const jsonResponse = JSON.stringify({
-      taskType: "conversation",
-      intent: "greeting",
-      urgency: "low",
-      keyEntities: ["user"],
-    });
-    const model = createMockModel(jsonResponse);
-    const perceiver = new Perceiver(model, testPersona);
-
-    const ctx = createTaskContext({ inputText: "Hello there!" });
-    const result = await perceiver.run(ctx);
-
-    expect(result).toEqual({
-      taskType: "conversation",
-      intent: "greeting",
-      urgency: "low",
-      keyEntities: ["user"],
-    });
-  });
-
-  test("falls back to default perception when model returns invalid JSON", async () => {
-    const invalidJson = "This is not valid JSON at all";
-    const model = createMockModel(invalidJson);
-    const perceiver = new Perceiver(model, testPersona);
-
-    const ctx = createTaskContext({ inputText: "Hello there!" });
-    const result = await perceiver.run(ctx);
-
-    expect(result).toEqual({
-      taskType: "conversation",
-      intent: invalidJson,
-      urgency: "normal",
-      keyEntities: [],
-    });
-  });
-
-  test("handles empty string response as invalid JSON", async () => {
-    const model = createMockModel("");
-    const perceiver = new Perceiver(model, testPersona);
-
-    const ctx = createTaskContext({ inputText: "test" });
-    const result = await perceiver.run(ctx);
-
-    // Empty string is invalid JSON → fallback
-    expect(result.taskType).toBe("conversation");
-    expect(result.intent).toBe("");
-    expect(result.urgency).toBe("normal");
-    expect(result.keyEntities).toEqual([]);
-  });
-
-  test("parses non-conversation task type", async () => {
-    const jsonResponse = JSON.stringify({
-      taskType: "code_generation",
-      intent: "write a function",
-      urgency: "high",
-      keyEntities: ["function", "typescript"],
-    });
-    const model = createMockModel(jsonResponse);
-    const perceiver = new Perceiver(model, testPersona);
-
-    const ctx = createTaskContext({ inputText: "Write a sort function" });
-    const result = await perceiver.run(ctx);
-
-    expect(result.taskType).toBe("code_generation");
-    expect(result.urgency).toBe("high");
-    expect(result.keyEntities).toEqual(["function", "typescript"]);
-  });
-});
 
 // ── Thinker ─────────────────────────────────────────
 
@@ -324,12 +250,11 @@ describe("Thinker", () => {
 // ── Planner ─────────────────────────────────────────
 
 describe("Planner", () => {
-  test("creates single 'respond' step for conversation task", async () => {
+  test("creates single 'respond' step for conversation task (default)", async () => {
     const model = createMockModel("");
     const planner = new Planner(model, testPersona);
 
     const ctx = createTaskContext({ inputText: "Hello" });
-    ctx.perception = { taskType: "conversation" };
 
     const plan = await planner.run(ctx);
 
@@ -342,43 +267,11 @@ describe("Planner", () => {
     expect(plan.steps[0]!.actionParams).toEqual({});
   });
 
-  test("creates single 'generate' step for non-conversation task", async () => {
-    const model = createMockModel("");
-    const planner = new Planner(model, testPersona);
-
-    const ctx = createTaskContext({ inputText: "Write a sort function" });
-    ctx.perception = { taskType: "code_generation" };
-
-    const plan = await planner.run(ctx);
-
-    expect(plan.goal).toBe("Write a sort function");
-    expect(plan.reasoning).toContain("code_generation");
-    expect(plan.steps).toHaveLength(1);
-    expect(plan.steps[0]!.actionType).toBe("generate");
-    expect(plan.steps[0]!.index).toBe(0);
-    expect(plan.steps[0]!.completed).toBe(false);
-    expect(plan.steps[0]!.actionParams).toEqual({ prompt: "Write a sort function" });
-    expect(plan.steps[0]!.description).toContain("Write a sort function");
-  });
-
-  test("defaults to conversation when perception is null", async () => {
+  test("defaults to conversation respond step", async () => {
     const model = createMockModel("");
     const planner = new Planner(model, testPersona);
 
     const ctx = createTaskContext({ inputText: "Hello" });
-    // perception is null by default
-
-    const plan = await planner.run(ctx);
-
-    expect(plan.steps[0]!.actionType).toBe("respond");
-  });
-
-  test("defaults to conversation when perception has no taskType", async () => {
-    const model = createMockModel("");
-    const planner = new Planner(model, testPersona);
-
-    const ctx = createTaskContext({ inputText: "Hello" });
-    ctx.perception = { intent: "greeting" }; // no taskType key
 
     const plan = await planner.run(ctx);
 
@@ -390,7 +283,6 @@ describe("Planner", () => {
     const planner = new Planner(model, testPersona);
 
     const ctx = createTaskContext({ inputText: "What time is it?" });
-    ctx.perception = { taskType: "conversation" };
     ctx.reasoning = {
       response: "",
       approach: "tool_use",
@@ -422,7 +314,6 @@ describe("Planner", () => {
     const planner = new Planner(model, testPersona);
 
     const ctx = createTaskContext({ inputText: "Hello" });
-    ctx.perception = { taskType: "conversation" };
     ctx.reasoning = { response: "Hi", approach: "direct" };
 
     const plan = await planner.run(ctx);
@@ -576,12 +467,11 @@ describe("Actor", () => {
 // ── Reflector ───────────────────────────────────────
 
 describe("Reflector", () => {
-  test("returns 'complete' verdict for conversation task", async () => {
+  test("returns 'complete' verdict for conversation task (default)", async () => {
     const model = createMockModel("");
     const reflector = new Reflector(model, testPersona);
 
     const ctx = createTaskContext({ inputText: "Hello" });
-    ctx.perception = { taskType: "conversation" };
     ctx.actionsDone = [makeActionResult({ success: true })];
 
     const reflection = await reflector.run(ctx);
@@ -596,7 +486,6 @@ describe("Reflector", () => {
     const reflector = new Reflector(model, testPersona);
 
     const ctx = createTaskContext({ inputText: "Hello" });
-    ctx.perception = { taskType: "conversation" };
     ctx.actionsDone = [makeActionResult({ success: false })];
 
     const reflection = await reflector.run(ctx);
@@ -605,73 +494,15 @@ describe("Reflector", () => {
     expect(reflection.verdict).toBe("complete");
   });
 
-  test("returns 'complete' for non-conversation task when all actions succeed", async () => {
-    const model = createMockModel("");
-    const reflector = new Reflector(model, testPersona);
-
-    const ctx = createTaskContext({ inputText: "Write a sort function" });
-    ctx.perception = { taskType: "code_generation" };
-    ctx.actionsDone = [
-      makeActionResult({ success: true }),
-      makeActionResult({ stepIndex: 1, success: true }),
-    ];
-    ctx.iteration = 1;
-
-    const reflection = await reflector.run(ctx);
-
-    expect(reflection.verdict).toBe("complete");
-    expect(reflection.assessment).toContain("all succeeded");
-    expect(reflection.assessment).toContain("Iteration 1");
-    expect(reflection.assessment).toContain("2 actions");
-    expect(reflection.lessons).toHaveLength(1);
-    expect(reflection.lessons[0]).toContain("Write a sort function");
-  });
-
-  test("returns 'continue' for non-conversation task when some actions failed", async () => {
-    const model = createMockModel("");
-    const reflector = new Reflector(model, testPersona);
-
-    const ctx = createTaskContext({ inputText: "Deploy the app" });
-    ctx.perception = { taskType: "deployment" };
-    ctx.actionsDone = [
-      makeActionResult({ success: true }),
-      makeActionResult({ stepIndex: 1, success: false }),
-    ];
-    ctx.iteration = 0;
-
-    const reflection = await reflector.run(ctx);
-
-    expect(reflection.verdict).toBe("continue");
-    expect(reflection.assessment).toContain("some failed");
-    expect(reflection.assessment).toContain("Iteration 0");
-    expect(reflection.assessment).toContain("2 actions");
-  });
-
-  test("defaults to conversation when perception is null", async () => {
+  test("defaults to conversation when no perception", async () => {
     const model = createMockModel("");
     const reflector = new Reflector(model, testPersona);
 
     const ctx = createTaskContext({ inputText: "Hello" });
-    // perception is null by default
 
     const reflection = await reflector.run(ctx);
 
     expect(reflection.verdict).toBe("complete");
-  });
-
-  test("returns 'complete' for non-conversation with empty actionsDone", async () => {
-    const model = createMockModel("");
-    const reflector = new Reflector(model, testPersona);
-
-    const ctx = createTaskContext({ inputText: "Do something" });
-    ctx.perception = { taskType: "task" };
-    // actionsDone is empty → every() returns true for empty arrays
-
-    const reflection = await reflector.run(ctx);
-
-    expect(reflection.verdict).toBe("complete");
-    expect(reflection.assessment).toContain("all succeeded");
-    expect(reflection.assessment).toContain("0 actions");
   });
 
   test("returns 'continue' when current plan has tool_call steps and all succeeded", async () => {
@@ -679,7 +510,6 @@ describe("Reflector", () => {
     const reflector = new Reflector(model, testPersona);
 
     const ctx = createTaskContext({ inputText: "What time?" });
-    ctx.perception = { taskType: "conversation" };
     ctx.plan = {
       goal: "Execute tool calls",
       reasoning: "1 tool call",
@@ -696,7 +526,6 @@ describe("Reflector", () => {
     const reflector = new Reflector(model, testPersona);
 
     const ctx = createTaskContext({ inputText: "What time?" });
-    ctx.perception = { taskType: "conversation" };
     ctx.plan = {
       goal: "Respond",
       reasoning: "deliver response",
@@ -717,7 +546,6 @@ describe("Reflector", () => {
     const reflector = new Reflector(model, testPersona);
 
     const ctx = createTaskContext({ inputText: "Read file" });
-    ctx.perception = { taskType: "conversation" };
     ctx.plan = {
       goal: "Execute tool calls",
       reasoning: "1 tool call",

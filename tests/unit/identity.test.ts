@@ -152,20 +152,10 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("empathy");
   });
 
-  test("perceive stage adds JSON instruction", () => {
-    const prompt = buildSystemPrompt(persona, "perceive");
-    expect(prompt).toContain("JSON");
-    expect(prompt).toContain("taskType");
-  });
-
-  test("think stage adds response instruction", () => {
-    const prompt = buildSystemPrompt(persona, "think");
+  test("reason stage adds response instruction", () => {
+    const prompt = buildSystemPrompt(persona, "reason");
+    expect(prompt.toLowerCase()).toContain("reason");
     expect(prompt.toLowerCase()).toContain("respond");
-  });
-
-  test("plan stage adds planning instruction", () => {
-    const prompt = buildSystemPrompt(persona, "plan");
-    expect(prompt.toLowerCase()).toContain("plan");
   });
 
   test("reflect stage adds evaluation instruction", () => {
@@ -173,10 +163,16 @@ describe("buildSystemPrompt", () => {
     expect(prompt.toLowerCase()).toContain("evaluate");
   });
 
+  test("unknown stage does not add instruction", () => {
+    const prompt = buildSystemPrompt(persona, "unknown_stage");
+    // Should not contain any stage-specific instructions
+    expect(prompt).not.toContain("Your current task");
+  });
+
   test("no stage returns base prompt only", () => {
     const prompt = buildSystemPrompt(persona);
     // Should not contain stage-specific instructions
-    expect(prompt).not.toContain("taskType");
+    expect(prompt).not.toContain("Your current task");
   });
 
   test("includes background when present", () => {
@@ -194,13 +190,13 @@ describe("buildSystemPrompt", () => {
     expect(prompt.length).toBeGreaterThan(50);
   });
 
-  test("should include memory index in think stage prompt", () => {
+  test("should include memory index in reason stage prompt", () => {
     const memoryIndex = [
       { path: "facts/user.md", summary: "user name, language", size: 320 },
       { path: "episodes/2026-02.md", summary: "logger fix, short ID", size: 1200 },
     ];
 
-    const prompt = buildSystemPrompt(persona, "think", memoryIndex);
+    const prompt = buildSystemPrompt(persona, "reason", memoryIndex);
 
     expect(prompt).toContain("Available memory:");
     expect(prompt).toContain("facts/user.md (320B): user name, language");
@@ -209,12 +205,12 @@ describe("buildSystemPrompt", () => {
   });
 
   test("should not include memory section when index is empty", () => {
-    const prompt = buildSystemPrompt(persona, "think", []);
+    const prompt = buildSystemPrompt(persona, "reason", []);
     expect(prompt).not.toContain("Available memory:");
   });
 
   test("should not include memory section when index is undefined", () => {
-    const prompt = buildSystemPrompt(persona, "think");
+    const prompt = buildSystemPrompt(persona, "reason");
     expect(prompt).not.toContain("Available memory:");
   });
 

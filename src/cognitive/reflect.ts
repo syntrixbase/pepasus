@@ -24,7 +24,7 @@ export class Reflector {
   async run(context: TaskContext): Promise<Reflection> {
     logger.info({ iteration: context.iteration }, "reflect_start");
 
-    const taskType = (context.perception?.["taskType"] as string) ?? "conversation";
+    const taskType = "conversation"; // Task type detection removed with Perceiver
     const allSuccess = context.actionsDone.every((a) => a.success);
 
     // Check if the CURRENT plan has tool_call steps (not historical actions)

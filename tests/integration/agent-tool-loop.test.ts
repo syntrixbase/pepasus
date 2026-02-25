@@ -32,20 +32,6 @@ describe("Agent tool use loop", () => {
         callCount++;
 
         if (callCount === 1) {
-          // Perceiver: return conversation perception
-          return {
-            text: JSON.stringify({
-              taskType: "conversation",
-              intent: "get_time",
-              urgency: "normal",
-              keyEntities: ["time"],
-            }),
-            finishReason: "stop",
-            usage: { promptTokens: 10, completionTokens: 10 },
-          };
-        }
-
-        if (callCount === 2) {
           // Thinker round 1: request current_time tool
           return {
             text: "",
@@ -55,7 +41,7 @@ describe("Agent tool use loop", () => {
           };
         }
 
-        if (callCount === 3) {
+        if (callCount === 2) {
           // Thinker round 2: summarize tool result
           // At this point, options.messages should contain the tool result
           const toolMsg = options.messages.find((m: Message) => m.role === "tool");
@@ -67,14 +53,9 @@ describe("Agent tool use loop", () => {
           };
         }
 
-        // Fallback for any additional calls (e.g., perceiver on round 2)
+        // Fallback for any additional calls
         return {
-          text: JSON.stringify({
-            taskType: "conversation",
-            intent: "respond",
-            urgency: "normal",
-            keyEntities: [],
-          }),
+          text: "Done.",
           finishReason: "stop",
           usage: { promptTokens: 5, completionTokens: 5 },
         };
@@ -124,20 +105,7 @@ describe("Agent tool use loop", () => {
         callCount++;
 
         if (callCount === 1) {
-          return {
-            text: JSON.stringify({
-              taskType: "conversation",
-              intent: "use_tool",
-              urgency: "normal",
-              keyEntities: [],
-            }),
-            finishReason: "stop",
-            usage: { promptTokens: 10, completionTokens: 10 },
-          };
-        }
-
-        if (callCount === 2) {
-          // Request a nonexistent tool
+          // Thinker round 1: request a nonexistent tool
           return {
             text: "",
             finishReason: "tool_calls",

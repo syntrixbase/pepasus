@@ -71,7 +71,6 @@ export interface TaskContext {
   source: string;
 
   // Cognitive stage outputs
-  perception: Record<string, unknown> | null;
   reasoning: Record<string, unknown> | null;
   plan: Plan | null;
   actionsDone: ActionResult[];
@@ -105,7 +104,6 @@ export function createTaskContext(
     inputText: opts.inputText ?? "",
     inputMetadata: opts.inputMetadata ?? {},
     source: opts.source ?? "",
-    perception: null,
     reasoning: null,
     plan: null,
     actionsDone: [],
