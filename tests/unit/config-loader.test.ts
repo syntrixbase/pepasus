@@ -621,5 +621,92 @@ system:
 
       delete process.env.PEGASUS_LOG_FORMAT;
     });
+
+    test("${VAR:=default} uses env var when already set", () => {
+      resetSettings();
+      process.env.TEST_ASSIGN_VAR = "already-set";
+
+      const config = `
+llm:
+  provider: openai
+  providers:
+    openai:
+      apiKey: \${TEST_ASSIGN_VAR:=fallback-value}
+      model: gpt-4o-mini
+system:
+  dataDir: /tmp/test
+`;
+
+      writeFileSync("config.yaml", config);
+
+      const settings = loadSettings();
+
+      expect(settings.llm.openai.apiKey).toBe("already-set");
+      // Env var should remain unchanged
+      expect(process.env.TEST_ASSIGN_VAR).toBe("already-set");
+    });
+
+    test("interpolates env vars inside arrays", () => {
+      resetSettings();
+      process.env.ALLOWED_PATH = "/tmp/allowed";
+
+      const config = `
+llm:
+  provider: openai
+tools:
+  allowedPaths:
+    - \${ALLOWED_PATH}
+    - /static/path
+system:
+  dataDir: /tmp/test
+`;
+
+      writeFileSync("config.yaml", config);
+
+      const settings = loadSettings();
+
+      expect(settings.tools.allowedPaths).toContain("/tmp/allowed");
+      expect(settings.tools.allowedPaths).toContain("/static/path");
+
+      delete process.env.ALLOWED_PATH;
+    });
+
+    test("loads config from PEGASUS_CONFIG custom path", () => {
+      resetSettings();
+
+      const customConfigPath = join(testDir, "custom-config.yml");
+      const config = `
+llm:
+  provider: openai
+  providers:
+    openai:
+      model: gpt-4o
+      apiKey: custom-key
+system:
+  dataDir: /tmp/test
+`;
+
+      writeFileSync(customConfigPath, config);
+      process.env.PEGASUS_CONFIG = customConfigPath;
+
+      const settings = loadSettings();
+
+      expect(settings.llm.provider).toBe("openai");
+      expect(settings.llm.openai.model).toBe("gpt-4o");
+      expect(settings.llm.openai.apiKey).toBe("custom-key");
+    });
+
+    test("falls back to standard config when PEGASUS_CONFIG path does not exist", () => {
+      resetSettings();
+
+      process.env.PEGASUS_CONFIG = join(testDir, "nonexistent-config.yml");
+
+      // Provide a standard config file to fall back to
+      writeFileSync("config.yml", "system:\n  dataDir: /tmp/fallback\n");
+
+      const settings = loadSettings();
+
+      expect(settings.dataDir).toBe("/tmp/fallback");
+    });
   });
 });
