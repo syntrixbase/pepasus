@@ -94,7 +94,7 @@ export const SettingsSchema = z.object({
   identity: IdentityConfigSchema.default({}),
   tools: ToolsConfigSchema.default({}),
   logLevel: z.string().default("info"),
-  dataDir: z.string().default("data"),
+  dataDir: z.string({ required_error: "dataDir is required — set system.dataDir in config.yml or PEGASUS_DATA_DIR env var" }),
   // Log output destination
   // Log output format (file only, no console output)
   // json — structured JSON lines, machine-parseable (default)
