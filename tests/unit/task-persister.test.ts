@@ -577,4 +577,58 @@ describe("TaskPersister", () => {
       expect(result).toBeNull();
     });
   });
+
+  describe("recoverPending", () => {
+    it("should mark pending tasks as failed and return taskIds", async () => {
+      const createdAt = new Date("2026-02-25T10:00:00Z").getTime();
+      // Create a task with TASK_CREATED event
+      await persister._appendForTest("pending1", createdAt, "TASK_CREATED", {
+        inputText: "test", source: "user", inputMetadata: {},
+      });
+      await persister._appendIndexForTest("pending1", "2026-02-25");
+      await persister._updatePendingForTest("add", "pending1", createdAt);
+
+      // Recover
+      const recovered = await TaskPersister.recoverPending(`${testDir}/tasks`);
+
+      expect(recovered).toEqual(["pending1"]);
+
+      // TASK_FAILED should be appended to JSONL
+      const content = await Bun.file(`${testDir}/tasks/2026-02-25/pending1.jsonl`).text();
+      const lines = content.trim().split("\n");
+      const lastLine = JSON.parse(lines[lines.length - 1]!);
+      expect(lastLine.event).toBe("TASK_FAILED");
+      expect(lastLine.data.error).toContain("process restarted");
+
+      // pending.json should be empty
+      const pendingContent = await Bun.file(`${testDir}/tasks/pending.json`).text();
+      expect(JSON.parse(pendingContent)).toEqual([]);
+    });
+
+    it("should handle multiple pending tasks", async () => {
+      const createdAt = new Date("2026-02-25T10:00:00Z").getTime();
+      await persister._appendForTest("p1", createdAt, "TASK_CREATED", { inputText: "a", source: "user", inputMetadata: {} });
+      await persister._appendForTest("p2", createdAt, "TASK_CREATED", { inputText: "b", source: "user", inputMetadata: {} });
+      await persister._appendIndexForTest("p1", "2026-02-25");
+      await persister._appendIndexForTest("p2", "2026-02-25");
+      await persister._updatePendingForTest("add", "p1", createdAt);
+      await persister._updatePendingForTest("add", "p2", createdAt);
+
+      const recovered = await TaskPersister.recoverPending(`${testDir}/tasks`);
+      expect(recovered).toHaveLength(2);
+      expect(recovered).toContain("p1");
+      expect(recovered).toContain("p2");
+    });
+
+    it("should return empty array when no pending.json exists", async () => {
+      const recovered = await TaskPersister.recoverPending(`${testDir}/tasks`);
+      expect(recovered).toEqual([]);
+    });
+
+    it("should return empty array when pending.json is empty", async () => {
+      // pending.json already starts empty from _updatePendingForTest setup
+      const recovered = await TaskPersister.recoverPending(`${testDir}/tasks`);
+      expect(recovered).toEqual([]);
+    });
+  });
 });
