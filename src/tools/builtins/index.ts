@@ -58,12 +58,19 @@ const task_replay = taskToolsModule.task_replay;
 
 export { task_list, task_replay };
 
+// Spawn task tool (for Main Agent)
+import * as spawnTaskModule from "./spawn-task-tool.ts";
+const spawn_task = spawnTaskModule.spawn_task;
+
+export { spawn_task };
+
 // Re-export all tools as array
 export const systemTools: Tool[] = [
   current_time,
   sleep,
   get_env,
   set_env,
+  spawn_task,
 ];
 
 export const fileTools: Tool[] = [
