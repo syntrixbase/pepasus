@@ -29,6 +29,7 @@ IMMEDIATELY STOP and ask user when:
   4. Wait for CI to pass
   5. Merge to main (CI passed)
   6. DO NOT merge or push to main directly under any circumstances
+- **NEVER delete or modify files under `data/`**: The `data/` directory contains live runtime data (sessions, task logs, memory). Never `rm -rf data/`, never clean up `data/` subdirectories. If you suspect test pollution, report it — do NOT delete.
 
 ## 🔄 DECISION TREE
 
@@ -52,5 +53,5 @@ Before ANY change:
 
 - Uses `bun` for frontend package scripts.
 - `README.md` is the doc entry.
-- Design docs are located in `docs` folder
-- Tasks/plans are located in `docs/plans` folder, it's local only.
+- `docs/` — persistent system design docs (no implementation details).
+- `docs/plans/` — disposable working documents (plans, design drafts, reviews). Local only, gitignored. Throw away after use.

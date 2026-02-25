@@ -2,7 +2,7 @@
  * Tests for logger.ts
  */
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
-import { resolveTransport, initLogger, getLogger } from "../../src/infra/logger.ts";
+import { resolveTransport, initLogger, getLogger, isLoggerInitialized } from "../../src/infra/logger.ts";
 import { existsSync, rmSync, mkdirSync, writeFileSync, utimesSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
@@ -88,6 +88,27 @@ describe("logger", () => {
       const logFile = join(testDir, "init.log");
 
       expect(() => initLogger(logFile, "json", "debug")).not.toThrow();
+    });
+
+    test("initializes logger with silent level without file transport", () => {
+      const logFile = join(testDir, "silent.log");
+
+      expect(() => initLogger(logFile, "json", "silent")).not.toThrow();
+
+      // Logger should be initialized and produce no output
+      const logger = getLogger("silent-test");
+      expect(typeof logger.info).toBe("function");
+      // Calling log methods should not throw
+      logger.info("this should be silenced");
+    });
+  });
+
+  describe("isLoggerInitialized", () => {
+    test("returns true after initLogger is called", () => {
+      const logFile = join(testDir, "init-check.log");
+      initLogger(logFile, "json", "silent");
+
+      expect(isLoggerInitialized()).toBe(true);
     });
   });
 

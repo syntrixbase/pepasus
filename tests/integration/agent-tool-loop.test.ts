@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { Agent } from "@pegasus/agent.ts";
+import { Agent } from "@pegasus/agents/agent.ts";
 import type { LanguageModel, Message } from "@pegasus/infra/llm-types.ts";
 import type { Persona } from "@pegasus/identity/persona.ts";
 import { SettingsSchema } from "@pegasus/infra/config.ts";

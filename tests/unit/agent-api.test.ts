@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { Agent } from "@pegasus/agent.ts";
-import type { AgentDeps } from "@pegasus/agent.ts";
+import { Agent } from "@pegasus/agents/agent.ts";
+import type { AgentDeps } from "@pegasus/agents/agent.ts";
 import { EventType, createEvent } from "@pegasus/events/types.ts";
 import { TaskState } from "@pegasus/task/states.ts";
 import type { TaskFSM } from "@pegasus/task/fsm.ts";

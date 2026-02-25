@@ -50,9 +50,9 @@ const DEFAULT_CONFIG = {
   },
   system: {
     logLevel: "info",
-    dataDir: "data",
     logFormat: "json",
     nodeEnv: "development",
+    // dataDir intentionally omitted — must be set in config.yml or env var
   },
 };
 

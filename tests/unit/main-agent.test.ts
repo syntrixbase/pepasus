@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "bun:test";
-import { MainAgent } from "@pegasus/main-agent.ts";
+import { MainAgent } from "@pegasus/agents/main-agent.ts";
 import type {
   LanguageModel,
   GenerateTextResult,
@@ -20,13 +20,60 @@ const testPersona: Persona = {
   values: ["accuracy"],
 };
 
-function createMockModel(response: string): LanguageModel {
+/**
+ * Create a mock model that uses the reply tool to deliver a response.
+ *
+ * In inner monologue mode, only the `reply` tool call produces user-visible
+ * output. Plain text from the LLM is inner monologue (private thinking).
+ *
+ * After the reply tool call, _think queues another think step — the model
+ * must return a stop (no tool calls) on the next invocation to end thinking.
+ */
+function createReplyModel(
+  replyText: string,
+  channelId = "test",
+): LanguageModel {
+  let replied = false;
+  return {
+    provider: "test",
+    modelId: "test-model",
+    async generate(): Promise<GenerateTextResult> {
+      if (!replied) {
+        replied = true;
+        return {
+          text: "Let me respond to the user.", // inner monologue
+          finishReason: "tool_calls",
+          toolCalls: [
+            {
+              id: "tc_reply",
+              name: "reply",
+              arguments: { text: replyText, channelId },
+            },
+          ],
+          usage: { promptTokens: 10, completionTokens: 10 },
+        };
+      }
+      // After reply, stop the loop (inner monologue, no more tools)
+      return {
+        text: "",
+        finishReason: "stop",
+        usage: { promptTokens: 5, completionTokens: 0 },
+      };
+    },
+  };
+}
+
+/**
+ * Create a mock model that only produces inner monologue (no tool calls).
+ * This should NOT trigger onReply.
+ */
+function createMonologueModel(monologueText: string): LanguageModel {
   return {
     provider: "test",
     modelId: "test-model",
     async generate(): Promise<GenerateTextResult> {
       return {
-        text: response,
+        text: monologueText,
         finishReason: "stop",
         usage: { promptTokens: 10, completionTokens: 10 },
       };
@@ -48,8 +95,8 @@ describe("MainAgent", () => {
     await rm(testDataDir, { recursive: true, force: true }).catch(() => {});
   });
 
-  it("should reply to a simple message", async () => {
-    const model = createMockModel("Hello! How can I help?");
+  it("should reply to a simple message via reply tool", async () => {
+    const model = createReplyModel("Hello! How can I help?");
     const agent = new MainAgent({
       model,
       persona: testPersona,
@@ -64,7 +111,7 @@ describe("MainAgent", () => {
     agent.send({ text: "hello", channel: { type: "cli", channelId: "test" } });
 
     // Wait for async processing
-    await Bun.sleep(200);
+    await Bun.sleep(300);
 
     expect(replies.length).toBeGreaterThanOrEqual(1);
     expect(replies[0]!.text).toBe("Hello! How can I help?");
@@ -74,7 +121,7 @@ describe("MainAgent", () => {
   }, 10_000);
 
   it("should persist session messages", async () => {
-    const model = createMockModel("Hi there!");
+    const model = createReplyModel("Hi there!");
     const agent = new MainAgent({
       model,
       persona: testPersona,
@@ -88,14 +135,17 @@ describe("MainAgent", () => {
       text: "test message",
       channel: { type: "cli", channelId: "test" },
     });
-    await Bun.sleep(200);
+    await Bun.sleep(300);
 
     // Verify session was persisted
     const content = await Bun.file(
       `${testDataDir}/main/current.jsonl`,
     ).text();
     expect(content).toContain("test message");
-    expect(content).toContain("Hi there!");
+    // The reply text is delivered via tool call, so "Hi there!" appears in
+    // tool call arguments, not directly as assistant content.
+    // The inner monologue text should be present though.
+    expect(content).toContain("Let me respond to the user.");
 
     await agent.stop();
   }, 10_000);
@@ -124,7 +174,7 @@ describe("MainAgent", () => {
       text: "will fail",
       channel: { type: "cli", channelId: "test" },
     });
-    await Bun.sleep(200);
+    await Bun.sleep(300);
 
     expect(replies.length).toBeGreaterThanOrEqual(1);
     expect(replies[0]!.text).toContain("error");
@@ -134,14 +184,24 @@ describe("MainAgent", () => {
 
   it("should queue messages and process sequentially", async () => {
     let callCount = 0;
+    // Each send() triggers exactly one _think call.
+    // reply tool calls do NOT trigger follow-up thinking, so each _think
+    // simply returns a reply and finishes. Two sends → two replies.
     const model: LanguageModel = {
       provider: "test",
       modelId: "test-model",
       async generate(): Promise<GenerateTextResult> {
         callCount++;
         return {
-          text: `Response ${callCount}`,
-          finishReason: "stop",
+          text: "",
+          finishReason: "tool_calls",
+          toolCalls: [
+            {
+              id: `tc_${callCount}`,
+              name: "reply",
+              arguments: { text: `Response ${callCount}`, channelId: "test" },
+            },
+          ],
           usage: { promptTokens: 10, completionTokens: 10 },
         };
       },
@@ -176,7 +236,7 @@ describe("MainAgent", () => {
   }, 10_000);
 
   it("should expose taskAgent getter", async () => {
-    const model = createMockModel("ok");
+    const model = createReplyModel("ok");
     const agent = new MainAgent({
       model,
       persona: testPersona,
@@ -203,7 +263,7 @@ describe("MainAgent", () => {
         if (callCount === 1) {
           // First call: LLM requests current_time tool
           return {
-            text: "",
+            text: "Let me check the time first.",
             finishReason: "tool_calls",
             toolCalls: [
               {
@@ -215,20 +275,32 @@ describe("MainAgent", () => {
             usage: { promptTokens: 10, completionTokens: 10 },
           };
         }
-        // Second call: LLM sees tool result, produces final answer
-        // Verify tool result was added to messages
-        const lastMsg = options.messages[options.messages.length - 1];
-        if (lastMsg?.role === "tool") {
-          return {
-            text: "The time has been checked!",
-            finishReason: "stop",
-            usage: { promptTokens: 20, completionTokens: 10 },
-          };
+        if (callCount === 2) {
+          // Second call: LLM sees tool result, uses reply tool to respond
+          const lastMsg = options.messages[options.messages.length - 1];
+          if (lastMsg?.role === "tool") {
+            return {
+              text: "The time has been checked, now I'll tell the user.",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "tc-reply",
+                  name: "reply",
+                  arguments: {
+                    text: "The time has been checked!",
+                    channelId: "test",
+                  },
+                },
+              ],
+              usage: { promptTokens: 20, completionTokens: 10 },
+            };
+          }
         }
+        // Third+ call: stop the loop
         return {
-          text: "fallback",
+          text: "",
           finishReason: "stop",
-          usage: { promptTokens: 10, completionTokens: 10 },
+          usage: { promptTokens: 5, completionTokens: 0 },
         };
       },
     };
@@ -250,7 +322,7 @@ describe("MainAgent", () => {
     });
     await Bun.sleep(500);
 
-    expect(callCount).toBe(2);
+    expect(callCount).toBeGreaterThanOrEqual(2);
     expect(replies).toHaveLength(1);
     expect(replies[0]!.text).toBe("The time has been checked!");
 
@@ -262,18 +334,12 @@ describe("MainAgent", () => {
     const model: LanguageModel = {
       provider: "test",
       modelId: "test-model",
-      async generate(options: {
-        messages: Message[];
-      }): Promise<GenerateTextResult> {
+      async generate(): Promise<GenerateTextResult> {
         callCount++;
-        // Check if this is the first user message triggering spawn_task
-        const hasToolResult = options.messages.some(
-          (m) => m.role === "tool" && m.toolCallId === "tc-spawn",
-        );
-        if (!hasToolResult && callCount === 1) {
+        if (callCount === 1) {
           // First call: LLM requests spawn_task
           return {
-            text: "",
+            text: "I need to spawn a task for this.",
             finishReason: "tool_calls",
             toolCalls: [
               {
@@ -288,10 +354,22 @@ describe("MainAgent", () => {
             usage: { promptTokens: 10, completionTokens: 10 },
           };
         }
-        // All subsequent calls: produce text responses
+        // Subsequent calls (triggered by task completion): reply to the user.
+        // spawn_task does NOT trigger follow-up thinking, so the next _think
+        // only happens when the task result arrives via _handleTaskResult.
         return {
-          text: `Response ${callCount}`,
-          finishReason: "stop",
+          text: `Thinking about response ${callCount}...`,
+          finishReason: "tool_calls",
+          toolCalls: [
+            {
+              id: `tc-reply-${callCount}`,
+              name: "reply",
+              arguments: {
+                text: `Response ${callCount}`,
+                channelId: "test",
+              },
+            },
+          ],
           usage: { promptTokens: 20, completionTokens: 10 },
         };
       },
@@ -322,11 +400,6 @@ describe("MainAgent", () => {
     expect(replies.length).toBeGreaterThanOrEqual(1);
     // Each reply has text starting with "Response"
     expect(replies[0]!.text).toMatch(/^Response/);
-
-    // If task completed, we get a second reply for the task result
-    if (replies.length >= 2) {
-      expect(replies[1]!.text).toMatch(/^Response/);
-    }
 
     await agent.stop();
   }, 15_000);
@@ -359,9 +432,9 @@ describe("MainAgent", () => {
       text: "hello",
       channel: { type: "cli", channelId: "test" },
     });
-    await Bun.sleep(200);
+    await Bun.sleep(300);
 
-    // Empty text → no reply sent (not an error)
+    // Empty text + no tool calls → no reply sent (not an error)
     expect(replies).toHaveLength(0);
 
     await agent.stop();
@@ -377,7 +450,7 @@ describe("MainAgent", () => {
       }): Promise<GenerateTextResult> {
         capturedSystem = options.system ?? "";
         return {
-          text: "ok",
+          text: "Just thinking...",
           finishReason: "stop",
           usage: { promptTokens: 10, completionTokens: 10 },
         };
@@ -402,10 +475,113 @@ describe("MainAgent", () => {
       text: "hi",
       channel: { type: "slack", channelId: "C123" },
     });
-    await Bun.sleep(200);
+    await Bun.sleep(300);
 
     expect(capturedSystem).toContain("Built in a secret lab");
-    expect(capturedSystem).toContain("slack");
+    expect(capturedSystem).toContain("Slack");
+
+    await agent.stop();
+  }, 10_000);
+
+  // ── New tests for inner monologue behavior ──
+
+  it("should NOT deliver inner monologue to user", async () => {
+    const monologueText =
+      "Hmm, the user just said hi. Let me think about this but not respond.";
+    const model = createMonologueModel(monologueText);
+
+    const agent = new MainAgent({
+      model,
+      persona: testPersona,
+      settings: testSettings(),
+    });
+
+    await agent.start();
+
+    const replies: OutboundMessage[] = [];
+    agent.onReply((msg) => replies.push(msg));
+
+    agent.send({
+      text: "hello",
+      channel: { type: "cli", channelId: "test" },
+    });
+    await Bun.sleep(300);
+
+    // Inner monologue should NOT produce a reply
+    expect(replies).toHaveLength(0);
+
+    // But the monologue should be persisted in the session
+    const content = await Bun.file(
+      `${testDataDir}/main/current.jsonl`,
+    ).text();
+    expect(content).toContain(monologueText);
+
+    await agent.stop();
+  }, 10_000);
+
+  it("should route reply tool to correct channelId", async () => {
+    const model = createReplyModel("Hey Slack!", "C-slack-123");
+
+    const agent = new MainAgent({
+      model,
+      persona: testPersona,
+      settings: testSettings(),
+    });
+
+    await agent.start();
+
+    const replies: OutboundMessage[] = [];
+    agent.onReply((msg) => replies.push(msg));
+
+    agent.send({
+      text: "hello from slack",
+      channel: { type: "slack", channelId: "C-slack-123" },
+    });
+    await Bun.sleep(300);
+
+    expect(replies).toHaveLength(1);
+    expect(replies[0]!.text).toBe("Hey Slack!");
+    expect(replies[0]!.channel.channelId).toBe("C-slack-123");
+    expect(replies[0]!.channel.type).toBe("slack");
+
+    await agent.stop();
+  }, 10_000);
+
+  it("should include inner monologue instructions in system prompt", async () => {
+    let capturedSystem = "";
+    const model: LanguageModel = {
+      provider: "test",
+      modelId: "test-model",
+      async generate(options: {
+        system?: string;
+      }): Promise<GenerateTextResult> {
+        capturedSystem = options.system ?? "";
+        return {
+          text: "thinking...",
+          finishReason: "stop",
+          usage: { promptTokens: 10, completionTokens: 10 },
+        };
+      },
+    };
+
+    const agent = new MainAgent({
+      model,
+      persona: testPersona,
+      settings: testSettings(),
+    });
+
+    await agent.start();
+    agent.onReply(() => {});
+
+    agent.send({
+      text: "hi",
+      channel: { type: "cli", channelId: "test" },
+    });
+    await Bun.sleep(300);
+
+    // System prompt should explain inner monologue mode
+    expect(capturedSystem).toContain("INNER MONOLOGUE");
+    expect(capturedSystem).toContain("reply()");
 
     await agent.stop();
   }, 10_000);

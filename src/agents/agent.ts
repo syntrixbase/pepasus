@@ -6,30 +6,30 @@
  *
  * Agent itself holds NO task execution state. All state lives in TaskFSM.
  */
-import type { LanguageModel } from "./infra/llm-types.ts";
-import type { Event } from "./events/types.ts";
-import { EventType, createEvent } from "./events/types.ts";
-import { EventBus } from "./events/bus.ts";
-import { Thinker } from "./cognitive/think.ts";
-import { Planner } from "./cognitive/plan.ts";
-import { Actor } from "./cognitive/act.ts";
-import { Reflector } from "./cognitive/reflect.ts";
-import { getLogger } from "./infra/logger.ts";
-import { InvalidStateTransition, TaskNotFoundError } from "./infra/errors.ts";
-import type { Settings } from "./infra/config.ts";
-import { getSettings } from "./infra/config.ts";
-import type { Persona } from "./identity/persona.ts";
-import { TaskFSM } from "./task/fsm.ts";
-import { TaskRegistry } from "./task/registry.ts";
-import { TaskState } from "./task/states.ts";
-import { currentStep, markStepDone } from "./task/context.ts";
-import type { TaskContext } from "./task/context.ts";
-import { ToolRegistry } from "./tools/registry.ts";
-import { ToolExecutor } from "./tools/executor.ts";
-import type { ToolResult } from "./tools/types.ts";
-import { allBuiltInTools } from "./tools/builtins/index.ts";
-import type { MemoryIndexEntry } from "./identity/prompt.ts";
-import { TaskPersister } from "./task/persister.ts";
+import type { LanguageModel } from "../infra/llm-types.ts";
+import type { Event } from "../events/types.ts";
+import { EventType, createEvent } from "../events/types.ts";
+import { EventBus } from "../events/bus.ts";
+import { Thinker } from "../cognitive/think.ts";
+import { Planner } from "../cognitive/plan.ts";
+import { Actor } from "../cognitive/act.ts";
+import { Reflector } from "../cognitive/reflect.ts";
+import { getLogger } from "../infra/logger.ts";
+import { InvalidStateTransition, TaskNotFoundError } from "../infra/errors.ts";
+import type { Settings } from "../infra/config.ts";
+import { getSettings } from "../infra/config.ts";
+import type { Persona } from "../identity/persona.ts";
+import { TaskFSM } from "../task/fsm.ts";
+import { TaskRegistry } from "../task/registry.ts";
+import { TaskState } from "../task/states.ts";
+import { currentStep, markStepDone } from "../task/context.ts";
+import type { TaskContext } from "../task/context.ts";
+import { ToolRegistry } from "../tools/registry.ts";
+import { ToolExecutor } from "../tools/executor.ts";
+import type { ToolResult } from "../tools/types.ts";
+import { allBuiltInTools } from "../tools/builtins/index.ts";
+import type { MemoryIndexEntry } from "../identity/prompt.ts";
+import { TaskPersister } from "../task/persister.ts";
 import path from "node:path";
 
 const logger = getLogger("agent");
