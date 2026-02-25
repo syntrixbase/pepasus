@@ -90,4 +90,66 @@ describe("SessionStore", () => {
     expect(messages).toHaveLength(1);
     expect(messages[0]!.content).toBe("with meta");
   });
+
+  describe("unclosed tool call repair", () => {
+    it("should repair unclosed tool calls on load", async () => {
+      // Write session with unclosed tool call
+      await store.append({ role: "user", content: "hello" });
+      await store.append({
+        role: "assistant",
+        content: "",
+        toolCalls: [{ id: "tc1", name: "current_time", arguments: {} }],
+      });
+      // NO tool result — process "crashed"
+
+      const messages = await store.load();
+      // Should have 3 messages: user, assistant, injected tool cancellation
+      expect(messages).toHaveLength(3);
+      expect(messages[2]!.role).toBe("tool");
+      expect(messages[2]!.toolCallId).toBe("tc1");
+      const content = JSON.parse(messages[2]!.content);
+      expect(content.cancelled).toBe(true);
+      expect(content.reason).toContain("process restarted");
+    });
+
+    it("should not repair when all tool calls have results", async () => {
+      await store.append({ role: "user", content: "hello" });
+      await store.append({
+        role: "assistant",
+        content: "",
+        toolCalls: [{ id: "tc1", name: "current_time", arguments: {} }],
+      });
+      await store.append({ role: "tool", content: "result", toolCallId: "tc1" });
+
+      const messages = await store.load();
+      expect(messages).toHaveLength(3); // No extra message injected
+    });
+
+    it("should repair only unclosed tool calls when some are closed", async () => {
+      await store.append({ role: "user", content: "hello" });
+      await store.append({
+        role: "assistant",
+        content: "",
+        toolCalls: [
+          { id: "tc1", name: "current_time", arguments: {} },
+          { id: "tc2", name: "reply", arguments: { text: "hi", channelId: "main" } },
+        ],
+      });
+      await store.append({ role: "tool", content: "time result", toolCallId: "tc1" });
+      // tc2 has no result
+
+      const messages = await store.load();
+      expect(messages).toHaveLength(4); // user + assistant + tc1 result + tc2 cancelled
+      expect(messages[3]!.toolCallId).toBe("tc2");
+      expect(JSON.parse(messages[3]!.content).cancelled).toBe(true);
+    });
+
+    it("should not modify session with no tool calls", async () => {
+      await store.append({ role: "user", content: "hello" });
+      await store.append({ role: "assistant", content: "hi" });
+
+      const messages = await store.load();
+      expect(messages).toHaveLength(2);
+    });
+  });
 });

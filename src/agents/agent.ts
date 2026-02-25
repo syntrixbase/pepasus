@@ -165,6 +165,22 @@ export class Agent {
       createEvent(EventType.SYSTEM_STARTED, { source: "system" }),
     );
 
+    // Recover pending tasks from previous run
+    const tasksDir = path.join(this.settings.dataDir, "tasks");
+    const recovered = await TaskPersister.recoverPending(tasksDir);
+    if (recovered.length > 0) {
+      logger.info({ count: recovered.length, taskIds: recovered }, "recovered_pending_tasks");
+      for (const taskId of recovered) {
+        if (this.notifyCallback) {
+          this.notifyCallback({
+            type: "failed",
+            taskId,
+            error: "process restarted, task cancelled",
+          });
+        }
+      }
+    }
+
     logger.info("agent_started");
   }
 
