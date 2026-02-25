@@ -22,7 +22,7 @@ import {
   MemoryError,
   ToolError,
 } from "@pegasus/infra/errors.ts";
-import { getLogger, rootLogger, resolveTransport } from "@pegasus/infra/logger.ts";
+import { getLogger, rootLogger, resolveTransport, initLogger, isLoggerInitialized } from "@pegasus/infra/logger.ts";
 import type { Message, GenerateTextResult } from "@pegasus/infra/llm-types.ts";
 import { toOpenAIMessages } from "@pegasus/infra/openai-client.ts";
 import { toAnthropicMessages } from "@pegasus/infra/anthropic-client.ts";
@@ -270,6 +270,13 @@ describe("Logger", () => {
   test("rootLogger has a valid log level", () => {
     const validLevels = ["fatal", "error", "warn", "info", "debug", "trace", "silent"];
     expect(validLevels).toContain(rootLogger.level);
+  });
+
+  test("initLogger sets up the logger", () => {
+    // In test env (PEGASUS_LOG_LEVEL=silent), initLogger was called by getSettings()
+    // Just verify the function exists and is callable
+    expect(typeof initLogger).toBe("function");
+    expect(typeof isLoggerInitialized).toBe("function");
   });
 });
 

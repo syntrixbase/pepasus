@@ -22,11 +22,11 @@ export function getSettings(): Settings {
     const { loadSettings } = require("./config-loader.ts") as typeof import("./config-loader.ts");
     _settings = loadSettings();
 
-    // Reinitialize logger with configuration
-    const { reinitLogger } = require("./logger.ts") as typeof import("./logger.ts");
+    // Initialize logger with configuration
+    const { initLogger } = require("./logger.ts") as typeof import("./logger.ts");
     const { join } = require("path") as typeof import("path");
     const logFile = join(_settings.dataDir, "logs/pegasus.log");
-    reinitLogger(logFile, _settings.logFormat, _settings.logLevel);
+    initLogger(logFile, _settings.logFormat, _settings.logLevel);
   }
   return _settings;
 }
