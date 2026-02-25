@@ -1,9 +1,12 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import { Agent } from "@pegasus/agent.ts";
 import type { LanguageModel, Message } from "@pegasus/infra/llm-types.ts";
 import type { Persona } from "@pegasus/identity/persona.ts";
 import { SettingsSchema } from "@pegasus/infra/config.ts";
 import { TaskState } from "@pegasus/task/states.ts";
+import { rm } from "node:fs/promises";
+
+const testDataDir = "/tmp/pegasus-test-agent-tool-loop";
 
 const testPersona: Persona = {
   name: "ToolBot",
@@ -18,10 +21,14 @@ function createToolTestSettings() {
     llm: { maxConcurrentCalls: 3 },
     agent: { maxActiveTasks: 10 },
     logLevel: "warn",
+    dataDir: testDataDir,
   });
 }
 
 describe("Agent tool use loop", () => {
+  afterAll(async () => {
+    await rm(testDataDir, { recursive: true, force: true }).catch(() => {});
+  });
   test("executes tool and returns LLM summary", async () => {
     let callCount = 0;
 

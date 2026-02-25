@@ -20,7 +20,6 @@ import type { TaskRegistry } from "./registry.ts";
 const logger = getLogger("task_persister");
 
 export class TaskPersister {
-  private dataDir: string;
   private tasksDir: string;
   private bus: EventBus;
   private registry: TaskRegistry;
@@ -29,7 +28,6 @@ export class TaskPersister {
   constructor(bus: EventBus, registry: TaskRegistry, dataDir: string) {
     this.bus = bus;
     this.registry = registry;
-    this.dataDir = dataDir;
     this.tasksDir = path.join(dataDir, "tasks");
     this._subscribe();
   }

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import { Agent } from "@pegasus/agent.ts";
 import type { AgentDeps } from "@pegasus/agent.ts";
 import { EventType, createEvent } from "@pegasus/events/types.ts";
@@ -7,6 +7,9 @@ import type { TaskFSM } from "@pegasus/task/fsm.ts";
 import { SettingsSchema } from "@pegasus/infra/config.ts";
 import type { LanguageModel } from "@pegasus/infra/llm-types.ts";
 import type { Persona } from "@pegasus/identity/persona.ts";
+import { rm } from "node:fs/promises";
+
+const testDataDir = "/tmp/pegasus-test-agent-api";
 
 /** Minimal mock LanguageModel that returns stub text. */
 function createMockModel(): LanguageModel {
@@ -39,6 +42,7 @@ function testAgentDeps(): AgentDeps {
       llm: { maxConcurrentCalls: 3 },
       agent: { maxActiveTasks: 10 },
       logLevel: "warn",
+      dataDir: testDataDir,
     }),
   };
 }
@@ -48,6 +52,9 @@ function sleep(ms: number): Promise<void> {
 }
 
 describe("Agent.onTaskComplete", () => {
+  afterAll(async () => {
+    await rm(testDataDir, { recursive: true, force: true }).catch(() => {});
+  });
   test("callback fires when task completes", async () => {
     const agent = new Agent(testAgentDeps());
     await agent.start();

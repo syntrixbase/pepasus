@@ -108,7 +108,6 @@ export class Agent {
 
   // Tool infrastructure
   private toolExecutor: ToolExecutor;
-  private persister: TaskPersister;
 
   // Concurrency control
   private llmSemaphore: Semaphore;
@@ -137,8 +136,8 @@ export class Agent {
     );
     this.toolExecutor = toolExecutor;
 
-    // Task persistence
-    this.persister = new TaskPersister(this.eventBus, this.taskRegistry, this.settings.dataDir);
+    // Task persistence (side-effect: subscribes to EventBus)
+    new TaskPersister(this.eventBus, this.taskRegistry, this.settings.dataDir);
 
     // Initialize cognitive processors with model + persona
     this.thinker = new Thinker(deps.model, deps.persona, toolRegistry);
