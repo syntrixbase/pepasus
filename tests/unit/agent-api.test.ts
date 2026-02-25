@@ -1,9 +1,8 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { Agent } from "@pegasus/agents/agent.ts";
-import type { AgentDeps } from "@pegasus/agents/agent.ts";
+import type { AgentDeps, TaskNotification } from "@pegasus/agents/agent.ts";
 import { EventType, createEvent } from "@pegasus/events/types.ts";
 import { TaskState } from "@pegasus/task/states.ts";
-import type { TaskFSM } from "@pegasus/task/fsm.ts";
 import { SettingsSchema } from "@pegasus/infra/config.ts";
 import type { LanguageModel } from "@pegasus/infra/llm-types.ts";
 import type { Persona } from "@pegasus/identity/persona.ts";
@@ -47,101 +46,97 @@ function testAgentDeps(): AgentDeps {
   };
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
-describe("Agent.onTaskComplete", () => {
+describe("Agent.onNotify", () => {
   afterAll(async () => {
     await rm(testDataDir, { recursive: true, force: true }).catch(() => {});
   });
-  test("callback fires when task completes", async () => {
+
+  test("callback fires with completed notification when task completes", async () => {
     const agent = new Agent(testAgentDeps());
     await agent.start();
 
     try {
+      const notifications: TaskNotification[] = [];
+
+      agent.onNotify((notification) => {
+        notifications.push(notification);
+      });
+
       const taskId = await agent.submit("Hello");
       expect(taskId).toBeTruthy();
 
-      const result = await new Promise<TaskFSM>((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error("onTaskComplete timed out")), 5000);
-        agent.onTaskComplete(taskId, (task) => {
-          clearTimeout(timeout);
-          resolve(task);
-        });
-      });
+      // Wait for task to finish
+      const task = await agent.waitForTask(taskId, 5000);
+      expect(task.state).toBe(TaskState.COMPLETED);
 
-      expect(result.state).toBe(TaskState.COMPLETED);
-      expect(result.taskId).toBe(taskId);
-      expect(result.context.finalResult).not.toBeNull();
+      // Verify notification was received
+      const completedNotif = notifications.find(
+        (n) => n.taskId === taskId && n.type === "completed",
+      );
+      expect(completedNotif).toBeDefined();
+      expect(completedNotif!.type).toBe("completed");
+      expect(completedNotif!.taskId).toBe(taskId);
+      expect((completedNotif as { type: "completed"; result: unknown }).result).not.toBeNull();
     } finally {
       await agent.stop();
     }
   }, 10_000);
 
-  test("callback fires immediately if task already terminal", async () => {
+  test("callback fires with failed notification on task failure", async () => {
     const agent = new Agent(testAgentDeps());
     await agent.start();
 
     try {
-      // Submit and wait for task to complete first
+      const notifications: TaskNotification[] = [];
+
+      agent.onNotify((notification) => {
+        notifications.push(notification);
+      });
+
       const taskId = await agent.submit("Hello");
       expect(taskId).toBeTruthy();
 
-      // Wait until task is terminal via polling
-      let task: TaskFSM | null = null;
-      for (let i = 0; i < 100; i++) {
-        task = agent.taskRegistry.getOrNull(taskId);
-        if (task?.isTerminal) break;
-        await sleep(50);
-      }
-      expect(task?.isTerminal).toBe(true);
+      // Emit TASK_FAILED to force failure
+      await agent.eventBus.emit(
+        createEvent(EventType.TASK_FAILED, {
+          source: "test",
+          taskId,
+          payload: { error: "forced failure" },
+        }),
+      );
 
-      // Now register callback — should fire synchronously
-      let callbackFired = false;
-      let callbackTask: TaskFSM | null = null;
-      agent.onTaskComplete(taskId, (t) => {
-        callbackFired = true;
-        callbackTask = t;
-      });
+      // Wait for task to reach terminal state
+      const task = await agent.waitForTask(taskId, 5000);
+      expect(task.isTerminal).toBe(true);
 
-      // Callback should have fired synchronously (no await needed)
-      expect(callbackFired).toBe(true);
-      expect(callbackTask).not.toBeNull();
-      expect(callbackTask!.state).toBe(TaskState.COMPLETED);
+      // Verify at least one notification was received for this task
+      const taskNotifs = notifications.filter((n) => n.taskId === taskId);
+      expect(taskNotifs.length).toBeGreaterThanOrEqual(1);
     } finally {
       await agent.stop();
     }
   }, 10_000);
 
-  test("callback fires on task failure", async () => {
+  test("multiple tasks each produce notifications", async () => {
     const agent = new Agent(testAgentDeps());
     await agent.start();
 
     try {
-      // Submit a task, then force failure via TASK_FAILED event
-      const taskId = await agent.submit("Hello");
-      expect(taskId).toBeTruthy();
+      const notifications: TaskNotification[] = [];
 
-      const result = await new Promise<TaskFSM>((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error("onTaskComplete timed out")), 5000);
-        agent.onTaskComplete(taskId, (task) => {
-          clearTimeout(timeout);
-          resolve(task);
-        });
-
-        // Emit TASK_FAILED to force failure
-        agent.eventBus.emit(
-          createEvent(EventType.TASK_FAILED, {
-            source: "test",
-            taskId,
-            payload: { error: "forced failure" },
-          }),
-        );
+      agent.onNotify((notification) => {
+        notifications.push(notification);
       });
 
-      // Task should be in a terminal state (could be COMPLETED if it finished before the TASK_FAILED)
-      expect(result.isTerminal).toBe(true);
+      const taskId1 = await agent.submit("Task A");
+      const taskId2 = await agent.submit("Task B");
+
+      await agent.waitForTask(taskId1, 5000);
+      await agent.waitForTask(taskId2, 5000);
+
+      const ids = new Set(notifications.map((n) => n.taskId));
+      expect(ids.has(taskId1)).toBe(true);
+      expect(ids.has(taskId2)).toBe(true);
     } finally {
       await agent.stop();
     }
