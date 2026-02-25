@@ -2,16 +2,16 @@
  * CLI — Interactive REPL for conversing with the Pegasus agent.
  *
  * Uses Bun's native readline for zero-dependency terminal interaction.
+ * The CLI is a simple channel adapter: read input → send → display reply.
  */
 import { createInterface } from "readline";
 import type { LanguageModel } from "./infra/llm-types.ts";
-import { Agent } from "./agent.ts";
+import { MainAgent } from "./main-agent.ts";
 import { loadPersona } from "./identity/persona.ts";
 import { getSettings, getActiveProviderConfig } from "./infra/config.ts";
 import { getLogger } from "./infra/logger.ts";
 import { createOpenAICompatibleModel } from "./infra/openai-client.ts";
 import { createAnthropicCompatibleModel } from "./infra/anthropic-client.ts";
-import { TaskState } from "./task/states.ts";
 
 const logger = getLogger("cli");
 
@@ -128,8 +128,8 @@ export async function startCLI(): Promise<void> {
   const persona = loadPersona(settings.identity.personaPath);
   const model = createModel(settings);
 
-  const agent = new Agent({ model, persona, settings });
-  await agent.start();
+  const mainAgent = new MainAgent({ model, persona, settings });
+  await mainAgent.start();
 
   printBanner(persona.name, persona.role);
 
@@ -139,6 +139,12 @@ export async function startCLI(): Promise<void> {
   });
 
   rl.setPrompt("> ");
+
+  // Register reply callback — display all MainAgent replies
+  mainAgent.onReply((msg) => {
+    console.log(`\n  ${persona.name}: ${msg.text}\n`);
+    rl.prompt();
+  });
 
   rl.on("line", async (input) => {
     const trimmed = input.trim();
@@ -154,7 +160,7 @@ export async function startCLI(): Promise<void> {
       const result = handleCommand(trimmed);
       if (result === "exit") {
         rl.close();
-        await agent.stop();
+        await mainAgent.stop();
         return;
       }
       if (result === true) {
@@ -165,27 +171,10 @@ export async function startCLI(): Promise<void> {
     }
 
     try {
-      const taskId = await agent.submit(trimmed);
-      if (!taskId) {
-        console.log("  [Error] Failed to create task\n");
-        rl.prompt();
-        return;
-      }
-
-      console.log(`  [Task ${taskId.slice(0, 8)}] Processing...\n`);
-
-      agent.onTaskComplete(taskId, (task) => {
-        const result = task.context.finalResult as Record<string, unknown> | null;
-        const response = result?.["response"] as string | undefined;
-
-        if (task.state === TaskState.FAILED) {
-          console.log(`\n  [Error] Task failed: ${task.context.error}\n`);
-        } else if (response) {
-          console.log(`\n  ${persona.name}: ${response}\n`);
-        } else {
-          console.log(`\n  ${persona.name}: [No response generated]\n`);
-        }
-        rl.prompt(); // Re-show prompt after async output
+      // Fire-and-forget: MainAgent queues the message and replies via onReply
+      mainAgent.send({
+        text: trimmed,
+        channel: { type: "cli", channelId: "main" },
       });
     } catch (err) {
       logger.error({ error: err }, "cli_error");
