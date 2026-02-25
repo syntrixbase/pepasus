@@ -313,6 +313,26 @@ export class Agent {
   // ═══════════════════════════════════════════════════
 
   private async _runReason(task: TaskFSM, trigger: Event): Promise<void> {
+    // Track cognitive loop iteration
+    task.context.iteration++;
+
+    // Guard against infinite loops
+    if (task.context.iteration > this.settings.agent.maxCognitiveIterations) {
+      logger.error(
+        { taskId: task.taskId, iteration: task.context.iteration, max: this.settings.agent.maxCognitiveIterations },
+        "max_cognitive_iterations_exceeded",
+      );
+      task.context.error = `Max cognitive iterations exceeded (${this.settings.agent.maxCognitiveIterations})`;
+      await this.eventBus.emit(
+        createEvent(EventType.TASK_FAILED, {
+          source: "agent",
+          taskId: task.taskId,
+          payload: { error: task.context.error },
+          parentEventId: trigger.id,
+        }),
+      );
+      return;
+    }
     // Fetch memory index (non-blocking, graceful failure)
     let memoryIndex: MemoryIndexEntry[] | undefined;
     try {
@@ -333,10 +353,8 @@ export class Agent {
     );
     task.context.reasoning = reasoning;
 
-    // Plan inline — no separate planning stage
-    const plan = await this.llmSemaphore.use(() =>
-      this.planner.run(task.context),
-    );
+    // Plan inline — pure logic, no LLM call, no semaphore needed
+    const plan = await this.planner.run(task.context);
     task.context.plan = plan;
 
     if (reasoning["needsClarification"]) {
@@ -449,9 +467,8 @@ export class Agent {
   }
 
   private async _runReflect(task: TaskFSM, trigger: Event): Promise<void> {
-    const reflection = await this.llmSemaphore.use(() =>
-      this.reflector.run(task.context),
-    );
+    // Reflector is pure logic — no LLM call, no semaphore needed
+    const reflection = await this.reflector.run(task.context);
     task.context.reflections.push(reflection);
 
     if (reflection.verdict === "complete") {

@@ -82,6 +82,7 @@ describe("Agent lifecycle", () => {
       expect(task.context.actionsDone.length).toBeGreaterThan(0);
       expect(task.context.reflections.length).toBeGreaterThan(0);
       expect(task.context.finalResult).not.toBeNull();
+      expect(task.context.iteration).toBeGreaterThan(0);
     } finally {
       await agent.stop();
     }

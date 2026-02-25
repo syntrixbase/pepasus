@@ -49,19 +49,14 @@ export class Actor {
     }
 
     if (step.actionType === "tool_call") {
-      // Push assistant message with tool calls (cognitive decision: "I want to call these tools")
-      const alreadyPushedAssistant = context.messages.some(
-        (m) => m.role === "assistant" && !!m.toolCalls?.length,
-      );
-      if (!alreadyPushedAssistant) {
-        const pendingToolCalls = context.reasoning?.["toolCalls"] as ToolCall[] | undefined;
-        if (pendingToolCalls?.length) {
-          context.messages.push({
-            role: "assistant",
-            content: (context.reasoning?.["response"] as string) ?? "",
-            toolCalls: pendingToolCalls,
-          });
-        }
+      // Push assistant message with tool calls for this step
+      const pendingToolCalls = context.reasoning?.["toolCalls"] as ToolCall[] | undefined;
+      if (pendingToolCalls?.length) {
+        context.messages.push({
+          role: "assistant",
+          content: (context.reasoning?.["response"] as string) ?? "",
+          toolCalls: pendingToolCalls,
+        });
       }
 
       // Return pending result — actual execution handled by Agent layer
