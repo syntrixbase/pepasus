@@ -2,7 +2,7 @@
  * Tests for logger.ts
  */
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
-import { resolveTransport, reinitLogger, getLogger } from "../../src/infra/logger.ts";
+import { resolveTransport, initLogger, getLogger } from "../../src/infra/logger.ts";
 import { existsSync, rmSync, mkdirSync, writeFileSync, utimesSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
@@ -61,33 +61,33 @@ describe("logger", () => {
     });
   });
 
-  describe("reinitLogger", () => {
-    test("reinitializes logger without errors", () => {
-      const logFile = join(testDir, "reinit.log");
+  describe("initLogger", () => {
+    test("initializes logger without errors", () => {
+      const logFile = join(testDir, "init.log");
 
-      expect(() => reinitLogger(logFile)).not.toThrow();
+      expect(() => initLogger(logFile)).not.toThrow();
     });
 
-    test("reinitializes logger and getLogger still works", () => {
-      const logFile = join(testDir, "reinit.log");
+    test("initializes logger and getLogger still works", () => {
+      const logFile = join(testDir, "init.log");
 
-      reinitLogger(logFile);
+      initLogger(logFile);
 
       const logger = getLogger("test-module");
       expect(logger).toBeDefined();
       expect(typeof logger.info).toBe("function");
     });
 
-    test("reinitializes logger with line format", () => {
-      const logFile = join(testDir, "reinit.log");
+    test("initializes logger with line format", () => {
+      const logFile = join(testDir, "init.log");
 
-      expect(() => reinitLogger(logFile, "line")).not.toThrow();
+      expect(() => initLogger(logFile, "line")).not.toThrow();
     });
 
-    test("reinitializes logger with custom log level", () => {
-      const logFile = join(testDir, "reinit.log");
+    test("initializes logger with custom log level", () => {
+      const logFile = join(testDir, "init.log");
 
-      expect(() => reinitLogger(logFile, "json", "debug")).not.toThrow();
+      expect(() => initLogger(logFile, "json", "debug")).not.toThrow();
     });
   });
 

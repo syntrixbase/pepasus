@@ -1,11 +1,15 @@
 /**
- * Structured logger — thin pino wrapper with file-only output.
+ * Structured logger — thin pino wrapper with lazy initialization.
+ *
+ * Initialization strategy:
+ *   1. getLogger() returns proxy loggers — safe to call at module load time
+ *   2. Before config is loaded: warn+ goes to console, below warn is ignored
+ *   3. After initLogger() is called with config: file transport is set up
+ *   4. All proxy loggers automatically use the new rootLogger after init
  *
  * Configuration:
- *   - **Format** (`logFormat`): `json` (structured JSON lines) or `line` (human-readable single lines)
- *   - **Destination**: always file via pino-roll with daily rotation + 10 MB size limit
- *
- * No console output — use `bun logs` or `tail -f` to view logs in real time.
+ *   - **Format** (`logFormat`): `json` (structured JSON lines) or `line` (human-readable)
+ *   - **Destination**: file via pino-roll with daily rotation + 10 MB size limit
  */
 import pino from "pino";
 import type { TransportSingleOptions } from "pino";
@@ -14,19 +18,70 @@ import { dirname, join, basename } from "path";
 
 export type LogFormat = "json" | "line";
 
-// Mutable log level — bootstrap defaults to "info", reinitLogger() updates from config.
-let currentLevel = "info";
+// ── State ────────────────────────────────────────
+
+let initialized = false;
 
 /**
- * Pino options — human-readable level label and ISO timestamp.
- *
- * These formatters are safe for single-target mode (file only).
+ * Root logger — starts as console-only fallback (warn+).
+ * Replaced by a real pino file logger once initLogger() is called.
  */
-function createLoggerOptions(transport: TransportSingleOptions): pino.LoggerOptions {
+let rootLogger: pino.Logger = pino({ level: "warn" });
+
+// ── Public API ───────────────────────────────────
+
+/**
+ * Get a named logger. Safe to call at module load time.
+ *
+ * Returns a Proxy that delegates every call to rootLogger.child({ module: name })
+ * at invocation time — so it always uses the current rootLogger, even if
+ * initLogger() hasn't been called yet or replaces it later.
+ */
+export function getLogger(name: string): pino.Logger {
+  return new Proxy({} as pino.Logger, {
+    get(_target, prop) {
+      const child = rootLogger.child({ module: name });
+      return (child as any)[prop];
+    },
+  });
+}
+
+/**
+ * Initialize logger with real configuration. Called once by config.ts
+ * after settings are loaded.
+ *
+ * Before this is called, warn+ logs go to console (pino default stderr).
+ * After this is called, all logs go to the file transport.
+ */
+export function initLogger(
+  logFile: string,
+  logFormat?: LogFormat,
+  logLevel?: string,
+): void {
+  if (logLevel === "silent") {
+    rootLogger = pino({ level: "silent" });
+    initialized = true;
+    return;
+  }
+
+  const level = logLevel ?? "info";
+  const transport = resolveTransport(logFile, logFormat);
+  rootLogger = pino(createLoggerOptions(transport, level));
+  initialized = true;
+}
+
+/** Whether initLogger() has been called. */
+export function isLoggerInitialized(): boolean {
+  return initialized;
+}
+
+// ── Internal ─────────────────────────────────────
+
+function createLoggerOptions(transport: TransportSingleOptions, level: string): pino.LoggerOptions {
   return {
-    level: currentLevel,
+    level,
     transport,
-    base: undefined, // Remove pid and hostname from log output
+    base: undefined,
     formatters: {
       level(label) {
         return { level: label };
@@ -38,7 +93,6 @@ function createLoggerOptions(transport: TransportSingleOptions): pino.LoggerOpti
 
 /**
  * Clean up old log files older than specified days.
- * Removes rotated log files (e.g., pegasus.log.2024-01-15) that are older than the retention period.
  */
 function cleanupOldLogs(logFile: string, retentionDays = 30): void {
   try {
@@ -52,7 +106,6 @@ function cleanupOldLogs(logFile: string, retentionDays = 30): void {
     const now = Date.now();
     const retentionMs = retentionDays * 24 * 60 * 60 * 1000;
 
-    // Find all rotated log files (e.g., pegasus.log.*)
     const files = readdirSync(logDir);
     const rotatedLogPattern = new RegExp(`^${logFileName}\\.`);
 
@@ -70,18 +123,12 @@ function cleanupOldLogs(logFile: string, retentionDays = 30): void {
       }
     }
   } catch (_err) {
-    // Silently ignore cleanup errors to avoid affecting application startup
-    // The logger itself may not be ready yet
+    // Silently ignore cleanup errors
   }
 }
 
 /**
  * Resolve file transport based on log format.
- *
- * - `json`: pino-roll directly (raw JSON lines, machine-parseable)
- * - `line`: custom line-transport (human-readable single lines via pino-roll)
- *
- * Both formats use pino-roll for daily rotation + 10 MB size limit.
  */
 export function resolveTransport(
   logFile: string,
@@ -89,19 +136,17 @@ export function resolveTransport(
 ): TransportSingleOptions {
   const format: LogFormat = logFormat ?? "json";
 
-  // Ensure log directory exists
   const logDir = dirname(logFile);
   if (!existsSync(logDir)) {
     mkdirSync(logDir, { recursive: true });
   }
 
-  // Clean up old log files (keep last 30 days)
   cleanupOldLogs(logFile, 30);
 
   const rollOptions = {
     file: logFile,
     frequency: "daily",
-    size: "10m", // Rotate when file exceeds 10MB
+    size: "10m",
     mkdir: true,
   };
 
@@ -116,65 +161,6 @@ export function resolveTransport(
     target: "pino-roll",
     options: rollOptions,
   };
-}
-
-/**
- * Initialize root logger with hardcoded defaults.
- *
- * Bootstrap phase: config is not yet loaded.
- * This logger will be replaced by reinitLogger() once config is available.
- *
- * Reads PEGASUS_LOG_LEVEL env var — when "silent" (set by Makefile/hooks
- * during tests), skips file transport setup to avoid creating data/logs/.
- */
-function initRootLogger(): pino.Logger {
-  const envLevel = process.env["PEGASUS_LOG_LEVEL"];
-  if (envLevel) currentLevel = envLevel;
-
-  if (currentLevel === "silent") {
-    // Silent mode: no file I/O, no directory creation
-    return pino({ level: "silent" });
-  }
-
-  const logFile = join("data", "logs/pegasus.log");
-  const transport = resolveTransport(logFile, "json");
-  return pino(createLoggerOptions(transport));
-}
-
-const rootLogger = initRootLogger();
-
-/**
- * Get a child logger with a module name.
- */
-export function getLogger(name: string): pino.Logger {
-  return rootLogger.child({ module: name });
-}
-
-/**
- * Reinitialize logger with loaded configuration (called by config.ts after settings are ready).
- * All parameters come from config — no env var reads.
- */
-export function reinitLogger(
-  logFile: string,
-  logFormat?: LogFormat,
-  logLevel?: string,
-): void {
-  if (logLevel) {
-    currentLevel = logLevel;
-  }
-
-  // Silent mode: no file I/O needed
-  if (currentLevel === "silent") {
-    const newLogger = pino({ level: "silent" });
-    Object.assign(rootLogger, newLogger);
-    return;
-  }
-
-  const transport = resolveTransport(logFile, logFormat);
-  const newLogger = pino(createLoggerOptions(transport));
-
-  // Replace the root logger's bindings and streams
-  Object.assign(rootLogger, newLogger);
 }
 
 export { rootLogger };
