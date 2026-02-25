@@ -9,7 +9,7 @@ import type { LanguageModel } from "./infra/llm-types.ts";
 import { MainAgent } from "./main-agent.ts";
 import { loadPersona } from "./identity/persona.ts";
 import { getSettings, getActiveProviderConfig } from "./infra/config.ts";
-import { getLogger } from "./infra/logger.ts";
+import { getLogger, initLogger } from "./infra/logger.ts";
 import { createOpenAICompatibleModel } from "./infra/openai-client.ts";
 import { createAnthropicCompatibleModel } from "./infra/anthropic-client.ts";
 
@@ -125,6 +125,15 @@ function handleCommand(input: string): boolean | "exit" {
 /** Main CLI REPL loop. */
 export async function startCLI(): Promise<void> {
   const settings = getSettings();
+
+  // Initialize logger — this is the application entry point, the only place that should create log files
+  const path = await import("node:path");
+  initLogger(
+    path.join(settings.dataDir, "logs/pegasus.log"),
+    settings.logFormat,
+    settings.logLevel,
+  );
+
   const persona = loadPersona(settings.identity.personaPath);
   const model = createModel(settings);
 
