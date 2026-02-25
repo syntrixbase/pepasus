@@ -176,6 +176,42 @@ describe("TaskPersister", () => {
       expect(line.data.newMessages).toHaveLength(2);
     });
 
+    it("should persist ACT_DONE with actionsCount", async () => {
+      const task = new TaskFSM({ taskId: "act-task" });
+      (task as any).createdAt = new Date("2026-02-25T10:00:00Z").getTime();
+      task.context.actionsDone = [
+        { stepIndex: 0, actionType: "respond", actionInput: {}, success: true, startedAt: Date.now() },
+      ];
+      registry.register(task);
+
+      await bus.emit(createEvent(EventType.ACT_DONE, {
+        source: "cognitive.act", taskId: "act-task",
+      }));
+      await Bun.sleep(100);
+
+      const content = await Bun.file(`${testDir}/tasks/2026-02-25/act-task.jsonl`).text();
+      const line = JSON.parse(content.trim());
+      expect(line.event).toBe("ACT_DONE");
+      expect(line.data.actionsCount).toBe(1);
+    });
+
+    it("should persist NEED_MORE_INFO with reasoning", async () => {
+      const task = new TaskFSM({ taskId: "info-task" });
+      (task as any).createdAt = new Date("2026-02-25T10:00:00Z").getTime();
+      task.context.reasoning = { needsClarification: true, question: "which file?" };
+      registry.register(task);
+
+      await bus.emit(createEvent(EventType.NEED_MORE_INFO, {
+        source: "cognitive.reason", taskId: "info-task",
+      }));
+      await Bun.sleep(100);
+
+      const content = await Bun.file(`${testDir}/tasks/2026-02-25/info-task.jsonl`).text();
+      const line = JSON.parse(content.trim());
+      expect(line.event).toBe("NEED_MORE_INFO");
+      expect(line.data.reasoning.needsClarification).toBe(true);
+    });
+
     it("should persist TASK_COMPLETED and remove from pending", async () => {
       const task = new TaskFSM({ taskId: "done-task" });
       (task as any).createdAt = new Date("2026-02-25T10:00:00Z").getTime();

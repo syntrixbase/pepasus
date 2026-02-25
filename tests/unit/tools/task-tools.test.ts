@@ -3,6 +3,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { task_list, task_replay } from "../../../src/tools/builtins/task-tools.ts";
+import { TaskPersister } from "../../../src/task/persister.ts";
 import { rm, mkdir, appendFile } from "node:fs/promises";
 
 const testDir = "/tmp/pegasus-test-task-tools";
@@ -81,6 +82,41 @@ describe("task tools", () => {
       expect(result.success).toBe(true);
       expect(result.result).toEqual([]);
     }, 5000);
+
+    it("should handle corrupted index file gracefully", async () => {
+      // Write invalid content to index.jsonl — loadIndex swallows parse
+      // errors and returns an empty map, so task_list returns success with [].
+      await appendFile(`${testDir}/tasks/index.jsonl`, "not valid json\n");
+
+      const context = { taskId: "test" };
+      const result = await task_list.execute(
+        { date: "2026-02-25", dataDir: testDir },
+        context,
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.result).toEqual([]);
+    }, 5000);
+
+    it("should return error when loadIndex throws unexpectedly", async () => {
+      // Temporarily make loadIndex throw to cover the outer catch block
+      const original = TaskPersister.loadIndex;
+      TaskPersister.loadIndex = async () => {
+        throw new Error("disk read failure");
+      };
+      try {
+        const context = { taskId: "test" };
+        const result = await task_list.execute(
+          { date: "2026-02-25", dataDir: testDir },
+          context,
+        );
+
+        expect(result.success).toBe(false);
+        expect(result.error).toBe("disk read failure");
+      } finally {
+        TaskPersister.loadIndex = original;
+      }
+    }, 5000);
   });
 
   // ── task_replay ─────────────────────────────────
@@ -129,6 +165,20 @@ describe("task tools", () => {
 
       expect(result.success).toBe(false);
       expect(result.error).toContain("not found");
+    }, 5000);
+
+    it("should handle corrupted JSONL file in replay gracefully", async () => {
+      await appendFile(`${testDir}/tasks/index.jsonl`, '{"taskId":"bad","date":"2026-02-25"}\n');
+      await appendFile(`${testDir}/tasks/2026-02-25/bad.jsonl`, "not valid json\n");
+
+      const context = { taskId: "test" };
+      const result = await task_replay.execute(
+        { taskId: "bad", dataDir: testDir },
+        context,
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBeDefined();
     }, 5000);
 
     it("should not expose internal state (reasoning, plan, reflections)", async () => {
