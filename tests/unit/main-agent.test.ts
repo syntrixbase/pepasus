@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "bun:test";
-import { MainAgent } from "@pegasus/main-agent.ts";
+import { MainAgent } from "@pegasus/agents/main-agent.ts";
 import type {
   LanguageModel,
   GenerateTextResult,

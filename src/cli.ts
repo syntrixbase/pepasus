@@ -6,7 +6,7 @@
  */
 import { createInterface } from "readline";
 import type { LanguageModel } from "./infra/llm-types.ts";
-import { MainAgent } from "./main-agent.ts";
+import { MainAgent } from "./agents/main-agent.ts";
 import { loadPersona } from "./identity/persona.ts";
 import { getSettings, getActiveProviderConfig } from "./infra/config.ts";
 import { getLogger, initLogger } from "./infra/logger.ts";

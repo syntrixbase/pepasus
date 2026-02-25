@@ -7,21 +7,21 @@
  * complex work to the existing Task System via spawn_task.
  */
 
-import type { LanguageModel, Message } from "./infra/llm-types.ts";
-import { generateText } from "./infra/llm-utils.ts";
-import type { Persona } from "./identity/persona.ts";
-import type { Settings } from "./infra/config.ts";
-import { getSettings } from "./infra/config.ts";
-import { getLogger } from "./infra/logger.ts";
-import { ToolRegistry } from "./tools/registry.ts";
-import { ToolExecutor } from "./tools/executor.ts";
-import type { InboundMessage, OutboundMessage } from "./channels/types.ts";
-import { SessionStore } from "./session/store.ts";
+import type { LanguageModel, Message } from "../infra/llm-types.ts";
+import { generateText } from "../infra/llm-utils.ts";
+import type { Persona } from "../identity/persona.ts";
+import type { Settings } from "../infra/config.ts";
+import { getSettings } from "../infra/config.ts";
+import { getLogger } from "../infra/logger.ts";
+import { ToolRegistry } from "../tools/registry.ts";
+import { ToolExecutor } from "../tools/executor.ts";
+import type { InboundMessage, OutboundMessage } from "../channels/types.ts";
+import { SessionStore } from "../session/store.ts";
 import { Agent } from "./agent.ts";
-import type { ToolCall } from "./models/tool.ts";
+import type { ToolCall } from "../models/tool.ts";
 
 // Main Agent's curated tool set
-import { mainAgentTools } from "./tools/builtins/index.ts";
+import { mainAgentTools } from "../tools/builtins/index.ts";
 
 const logger = getLogger("main_agent");
 
@@ -188,7 +188,9 @@ export class MainAgent {
       this.sessionMessages.push(assistantMsg);
       await this.sessionStore.append(assistantMsg);
 
-      // Execute all tool calls and collect results
+      // Execute all tool calls, track whether any need LLM follow-up
+      let needsFollowUp = false;
+
       for (const tc of result.toolCalls) {
         if (tc.name === "reply") {
           const { text, channelId, replyTo } = tc.arguments as { text: string; channelId: string; replyTo?: string };
@@ -208,7 +210,8 @@ export class MainAgent {
         } else if (tc.name === "spawn_task") {
           await this._handleSpawnTask(tc);
         } else {
-          // Execute simple tool directly
+          // Execute simple tool directly — results need LLM follow-up
+          needsFollowUp = true;
           const toolResult = await this.toolExecutor.execute(
             tc.name,
             tc.arguments,
@@ -229,8 +232,11 @@ export class MainAgent {
         }
       }
 
-      // Tool results are now in session — queue another think step
-      this.queue.push({ kind: "think", channel });
+      // Only queue another think if there are tool results the LLM needs to process.
+      // reply() and spawn_task() are terminal actions — their results don't need follow-up.
+      if (needsFollowUp) {
+        this.queue.push({ kind: "think", channel });
+      }
       return;
     }
 
