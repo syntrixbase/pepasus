@@ -20,12 +20,8 @@ import { SessionStore } from "./session/store.ts";
 import { Agent } from "./agent.ts";
 import type { ToolCall } from "./models/tool.ts";
 
-// Main Agent's simple tools
-import { current_time } from "./tools/builtins/system-tools.ts";
-import { memory_list, memory_read } from "./tools/builtins/memory-tools.ts";
-import { task_list, task_replay } from "./tools/builtins/task-tools.ts";
-import { spawn_task } from "./tools/builtins/spawn-task-tool.ts";
-import { reply } from "./tools/builtins/reply-tool.ts";
+// Main Agent's curated tool set
+import { mainAgentTools } from "./tools/builtins/index.ts";
 
 const logger = getLogger("main_agent");
 
@@ -66,15 +62,7 @@ export class MainAgent {
 
     // Main Agent's curated tool set
     this.toolRegistry = new ToolRegistry();
-    this.toolRegistry.registerMany([
-      current_time,
-      memory_list,
-      memory_read,
-      task_list,
-      task_replay,
-      spawn_task,
-      reply,
-    ]);
+    this.toolRegistry.registerMany(mainAgentTools);
 
     // Tool executor for Main Agent's simple tools (no EventBus needed)
     this.toolExecutor = new ToolExecutor(

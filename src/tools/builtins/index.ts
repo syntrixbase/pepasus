@@ -70,14 +70,14 @@ const reply = replyToolModule.reply;
 
 export { reply };
 
-// Re-export all tools as array
+// Re-export all tools as arrays
+
+/** System tools available to Task System. */
 export const systemTools: Tool[] = [
   current_time,
   sleep,
   get_env,
   set_env,
-  spawn_task,
-  reply,
 ];
 
 export const fileTools: Tool[] = [
@@ -115,7 +115,8 @@ export const taskTools: Tool[] = [
   task_replay,
 ];
 
-export const allBuiltInTools: Tool[] = [
+/** All tools for Task System (does NOT include spawn_task or reply — those are Main Agent only). */
+export const allTaskTools: Tool[] = [
   ...systemTools,
   ...fileTools,
   ...networkTools,
@@ -123,3 +124,17 @@ export const allBuiltInTools: Tool[] = [
   ...memoryTools,
   ...taskTools,
 ];
+
+/** Tools for Main Agent (curated simple tools + spawn_task + reply). */
+export const mainAgentTools: Tool[] = [
+  current_time,
+  memory_list,
+  memory_read,
+  task_list,
+  task_replay,
+  spawn_task,
+  reply,
+];
+
+/** @deprecated Use allTaskTools or mainAgentTools instead. */
+export const allBuiltInTools = allTaskTools;
