@@ -64,16 +64,9 @@ agent:
   maxCognitiveIterations: 10
   heartbeatInterval: 60
 
-memory:
-  dbPath: data/memory.db
-  vectorDbPath: data/vectors
-
-identity:
-  personaPath: data/personas/default.json
-
 system:
   logLevel: info  # debug | info | warn | error | silent
-  dataDir: data
+  dataDir: data   # System data root (logs, memory, etc.)
   logFormat: json  # Log format: json | line (default: json)
 ```
 
@@ -116,8 +109,6 @@ llm:
       apiKey: ${OPENAI_API_KEY}
       baseURL: https://api.openai.com/v1
   timeout: 120
-memory:
-  dbPath: data/memory.db
 ```
 
 **config.local.yml** (本地覆盖):
@@ -144,8 +135,6 @@ llm:
       model: claude-sonnet-4
       apiKey: ${ANTHROPIC_API_KEY}
   timeout: 180  # ← 来自 local
-memory:  # ← 来自 base（未覆盖）
-  dbPath: data/memory.db
 ```
 
 ## 🔑 环境变量插值
@@ -436,12 +425,9 @@ llm:
 |------|------|--------|------|
 | `identity.personaPath` | string | `"data/personas/default.json"` | Persona 文件路径 |
 
-### Memory 配置
+### Memory
 
-| 字段 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `memory.dbPath` | string | `"data/memory.db"` | SQLite 数据库路径 |
-| `memory.vectorDbPath` | string | `"data/vectors"` | 向量数据库路径 |
+Memory 文件存放在 `{dataDir}/memory/` 下，由 `system.dataDir` 派生，无需单独配置。
 
 ### System 配置
 
@@ -607,7 +593,5 @@ PEGASUS_LOG_LEVEL=debug bun run dev
 ## 📚 参考
 
 - [默认配置文件](../config.yml)
-- [环境变量配置](../.env.example)
-- [LLM Provider 配置设计](./llm-provider-config.md)
 - [配置 Schema 定义](../src/infra/config-schema.ts)
 
