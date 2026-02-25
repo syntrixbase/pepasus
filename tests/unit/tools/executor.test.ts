@@ -11,7 +11,7 @@ describe("ToolExecutor", () => {
   it("should execute a tool successfully", async () => {
     const events: unknown[] = [];
     const mockBus = {
-      emit: (event: unknown) => events.push(event),
+      emit: (event: unknown) => { events.push(event); },
     };
 
     const tool: Tool = {
@@ -47,7 +47,7 @@ describe("ToolExecutor", () => {
   it("should handle tool not found", async () => {
     const events: unknown[] = [];
     const mockBus = {
-      emit: (event: unknown) => events.push(event),
+      emit: (event: unknown) => { events.push(event); },
     };
 
     const registry = {
@@ -69,7 +69,7 @@ describe("ToolExecutor", () => {
   it("should handle tool timeout", async () => {
     const events: unknown[] = [];
     const mockBus = {
-      emit: (event: unknown) => events.push(event),
+      emit: (event: unknown) => { events.push(event); },
     };
 
     const tool: Tool = {
@@ -107,7 +107,7 @@ describe("ToolExecutor", () => {
   it("should update call statistics on success", async () => {
     const events: unknown[] = [];
     const mockBus = {
-      emit: (event: unknown) => events.push(event),
+      emit: (event: unknown) => { events.push(event); },
     };
 
     const tool: Tool = {
@@ -144,7 +144,7 @@ describe("ToolExecutor", () => {
   it("should update call statistics on failure", async () => {
     const events: unknown[] = [];
     const mockBus = {
-      emit: (event: unknown) => events.push(event),
+      emit: (event: unknown) => { events.push(event); },
     };
 
     const tool: Tool = {
@@ -177,7 +177,7 @@ describe("ToolExecutor", () => {
   it("emitCompletion emits TOOL_CALL_COMPLETED for success", () => {
     const events: unknown[] = [];
     const mockBus = {
-      emit: (event: unknown) => events.push(event),
+      emit: (event: unknown) => { events.push(event); },
     };
     const registry = {
       get: mock(() => undefined),
@@ -200,7 +200,7 @@ describe("ToolExecutor", () => {
   it("emitCompletion emits TOOL_CALL_FAILED for failure", () => {
     const events: unknown[] = [];
     const mockBus = {
-      emit: (event: unknown) => events.push(event),
+      emit: (event: unknown) => { events.push(event); },
     };
     const registry = {
       get: mock(() => undefined),

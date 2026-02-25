@@ -212,6 +212,34 @@ describe("TaskPersister", () => {
       expect(line.data.reasoning.needsClarification).toBe(true);
     });
 
+    it("should persist TASK_SUSPENDED with full context snapshot", async () => {
+      const task = new TaskFSM({ taskId: "suspend-task" });
+      (task as any).createdAt = new Date("2026-02-25T10:00:00Z").getTime();
+      task.context.suspendedState = "reasoning";
+      task.context.suspendReason = "awaiting user input";
+      task.context.reasoning = { response: "I need more info", approach: "direct" };
+      task.context.plan = { goal: "respond", steps: [], reasoning: "need clarification" };
+      task.context.messages = [
+        { role: "user", content: "do something" },
+        { role: "assistant", content: "I need more info" },
+      ];
+      registry.register(task);
+
+      await bus.emit(createEvent(EventType.TASK_SUSPENDED, {
+        source: "agent", taskId: "suspend-task",
+      }));
+      await Bun.sleep(100);
+
+      const content = await Bun.file(`${testDir}/tasks/2026-02-25/suspend-task.jsonl`).text();
+      const line = JSON.parse(content.trim());
+      expect(line.event).toBe("TASK_SUSPENDED");
+      expect(line.data.suspendedState).toBe("reasoning");
+      expect(line.data.suspendReason).toBe("awaiting user input");
+      expect(line.data.reasoning).toBeDefined();
+      expect(line.data.plan).toBeDefined();
+      expect(line.data.newMessages).toHaveLength(2);
+    });
+
     it("should persist TASK_COMPLETED and remove from pending", async () => {
       const task = new TaskFSM({ taskId: "done-task" });
       (task as any).createdAt = new Date("2026-02-25T10:00:00Z").getTime();
