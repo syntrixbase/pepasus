@@ -49,14 +49,18 @@ export class Actor {
     }
 
     if (step.actionType === "tool_call") {
-      // Push assistant message with tool calls for this step
-      const pendingToolCalls = context.reasoning?.["toolCalls"] as ToolCall[] | undefined;
-      if (pendingToolCalls?.length) {
-        context.messages.push({
-          role: "assistant",
-          content: (context.reasoning?.["response"] as string) ?? "",
-          toolCalls: pendingToolCalls,
-        });
+      // Push assistant message with tool calls ONCE (only for the first tool_call step).
+      // All tool_call steps in the same plan share the same reasoning.toolCalls,
+      // so we only push the assistant intent message on the first step to avoid duplicates.
+      if (step.index === 0) {
+        const pendingToolCalls = context.reasoning?.["toolCalls"] as ToolCall[] | undefined;
+        if (pendingToolCalls?.length) {
+          context.messages.push({
+            role: "assistant",
+            content: (context.reasoning?.["response"] as string) ?? "",
+            toolCalls: pendingToolCalls,
+          });
+        }
       }
 
       // Return pending result — actual execution handled by Agent layer
