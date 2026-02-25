@@ -53,7 +53,7 @@ describe("Config schemas", () => {
 
   test("MemoryConfigSchema applies defaults", () => {
     const config = MemoryConfigSchema.parse({});
-    expect(config.dataDir).toBe("data/memory");
+    expect(config).toEqual({});
   });
 
   test("AgentConfigSchema applies defaults", () => {
@@ -68,7 +68,6 @@ describe("Config schemas", () => {
   test("SettingsSchema applies nested defaults", () => {
     const settings = SettingsSchema.parse({});
     expect(settings.llm.provider).toBe("openai");
-    expect(settings.memory.dataDir).toBe("data/memory");
     expect(settings.agent.maxActiveTasks).toBe(5);
     expect(settings.logLevel).toBe("info");
     expect(settings.dataDir).toBe("data");
@@ -159,7 +158,6 @@ describe("getSettings / setSettings", () => {
     expect(s.llm.model).toBe("gpt-4o-mini");
     expect(s.llm.maxConcurrentCalls).toBe(3);
     expect(s.llm.timeout).toBe(120);
-    expect(s.memory.dataDir).toBe("data/memory");
     expect(s.agent.maxActiveTasks).toBe(5);
     expect(s.agent.maxConcurrentTools).toBe(3);
     expect(s.agent.maxCognitiveIterations).toBe(10);

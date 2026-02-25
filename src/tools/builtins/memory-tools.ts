@@ -33,12 +33,12 @@ export function resolveMemoryPath(
   return resolved;
 }
 
-/** Get the memory directory from context. Crashes if dataDir is missing — a configuration bug. */
+/** Get the memory directory from context. Crashes if memoryDir is missing — a configuration bug. */
 function getMemoryDir(context: ToolContext): string {
-  if (!context.dataDir) {
-    throw new Error("ToolContext.dataDir is required but missing — this is a configuration bug");
+  if (!context.memoryDir) {
+    throw new Error("ToolContext.memoryDir is required but missing — this is a configuration bug");
   }
-  return context.dataDir;
+  return context.memoryDir;
 }
 
 // ── memory_list ─────────────────────────────────

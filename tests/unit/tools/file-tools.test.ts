@@ -22,7 +22,7 @@ describe("file tools", () => {
 
   describe("read_file", () => {
     it("should read file content", async () => {
-      const context = { taskId: "test-task-id", dataDir: testDir };
+      const context = { taskId: "test-task-id" };
       const filePath = `${testDir}/test.txt`;
 
       // Create test file
@@ -39,7 +39,7 @@ describe("file tools", () => {
     });
 
     it("should fail on non-existent file", async () => {
-      const context = { taskId: "test-task-id", dataDir: testDir };
+      const context = { taskId: "test-task-id" };
       const result = await read_file.execute({ path: `${testDir}/nonexistent.txt` }, context);
 
       expect(result.success).toBe(false);
@@ -48,7 +48,7 @@ describe("file tools", () => {
 
     it("should reject unauthorized paths", async () => {
       const allowedPaths = [testDir];
-      const context = { taskId: "test-task-id", dataDir: testDir, allowedPaths };
+      const context = { taskId: "test-task-id", allowedPaths };
 
       const result = await read_file.execute({ path: "/etc/passwd" }, context);
 
@@ -59,7 +59,7 @@ describe("file tools", () => {
 
   describe("write_file", () => {
     it("should write file content", async () => {
-      const context = { taskId: "test-task-id", dataDir: testDir };
+      const context = { taskId: "test-task-id" };
       const filePath = `${testDir}/write-test.txt`;
 
       const result = await write_file.execute({ path: filePath, content: "new content" }, context);
@@ -77,7 +77,7 @@ describe("file tools", () => {
 
     it("should reject unauthorized paths", async () => {
       const allowedPaths = [testDir];
-      const context = { taskId: "test-task-id", dataDir: testDir, allowedPaths };
+      const context = { taskId: "test-task-id", allowedPaths };
 
       const result = await write_file.execute({ path: "/etc/unauthorized.txt", content: "test" }, context);
 
@@ -88,7 +88,7 @@ describe("file tools", () => {
 
   describe("list_files", () => {
     it("should list files in directory", async () => {
-      const context = { taskId: "test-task-id", dataDir: testDir };
+      const context = { taskId: "test-task-id" };
       const filePath = `${testDir}/list-test.txt`;
 
       await Bun.write(filePath, "test");
@@ -104,7 +104,7 @@ describe("file tools", () => {
     });
 
     it("should handle recursive listing", async () => {
-      const context = { taskId: "test-task-id", dataDir: testDir };
+      const context = { taskId: "test-task-id" };
       const subDir = `${testDir}/subdir`;
 
       // Create subdirectory with file
@@ -121,7 +121,7 @@ describe("file tools", () => {
     });
 
     it("should return empty list for non-existent directory", async () => {
-      const context = { taskId: "test-task-id", dataDir: testDir };
+      const context = { taskId: "test-task-id" };
       const result = await list_files.execute({ path: `${testDir}/nonexistent-dir` }, context);
 
       expect(result.success).toBe(true);
@@ -131,7 +131,7 @@ describe("file tools", () => {
     });
 
     it("should filter files by pattern (non-recursive)", async () => {
-      const context = { taskId: "test-task-id", dataDir: testDir };
+      const context = { taskId: "test-task-id" };
 
       // Create files with different extensions
       await Bun.write(`${testDir}/file1.ts`, "ts content");
@@ -150,7 +150,7 @@ describe("file tools", () => {
     });
 
     it("should filter files by pattern (recursive)", async () => {
-      const context = { taskId: "test-task-id", dataDir: testDir };
+      const context = { taskId: "test-task-id" };
       const subDir = `${testDir}/sub-pattern`;
 
       // Create files in subdirectory
@@ -174,7 +174,7 @@ describe("file tools", () => {
 
     it("should reject unauthorized paths via allowedPaths", async () => {
       const allowedPaths = [testDir];
-      const context = { taskId: "test-task-id", dataDir: testDir, allowedPaths };
+      const context = { taskId: "test-task-id", allowedPaths };
 
       const result = await list_files.execute({ path: "/etc" }, context);
 
@@ -185,7 +185,7 @@ describe("file tools", () => {
 
   describe("delete_file", () => {
     it("should delete a file", async () => {
-      const context = { taskId: "test-task-id", dataDir: testDir };
+      const context = { taskId: "test-task-id" };
       const filePath = `${testDir}/delete-test.txt`;
 
       await Bun.write(filePath, "test");
@@ -202,7 +202,7 @@ describe("file tools", () => {
 
     it("should reject unauthorized paths", async () => {
       const allowedPaths = [testDir];
-      const context = { taskId: "test-task-id", dataDir: testDir, allowedPaths };
+      const context = { taskId: "test-task-id", allowedPaths };
 
       const result = await delete_file.execute({ path: "/etc/passwd" }, context);
 
@@ -213,7 +213,7 @@ describe("file tools", () => {
 
   describe("move_file", () => {
     it("should move a file", async () => {
-      const context = { taskId: "test-task-id", dataDir: testDir };
+      const context = { taskId: "test-task-id" };
       const fromPath = `${testDir}/move-from.txt`;
       const toPath = `${testDir}/move-to.txt`;
 
@@ -237,7 +237,7 @@ describe("file tools", () => {
 
     it("should reject unauthorized source path via allowedPaths", async () => {
       const allowedPaths = [testDir];
-      const context = { taskId: "test-task-id", dataDir: testDir, allowedPaths };
+      const context = { taskId: "test-task-id", allowedPaths };
 
       const result = await move_file.execute({
         from: "/etc/passwd",
@@ -251,7 +251,7 @@ describe("file tools", () => {
 
     it("should reject unauthorized destination path via allowedPaths", async () => {
       const allowedPaths = [testDir];
-      const context = { taskId: "test-task-id", dataDir: testDir, allowedPaths };
+      const context = { taskId: "test-task-id", allowedPaths };
 
       // Create a valid source file first
       const fromPath = `${testDir}/move-allowed.txt`;
@@ -268,7 +268,7 @@ describe("file tools", () => {
     });
 
     it("should fail when moving non-existent file", async () => {
-      const context = { taskId: "test-task-id", dataDir: testDir };
+      const context = { taskId: "test-task-id" };
 
       const result = await move_file.execute({
         from: `${testDir}/does-not-exist.txt`,
@@ -282,7 +282,7 @@ describe("file tools", () => {
 
   describe("get_file_info", () => {
     it("should get file information", async () => {
-      const context = { taskId: "test-task-id", dataDir: testDir };
+      const context = { taskId: "test-task-id" };
       const filePath = `${testDir}/info-test.txt`;
 
       await Bun.write(filePath, "test content");
@@ -302,7 +302,7 @@ describe("file tools", () => {
     });
 
     it("should handle non-existent file gracefully", async () => {
-      const context = { taskId: "test-task-id", dataDir: testDir };
+      const context = { taskId: "test-task-id" };
       const result = await get_file_info.execute({ path: `${testDir}/nonexistent.txt` }, context);
 
       expect(result.success).toBe(false);
@@ -311,7 +311,7 @@ describe("file tools", () => {
 
     it("should reject unauthorized paths via allowedPaths", async () => {
       const allowedPaths = [testDir];
-      const context = { taskId: "test-task-id", dataDir: testDir, allowedPaths };
+      const context = { taskId: "test-task-id", allowedPaths };
 
       const result = await get_file_info.execute({ path: "/etc/passwd" }, context);
 

@@ -32,9 +32,7 @@ const DEFAULT_CONFIG = {
     maxConcurrentCalls: 3,
     timeout: 120,
   },
-  memory: {
-    dataDir: "data/memory",
-  },
+  memory: {},
   agent: {
     maxActiveTasks: 5,
     maxConcurrentTools: 3,
