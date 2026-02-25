@@ -13,7 +13,7 @@ pegasus/
 │   ├── events.md                   # 事件系统
 │   ├── task-fsm.md                 # 任务状态机
 │   ├── agent.md                    # Agent 核心
-│   ├── cognitive.md                # 认知阶段
+│   ├── cognitive.md                # 认知阶段（3 阶段：Reason → Act → Reflect）
 │   ├── project-structure.md        # 本文件
 │   └── mvp-plan.md                 # MVP 实现路线
 │
@@ -35,37 +35,58 @@ pegasus/
 │   │
 │   ├── cognitive/                  # 认知阶段处理器（纯函数，无状态）
 │   │   ├── index.ts
-│   │   ├── perceive.ts             # Perceiver — 感知输入
-│   │   ├── think.ts                # Thinker — 推理思考
-│   │   ├── plan.ts                 # Planner — 任务规划
+│   │   ├── think.ts                # Thinker — 推理思考（LLM 调用）
+│   │   ├── plan.ts                 # Planner — 任务规划（纯代码，在 Reason 内部调用）
 │   │   ├── act.ts                  # Actor — 执行动作
 │   │   └── reflect.ts              # Reflector — 反思评估
 │   │
-│   ├── llm/                        # LLM 适配层
+│   ├── tools/                      # 工具系统
 │   │   ├── index.ts
-│   │   ├── base.ts                 # Provider 抽象基类
-│   │   └── router.ts               # 模型路由和 Fallback
+│   │   ├── types.ts                # Tool, ToolResult, ToolContext, ToolCategory
+│   │   ├── registry.ts             # ToolRegistry（注册 + LLM 格式转换）
+│   │   ├── executor.ts             # ToolExecutor（参数验证 + 超时 + 事件发射）
+│   │   └── builtins/               # 内置工具
+│   │       ├── index.ts
+│   │       ├── system-tools.ts     # current_time
+│   │       └── memory-tools.ts     # memory_list/read/write/append
+│   │
+│   ├── identity/                   # 身份层
+│   │   ├── persona.ts              # Persona 类型定义
+│   │   └── prompt.ts               # 系统提示词构建
 │   │
 │   ├── models/                     # 数据模型
 │   │   ├── index.ts
-│   │   ├── message.ts              # 消息模型（Role, Message）
-│   │   └── tool.ts                 # 工具调用模型（ToolDefinition, ToolCall, ToolResult）
+│   │   └── tool.ts                 # 工具调用模型（ToolDefinition, ToolCall）
 │   │
 │   └── infra/                      # 基础设施
 │       ├── index.ts
 │       ├── config.ts               # 配置加载（Zod schema + env vars）
+│       ├── config-schema.ts        # 配置 schema 定义
+│       ├── config-loader.ts        # 配置文件加载
 │       ├── logger.ts               # 日志（pino）
-│       └── errors.ts               # 异常层级（PegasusError → ...）
+│       ├── errors.ts               # 异常层级（PegasusError → ...）
+│       ├── id.ts                   # 短 ID 生成
+│       ├── llm-types.ts            # LLM 类型定义
+│       └── llm-utils.ts            # LLM 调用工具函数
 │
 ├── tests/
 │   ├── unit/
 │   │   ├── events.test.ts          # Event + EventBus 测试
 │   │   ├── task.test.ts            # TaskFSM + Registry + Context 测试
-│   │   └── llm-router.test.ts      # LLMRouter 测试
+│   │   ├── cognitive.test.ts       # 认知处理器测试
+│   │   ├── llm-router.test.ts      # LLMRouter 测试
+│   │   └── tools/
+│   │       ├── registry.test.ts    # ToolRegistry 测试
+│   │       ├── executor.test.ts    # ToolExecutor 测试
+│   │       └── memory-tools.test.ts # 记忆工具测试
 │   └── integration/
-│       └── agent-lifecycle.test.ts  # Agent 端到端测试
+│       ├── agent-lifecycle.test.ts  # Agent 端到端测试
+│       └── agent-tool-loop.test.ts  # Agent 工具循环测试
 │
 └── data/                           # 运行时数据（.gitignore）
+    └── memory/                     # 记忆存储
+        ├── facts/                  # 事实文件
+        └── episodes/               # 经历文件
 ```
 
 ## Tech Stack
@@ -89,7 +110,7 @@ interfaces ──▶ agent ──▶ cognitive
                  │          │
                  ├──▶ identity
                  │
-                 ├──▶ memory
+                 ├──▶ tools
                  │
                  └──▶ llm
 
