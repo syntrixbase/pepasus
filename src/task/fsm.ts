@@ -35,18 +35,12 @@ export interface StateTransition {
 type TransitionKey = `${TaskState}:${EventType}`;
 
 const TRANSITION_TABLE = new Map<TransitionKey, TaskState | null>([
-  // Create → Perceive
-  [`${TaskState.IDLE}:${EventType.TASK_CREATED}`, TaskState.PERCEIVING],
+  // Create → Reason
+  [`${TaskState.IDLE}:${EventType.TASK_CREATED}`, TaskState.REASONING],
 
-  // Perceive → Think
-  [`${TaskState.PERCEIVING}:${EventType.PERCEIVE_DONE}`, TaskState.THINKING],
-
-  // Think → Plan / Suspended
-  [`${TaskState.THINKING}:${EventType.THINK_DONE}`, TaskState.PLANNING],
-  [`${TaskState.THINKING}:${EventType.NEED_MORE_INFO}`, TaskState.SUSPENDED],
-
-  // Plan → Act
-  [`${TaskState.PLANNING}:${EventType.PLAN_DONE}`, TaskState.ACTING],
+  // Reason → Act / Suspended
+  [`${TaskState.REASONING}:${EventType.REASON_DONE}`, TaskState.ACTING],
+  [`${TaskState.REASONING}:${EventType.NEED_MORE_INFO}`, TaskState.SUSPENDED],
 
   // Act → Act (tool chain) / Reflect
   [`${TaskState.ACTING}:${EventType.TOOL_CALL_COMPLETED}`, null], // dynamic
@@ -54,12 +48,12 @@ const TRANSITION_TABLE = new Map<TransitionKey, TaskState | null>([
   [`${TaskState.ACTING}:${EventType.STEP_COMPLETED}`, null],      // dynamic
   [`${TaskState.ACTING}:${EventType.ACT_DONE}`, TaskState.REFLECTING],
 
-  // Reflect → Complete / Think / Plan (dynamic)
+  // Reflect → Complete / Reason (dynamic)
   [`${TaskState.REFLECTING}:${EventType.REFLECT_DONE}`, null],
 
   // Suspended → Resume
   [`${TaskState.SUSPENDED}:${EventType.TASK_RESUMED}`, null],     // dynamic
-  [`${TaskState.SUSPENDED}:${EventType.MESSAGE_RECEIVED}`, TaskState.THINKING],
+  [`${TaskState.SUSPENDED}:${EventType.MESSAGE_RECEIVED}`, TaskState.REASONING],
 ]);
 
 // ── TaskFSM ─────────────────────────────────────────
@@ -210,8 +204,7 @@ export class TaskFSM {
     if (this.state === TaskState.REFLECTING && event.type === EventType.REFLECT_DONE) {
       const verdict = event.payload["verdict"] as string | undefined;
       if (verdict === "complete") return TaskState.COMPLETED;
-      if (verdict === "replan") return TaskState.PLANNING;
-      return TaskState.THINKING; // "continue"
+      return TaskState.REASONING; // "continue" or "replan" both go to REASONING
     }
 
     // SUSPENDED + resumed → restore previous state
@@ -222,7 +215,7 @@ export class TaskFSM {
         this.context.suspendReason = null;
         return target as TaskState;
       }
-      return TaskState.THINKING; // fallback
+      return TaskState.REASONING; // fallback
     }
 
     throw new InvalidStateTransition(
