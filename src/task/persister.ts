@@ -12,7 +12,7 @@ import path from "node:path";
 import { getLogger } from "../infra/logger.ts";
 import { EventType } from "../events/types.ts";
 import { createTaskContext } from "./context.ts";
-import type { TaskContext, Plan, ActionResult, Reflection } from "./context.ts";
+import type { TaskContext, Plan, Reflection } from "./context.ts";
 import type { Message } from "../infra/llm-types.ts";
 import type { EventBus } from "../events/bus.ts";
 import type { TaskRegistry } from "./registry.ts";
@@ -140,9 +140,6 @@ export class TaskPersister {
 
         case "TOOL_CALL_COMPLETED":
         case "TOOL_CALL_FAILED":
-          if (entry.data.action) {
-            ctx.actionsDone.push(entry.data.action as ActionResult);
-          }
           if (Array.isArray(entry.data.newMessages)) {
             ctx.messages.push(...(entry.data.newMessages as Message[]));
           }
@@ -262,9 +259,7 @@ export class TaskPersister {
           const lastIdx = this.messageIndex.get(event.taskId) ?? 0;
           const newMessages = task.context.messages.slice(lastIdx);
           this.messageIndex.set(event.taskId, task.context.messages.length);
-          const lastAction = task.context.actionsDone[task.context.actionsDone.length - 1];
           await this._append(event.taskId, task.createdAt, evtName, {
-            action: lastAction,
             newMessages,
           });
         } catch (err) {

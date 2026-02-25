@@ -350,16 +350,6 @@ describe("TaskPersister", () => {
         createdAt,
         "TOOL_CALL_COMPLETED",
         {
-          action: {
-            stepIndex: 0,
-            actionType: "tool_call",
-            actionInput: { toolName: "web_search", query: "info" },
-            result: "found some info",
-            success: true,
-            startedAt: createdAt,
-            completedAt: createdAt + 100,
-            durationMs: 100,
-          },
           newMessages: [
             { role: "tool", content: "found some info", toolCallId: "tc1" },
           ],
@@ -383,10 +373,7 @@ describe("TaskPersister", () => {
       const filePath = `${testDir}/tasks/2026-02-25/${taskId}.jsonl`;
       const ctx = await TaskPersister.replay(filePath);
 
-      expect(ctx.actionsDone).toHaveLength(1);
-      expect(ctx.actionsDone[0]!.actionType).toBe("tool_call");
-      expect(ctx.actionsDone[0]!.success).toBe(true);
-      expect(ctx.actionsDone[0]!.result).toBe("found some info");
+      expect(ctx.actionsDone).toHaveLength(0);
       // Messages: 2 from REASON_DONE + 1 from TOOL_CALL_COMPLETED + 1 from TASK_COMPLETED
       expect(ctx.messages).toHaveLength(4);
       expect(ctx.messages[2]!.role).toBe("tool");
@@ -446,16 +433,6 @@ describe("TaskPersister", () => {
         inputMetadata: {},
       });
       await persister._appendForTest(taskId, createdAt, "TOOL_CALL_FAILED", {
-        action: {
-          stepIndex: 0,
-          actionType: "tool_call",
-          actionInput: { toolName: "broken_tool" },
-          success: false,
-          error: "tool not found",
-          startedAt: createdAt,
-          completedAt: createdAt + 50,
-          durationMs: 50,
-        },
         newMessages: [
           { role: "tool", content: "Error: tool not found", toolCallId: "tc2" },
         ],
@@ -464,11 +441,66 @@ describe("TaskPersister", () => {
       const filePath = `${testDir}/tasks/2026-02-25/${taskId}.jsonl`;
       const ctx = await TaskPersister.replay(filePath);
 
-      expect(ctx.actionsDone).toHaveLength(1);
-      expect(ctx.actionsDone[0]!.success).toBe(false);
-      expect(ctx.actionsDone[0]!.error).toBe("tool not found");
+      expect(ctx.actionsDone).toHaveLength(0);
       expect(ctx.messages).toHaveLength(1);
       expect(ctx.messages[0]!.role).toBe("tool");
+    });
+    it("should replay messages identical to original input (full tool-call round trip)", async () => {
+      const createdAt = new Date("2026-02-25T10:00:00Z").getTime();
+      const taskId = "fidelity-task";
+
+      // The exact messages as they would accumulate in context.messages during a real task
+      const originalMessages = [
+        // Round 1: user input + LLM response with tool call
+        { role: "user" as const, content: "What time is it?" },
+        { role: "assistant" as const, content: "", toolCalls: [{ id: "tc_1", name: "current_time", arguments: {} }] },
+        // Tool result
+        { role: "tool" as const, content: "2026-02-25T10:00:00Z", toolCallId: "tc_1" },
+        // Round 2: LLM summary after tool result
+        { role: "assistant" as const, content: "The current time is 2026-02-25T10:00:00Z." },
+      ];
+
+      // Write events with the exact message deltas as persister would
+      await persister._appendForTest(taskId, createdAt, "TASK_CREATED", {
+        inputText: "What time is it?", source: "user", inputMetadata: {},
+      });
+      await persister._appendForTest(taskId, createdAt, "REASON_DONE", {
+        reasoning: { response: "", approach: "tool_use" },
+        plan: { goal: "get time", steps: [], reasoning: "need tool" },
+        newMessages: [originalMessages[0], originalMessages[1]],
+      });
+      await persister._appendForTest(taskId, createdAt, "TOOL_CALL_COMPLETED", {
+        newMessages: [originalMessages[2]],
+      });
+      await persister._appendForTest(taskId, createdAt, "REASON_DONE", {
+        reasoning: { response: "The current time is 2026-02-25T10:00:00Z.", approach: "direct" },
+        plan: { goal: "respond", steps: [], reasoning: "have answer" },
+        newMessages: [originalMessages[3]],
+      });
+      await persister._appendForTest(taskId, createdAt, "REFLECT_DONE", {
+        reflection: { verdict: "complete", assessment: "answered", lessons: [] },
+      });
+      await persister._appendForTest(taskId, createdAt, "TASK_COMPLETED", {
+        finalResult: { response: "The current time is 2026-02-25T10:00:00Z." },
+        iterations: 2,
+        newMessages: [],
+      });
+
+      const filePath = `${testDir}/tasks/2026-02-25/${taskId}.jsonl`;
+      const ctx = await TaskPersister.replay(filePath);
+
+      // Core assertion: replayed messages match original exactly
+      expect(ctx.messages).toHaveLength(originalMessages.length);
+      for (let i = 0; i < originalMessages.length; i++) {
+        expect(ctx.messages[i]!.role).toBe(originalMessages[i]!.role);
+        expect(ctx.messages[i]!.content).toBe(originalMessages[i]!.content);
+        if (originalMessages[i]!.toolCallId) {
+          expect(ctx.messages[i]!.toolCallId).toBe(originalMessages[i]!.toolCallId);
+        }
+        if (originalMessages[i]!.toolCalls) {
+          expect(ctx.messages[i]!.toolCalls).toEqual(originalMessages[i]!.toolCalls);
+        }
+      }
     });
   });
 
