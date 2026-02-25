@@ -29,6 +29,7 @@ import { ToolExecutor } from "./tools/executor.ts";
 import type { ToolResult } from "./tools/types.ts";
 import { allBuiltInTools } from "./tools/builtins/index.ts";
 import type { MemoryIndexEntry } from "./identity/prompt.ts";
+import { TaskPersister } from "./task/persister.ts";
 import path from "node:path";
 
 const logger = getLogger("agent");
@@ -107,6 +108,7 @@ export class Agent {
 
   // Tool infrastructure
   private toolExecutor: ToolExecutor;
+  private persister: TaskPersister;
 
   // Concurrency control
   private llmSemaphore: Semaphore;
@@ -134,6 +136,9 @@ export class Agent {
       (this.settings.tools?.timeout ?? 30) * 1000,
     );
     this.toolExecutor = toolExecutor;
+
+    // Task persistence
+    this.persister = new TaskPersister(this.eventBus, this.taskRegistry, this.settings.dataDir);
 
     // Initialize cognitive processors with model + persona
     this.thinker = new Thinker(deps.model, deps.persona, toolRegistry);
