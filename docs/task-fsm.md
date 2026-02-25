@@ -13,33 +13,25 @@
 
 ## TaskState
 
-9 个状态，2 个终态：
+7 个状态，2 个终态：
 
 ```
                     ┌─────────┐
                     │  IDLE   │ ← 刚创建
                     └────┬────┘
                          │ TASK_CREATED
-                    ┌────▼────┐
-                    │PERCEIVE │ ← 感知输入
-                    └────┬────┘
-                         │ PERCEIVE_DONE
-                    ┌────▼────┐
-              ┌────▶│ THINKING│ ← 推理、检索记忆
-              │     └────┬────┘
-              │          │ THINK_DONE          NEED_MORE_INFO
+                    ┌────▼─────┐
+              ┌────▶│REASONING │ ← 推理（理解 + 思考 + 规划）
+              │     └────┬─────┘
+              │          │ REASON_DONE          NEED_MORE_INFO
               │     ┌────▼────┐                     │
-              │     │PLANNING │                ┌────▼─────┐
-              │     └────┬────┘                │SUSPENDED │
-              │          │ PLAN_DONE           └────┬─────┘
-              │     ┌────▼────┐                     │
-              │     │ ACTING  │←───── 多步骤循环     │ MESSAGE_RECEIVED
-              │     └────┬────┘                     │ / TASK_RESUMED
-              │          │ ACT_DONE                 │
-              │     ┌────▼────┐                     │
-              │     │REFLECT  │◀────────────────────┘
-              │     └────┬────┘
-              │          │ REFLECT_DONE
+              │     │ ACTING  │←───── 多步骤循环  ┌──▼───────┐
+              │     └────┬────┘                  │SUSPENDED │
+              │          │ ACT_DONE              └──┬───────┘
+              │     ┌────▼─────┐                    │
+              │     │REFLECTING│◀───────────────────┘
+              │     └────┬─────┘   MESSAGE_RECEIVED
+              │          │ REFLECT_DONE   / TASK_RESUMED
               │     ┌────▼────┐
               │     │ Done?   │
               │     └────┬────┘
@@ -53,22 +45,21 @@
                         └──────────┘
 ```
 
-```python
-class TaskState(StrEnum):
-    IDLE        = "idle"
-    PERCEIVING  = "perceiving"
-    THINKING    = "thinking"
-    PLANNING    = "planning"
-    ACTING      = "acting"
-    REFLECTING  = "reflecting"
-    SUSPENDED   = "suspended"
-    COMPLETED   = "completed"    # 终态
-    FAILED      = "failed"       # 终态
+```typescript
+const TaskState = {
+    IDLE:        "idle",
+    REASONING:   "reasoning",
+    ACTING:      "acting",
+    REFLECTING:  "reflecting",
+    SUSPENDED:   "suspended",
+    COMPLETED:   "completed",    // 终态
+    FAILED:      "failed",       // 终态
+} as const;
 ```
 
 **终态**：`COMPLETED` 和 `FAILED` 到达后不再接受任何转换，抛出 `InvalidStateTransition`。
 
-**可挂起状态**：只有活跃状态（PERCEIVING/THINKING/PLANNING/ACTING/REFLECTING）可以被挂起。
+**可挂起状态**：只有活跃状态（REASONING/ACTING/REFLECTING）可以被挂起。
 
 ## 状态转换表
 
@@ -76,13 +67,11 @@ class TaskState(StrEnum):
 
 | 当前状态 | 事件 | → 目标状态 |
 |---------|------|-----------|
-| IDLE | TASK_CREATED | PERCEIVING |
-| PERCEIVING | PERCEIVE_DONE | THINKING |
-| THINKING | THINK_DONE | PLANNING |
-| THINKING | NEED_MORE_INFO | SUSPENDED |
-| PLANNING | PLAN_DONE | ACTING |
+| IDLE | TASK_CREATED | REASONING |
+| REASONING | REASON_DONE | ACTING |
+| REASONING | NEED_MORE_INFO | SUSPENDED |
 | ACTING | ACT_DONE | REFLECTING |
-| SUSPENDED | MESSAGE_RECEIVED | THINKING |
+| SUSPENDED | MESSAGE_RECEIVED | REASONING |
 
 动态转换（目标状态由运行时条件决定）：
 
@@ -90,8 +79,11 @@ class TaskState(StrEnum):
 |---------|------|-----------|
 | ACTING | TOOL_CALL_COMPLETED | plan 还有步骤 → ACTING；否则 → REFLECTING |
 | ACTING | TOOL_CALL_FAILED | plan 还有步骤 → ACTING；否则 → REFLECTING |
-| REFLECTING | REFLECT_DONE | verdict="complete" → COMPLETED；"continue" → THINKING；"replan" → PLANNING |
+| ACTING | STEP_COMPLETED | plan 还有步骤 → ACTING；否则 → REFLECTING |
+| REFLECTING | REFLECT_DONE | verdict="complete" → COMPLETED；"continue" → REASONING；"replan" → REASONING |
 | SUSPENDED | TASK_RESUMED | 恢复到挂起前的状态 |
+
+注意：`replan` 现在也回到 REASONING（不再有独立的 PLANNING 状态），因为 Planner 在 Reason 内部运行。
 
 特殊转换（任意活跃状态均可触发）：
 
@@ -104,22 +96,22 @@ class TaskState(StrEnum):
 
 ```
 TaskFSM
-├── task_id: str                        # UUID
-├── state: TaskState                    # 当前状态
-├── context: TaskContext                # 累积的所有中间产物
-├── history: list[StateTransition]      # 状态转换历史
-├── created_at / updated_at: datetime
-├── priority: int                       # 优先级（越小越优先）
-└── metadata: dict
+├── taskId: string                     # 短 ID
+├── state: TaskState                   # 当前状态
+├── context: TaskContext               # 累积的所有中间产物
+├── history: StateTransition[]         # 状态转换历史
+├── createdAt / updatedAt: number
+├── priority: number                   # 优先级（越小越优先）
+└── metadata: Record<string, unknown>
 ```
 
 **关键方法**：
 - `transition(event) → TaskState`：执行转换，返回新状态，非法则抛异常
-- `can_transition(event_type) → bool`：检查转换是否合法（不实际执行）
-- `from_event(event) → TaskFSM`：从外部输入事件创建任务
-- `is_terminal` / `is_active`：状态查询
+- `canTransition(eventType) → boolean`：检查转换是否合法（不实际执行）
+- `fromEvent(event) → TaskFSM`：从外部输入事件创建任务
+- `isTerminal` / `isActive`：状态查询
 
-**转换历史**：每次转换记录 `StateTransition`（from_state, to_state, trigger_event_type, trigger_event_id, timestamp），可以精确复现任务的每一步。
+**转换历史**：每次转换记录 `StateTransition`（fromState, toState, triggerEventType, triggerEventId, timestamp），可以精确复现任务的每一步。
 
 ## TaskContext
 
@@ -128,76 +120,76 @@ TaskFSM
 ```
 TaskContext
 ├── 原始输入
-│   ├── input_text: str
-│   ├── input_metadata: dict
-│   └── source: str
+│   ├── inputText: string
+│   ├── inputMetadata: Record<string, unknown>
+│   └── source: string
 │
 ├── 认知阶段产出
-│   ├── perception: dict | None        # Perceive 的输出
-│   ├── reasoning: dict | None         # Think 的输出
-│   ├── plan: Plan | None              # Plan 的输出
-│   ├── actions_done: list[ActionResult]
-│   └── reflections: list[Reflection]
+│   ├── reasoning: Record<string, unknown> | null   # Reason(Thinker) 的输出
+│   ├── plan: Plan | null                           # Reason(Planner) 的输出
+│   ├── actionsDone: ActionResult[]
+│   └── reflections: Reflection[]
 │
 ├── 循环控制
-│   └── iteration: int                 # Think→Act→Reflect 循环轮次
+│   └── iteration: number                           # Reason→Act→Reflect 循环轮次
 │
 ├── 结果
-│   ├── final_result: Any
-│   └── error: str | None
+│   ├── finalResult: unknown
+│   └── error: string | null
 │
 ├── 挂起/恢复
-│   ├── suspended_state: str | None    # 挂起前的状态
-│   └── suspend_reason: str | None
+│   ├── suspendedState: string | null               # 挂起前的状态
+│   └── suspendReason: string | null
 │
 └── 对话历史
-    └── messages: list[dict]           # Working Memory 片段
+    └── messages: Message[]                         # Working Memory 片段
 ```
 
 **Plan 数据结构**：
 ```
 Plan
-├── goal: str                          # 任务目标
-├── steps: list[PlanStep]              # 执行步骤
+├── goal: string                          # 任务目标
+├── steps: PlanStep[]                     # 执行步骤
 │   └── PlanStep
-│       ├── index: int
-│       ├── description: str
-│       ├── action_type: str           # "tool_call" / "generate" / "sub_task"
-│       ├── action_params: dict
-│       └── completed: bool
-└── reasoning: str                     # 规划推理过程
+│       ├── index: number
+│       ├── description: string
+│       ├── actionType: string            # "tool_call" / "respond" / "generate"
+│       ├── actionParams: Record<string, unknown>
+│       └── completed: boolean
+└── reasoning: string                     # 规划推理过程
 ```
 
-Plan 提供 `current_step`（下一个未完成步骤）和 `has_more_steps` 属性，Actor 用这些驱动步骤执行。
+Plan 提供 `currentStep`（下一个未完成步骤）和 `hasMoreSteps` 属性，Actor 用这些驱动步骤执行。
 
 **Reflection 数据结构**：
 ```
 Reflection
-├── verdict: str          # "complete" | "continue" | "replan"
-├── assessment: str       # 评估说明
-├── lessons: list[str]    # 提取的经验
-└── next_focus: str | None
+├── verdict: string          # "complete" | "continue" | "replan"
+├── assessment: string       # 评估说明
+├── lessons: string[]        # 提取的经验
+└── nextFocus?: string
 ```
 
-verdict 决定了 REFLECTING 之后的走向——这就是认知循环的核心：反思后决定是完成、继续、还是重新规划。
+verdict 决定了 REFLECTING 之后的走向——这就是认知循环的核心：反思后决定是完成、继续、还是重新推理。
 
 ## TaskRegistry
 
 活跃任务注册表。维护所有未完成的任务。
 
-```python
-class TaskRegistry:
-    def register(task)                  # 注册新任务
-    def get(task_id) → TaskFSM          # 获取任务（不存在则抛异常）
-    def get_or_none(task_id)            # 获取任务（不存在返回 None）
-    def remove(task_id)                 # 移除任务
-    def list_active() → list[TaskFSM]  # 列出活跃任务
-    def list_all() → list[TaskFSM]     # 列出所有任务
-    def cleanup_terminal()              # 清理终态任务
-    active_count → int                  # 活跃任务数
+```typescript
+class TaskRegistry {
+    register(task)                       // 注册新任务
+    get(taskId) → TaskFSM               // 获取任务（不存在则抛异常）
+    getOrNull(taskId)                   // 获取任务（不存在返回 null）
+    remove(taskId)                       // 移除任务
+    listActive() → TaskFSM[]           // 列出活跃任务
+    listAll() → TaskFSM[]              // 列出所有任务
+    cleanupTerminal()                    // 清理终态任务
+    activeCount → number                // 活跃任务数
+}
 ```
 
-当活跃任务数达到 `max_active` 上限时，不阻止注册但记录警告。调度层可据此决定是否排队。
+当活跃任务数达到 `maxActive` 上限时，不阻止注册但记录警告。调度层可据此决定是否排队。
 
 ## 持久化策略
 
@@ -205,7 +197,7 @@ class TaskRegistry:
 
 | 时机 | 持久化内容 | 原因 |
 |------|-----------|------|
-| PLAN_DONE | 完整 Plan | 规划成本高，不能丢 |
+| REASON_DONE | 完整 Plan | 规划成本高，不能丢 |
 | ACT_DONE（每步） | ActionResult | 动作不可逆，必须记录 |
 | SUSPENDED | 完整 TaskContext | 恢复时需要完整上下文 |
 | COMPLETED | 完整 TaskContext | 归档到 Episodic Memory |

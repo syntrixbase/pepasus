@@ -1,9 +1,7 @@
 /** Task states for the finite state machine. */
 export const TaskState = {
   IDLE: "idle",
-  PERCEIVING: "perceiving",
-  THINKING: "thinking",
-  PLANNING: "planning",
+  REASONING: "reasoning",
   ACTING: "acting",
   REFLECTING: "reflecting",
   SUSPENDED: "suspended",
@@ -19,9 +17,7 @@ export const TERMINAL_STATES: ReadonlySet<TaskState> = new Set([
 ]);
 
 export const SUSPENDABLE_STATES: ReadonlySet<TaskState> = new Set([
-  TaskState.PERCEIVING,
-  TaskState.THINKING,
-  TaskState.PLANNING,
+  TaskState.REASONING,
   TaskState.ACTING,
   TaskState.REFLECTING,
 ]);

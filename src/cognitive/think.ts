@@ -26,7 +26,7 @@ export class Thinker {
   async run(context: TaskContext, memoryIndex?: MemoryIndexEntry[]): Promise<Record<string, unknown>> {
     logger.info({ iteration: context.iteration }, "think_start");
 
-    const system = buildSystemPrompt(this.persona, "think", memoryIndex);
+    const system = buildSystemPrompt(this.persona, "reason", memoryIndex);
 
     // Build conversation history for multi-turn support
     const messages: Message[] = context.messages.map((m) => ({

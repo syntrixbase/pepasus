@@ -12,7 +12,7 @@ Pegasus不是「请求-响应」服务，是一个**持续运行的自主工作�
 | **任务即状态机** | 每个任务是独立的 TaskFSM，有明确的状态和转换规则，不是 while 循环 |
 | **Agent 是事件处理器** | 没有 `while True` 循环，没有 `await task.run()` 阻塞。只有：收到事件 → 驱动状态机 → 产出新事件 |
 | **无阻塞、纯异步、可并发** | Agent 的事件处理函数永远不阻塞，多个任务交错推进，共享算力 |
-| **纯函数认知** | 认知阶段处理器（Perceiver/Thinker/Planner/Actor/Reflector）不持有状态，可被任意任务复用 |
+| **纯函数认知** | 认知阶段处理器（Thinker/Planner/Actor/Reflector）不持有状态，可被任意任务复用 |
 | **身份一致性** | 无论并发多少任务、跨多少会话，人格和行为风格保持一致 |
 | **记忆持久化** | 经验不丢失，能从历史中学习和改进 |
 | **模型无关** | 核心逻辑不绑定特定 LLM，支持动态切换和路由 |
@@ -46,12 +46,12 @@ Pegasus不是「请求-响应」服务，是一个**持续运行的自主工作�
 │   事件分发 │ 状态转换 │ 认知阶段调度 │ 并发控制          │
 ├─────────────────────────────────────────────────────┤
 │        TaskFSM Layer (任务状态机层)                     │
-│   IDLE → PERCEIVING → THINKING → PLANNING            │
-│        → ACTING → REFLECTING → COMPLETED              │
+│   IDLE → REASONING → ACTING → REFLECTING             │
+│                  → COMPLETED                          │
 │                  │ SUSPENDED │ FAILED │                │
 ├─────────────────────────────────────────────────────┤
 │       Cognitive Processors (认知处理器 / 无状态)         │
-│   Perceiver │ Thinker │ Planner │ Actor │ Reflector   │
+│   Thinker │ Planner │ Actor │ Reflector               │
 ├─────────────────────────────────────────────────────┤
 │          Identity Layer (身份层)                       │
 │   Persona │ Preferences │ Evolution                   │
@@ -92,7 +92,7 @@ Pegasus不是「请求-响应」服务，是一个**持续运行的自主工作�
                 │  ┌──────┐ ┌──────┐ ┌──────┐  │
                 │  │Task A│ │Task B│ │Task C│  │
                 │  │ 状态机│ │ 状态机│ │ 状态机│  │
-                │  │ACTING│ │THINK │ │IDLE  │  │
+                │  │ACTING│ │REASON│ │IDLE  │  │
                 │  └──────┘ └──────┘ └──────┘  │
                 └──────────────────────────────┘
                                │ 调用
@@ -114,25 +114,30 @@ Pegasus不是「请求-响应」服务，是一个**持续运行的自主工作�
 | **可观测** | 需要额外日志 | 事件流 = 天然审计日志 |
 | **可测试** | 需要 mock 整个循环 | 单独测试每个状态转换 |
 
-```python
-# ❌ 旧方案：阻塞式 while 循环
-class CognitiveLoop:
-    async def run(self, task: Task) -> TaskResult:
-        context = await self.perceive(task)
-        while not context.is_complete:          # Agent 被锁死在这里
-            thinking = await self.think(context)
-            plan = await self.plan(thinking)
-            results = await self.act(plan)
-            context = await self.reflect(context, results)
-        return context.final_result
+```typescript
+// ❌ 旧方案：阻塞式 while 循环
+class CognitiveLoop {
+    async run(task: Task): Promise<TaskResult> {
+        const context = await this.perceive(task)
+        while (!context.isComplete) {          // Agent 被锁死在这里
+            const thinking = await this.think(context)
+            const plan = await this.plan(thinking)
+            const results = await this.act(plan)
+            context = await this.reflect(context, results)
+        }
+        return context.finalResult
+    }
+}
 
-# ✅ 新方案：事件驱动，Agent 是处理器
-class Agent:
-    async def _on_task_event(self, event: Event):
-        task = self.registry.get(event.task_id)
-        new_state = task.transition(event)       # 纯状态转换
-        self._dispatch(task, new_state)          # 非阻塞启动下一阶段
-        # 立即返回，处理下一个事件
+// ✅ 新方案：事件驱动，Agent 是处理器
+class Agent {
+    async _onTaskEvent(event: Event) {
+        const task = this.registry.get(event.taskId)
+        const newState = task.transition(event)       // 纯状态转换
+        this._dispatch(task, newState)                // 非阻塞启动下一阶段
+        // 立即返回，处理下一个事件
+    }
+}
 ```
 
 ## 详细设计文档
@@ -144,6 +149,6 @@ class Agent:
 | [events.md](./events.md) | 事件系统：Event、EventType、EventBus、优先级队列 |
 | [task-fsm.md](./task-fsm.md) | 任务状态机：TaskState、TaskFSM、TaskContext、状态转换表、持久化策略 |
 | [agent.md](./agent.md) | Agent 核心：事件处理、认知阶段调度、并发控制（信号量）、生命周期 |
-| [cognitive.md](./cognitive.md) | 认知阶段：Perceive → Think → Plan → Act → Reflect，处理器接口 |
+| [cognitive.md](./cognitive.md) | 认知阶段：Reason → Act → Reflect，处理器接口 |
 | [project-structure.md](./project-structure.md) | 代码目录结构与模块依赖关系 |
 | [mvp-plan.md](./mvp-plan.md) | MVP 实现路线与里程碑 |

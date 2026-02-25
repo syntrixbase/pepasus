@@ -25,7 +25,7 @@ export class Planner {
   async run(context: TaskContext): Promise<Plan> {
     logger.info("plan_start");
 
-    const taskType = (context.perception?.["taskType"] as string) ?? "conversation";
+    const taskType = "conversation"; // Task type detection removed with Perceiver; default to conversation
     const toolCalls = context.reasoning?.["toolCalls"] as ToolCall[] | undefined;
 
     let plan: Plan;
