@@ -184,36 +184,25 @@ describe("MainAgent", () => {
 
   it("should queue messages and process sequentially", async () => {
     let callCount = 0;
-    // Track which calls are "fresh" (first call per _think invocation).
-    // _think queues another think step after tool calls, so each message triggers:
-    //   call N (reply tool) → call N+1 (stop).
-    // We use odd/even to alternate: odd calls return reply, even calls stop.
+    // Each send() triggers exactly one _think call.
+    // reply tool calls do NOT trigger follow-up thinking, so each _think
+    // simply returns a reply and finishes. Two sends → two replies.
     const model: LanguageModel = {
       provider: "test",
       modelId: "test-model",
       async generate(): Promise<GenerateTextResult> {
         callCount++;
-        if (callCount % 2 === 1) {
-          // Odd call: produce a reply tool call
-          const msgNum = Math.ceil(callCount / 2);
-          return {
-            text: `Thinking about message ${msgNum}...`,
-            finishReason: "tool_calls",
-            toolCalls: [
-              {
-                id: `tc_reply_${msgNum}`,
-                name: "reply",
-                arguments: { text: `Response ${msgNum}`, channelId: "test" },
-              },
-            ],
-            usage: { promptTokens: 10, completionTokens: 10 },
-          };
-        }
-        // Even call: stop the loop
         return {
           text: "",
-          finishReason: "stop",
-          usage: { promptTokens: 5, completionTokens: 0 },
+          finishReason: "tool_calls",
+          toolCalls: [
+            {
+              id: `tc_${callCount}`,
+              name: "reply",
+              arguments: { text: `Response ${callCount}`, channelId: "test" },
+            },
+          ],
+          usage: { promptTokens: 10, completionTokens: 10 },
         };
       },
     };
@@ -342,21 +331,12 @@ describe("MainAgent", () => {
 
   it("should handle spawn_task tool call and task completion", async () => {
     let callCount = 0;
-    // Track whether each _think invocation has already replied
-    let hasRepliedThisLoop = false;
     const model: LanguageModel = {
       provider: "test",
       modelId: "test-model",
-      async generate(options: {
-        messages: Message[];
-      }): Promise<GenerateTextResult> {
+      async generate(): Promise<GenerateTextResult> {
         callCount++;
-        // Check if this is the first user message triggering spawn_task
-        const hasSpawnResult = options.messages.some(
-          (m) => m.role === "tool" && m.toolCallId === "tc-spawn",
-        );
-        if (!hasSpawnResult && callCount === 1) {
-          hasRepliedThisLoop = false;
+        if (callCount === 1) {
           // First call: LLM requests spawn_task
           return {
             text: "I need to spawn a task for this.",
@@ -374,31 +354,23 @@ describe("MainAgent", () => {
             usage: { promptTokens: 10, completionTokens: 10 },
           };
         }
-        // After spawn result or on subsequent calls: reply once then stop
-        if (!hasRepliedThisLoop) {
-          hasRepliedThisLoop = true;
-          return {
-            text: `Thinking about response ${callCount}...`,
-            finishReason: "tool_calls",
-            toolCalls: [
-              {
-                id: `tc-reply-${callCount}`,
-                name: "reply",
-                arguments: {
-                  text: `Response ${callCount}`,
-                  channelId: "test",
-                },
-              },
-            ],
-            usage: { promptTokens: 20, completionTokens: 10 },
-          };
-        }
-        // Stop the loop after replying
-        hasRepliedThisLoop = false; // reset for next loop invocation
+        // Subsequent calls (triggered by task completion): reply to the user.
+        // spawn_task does NOT trigger follow-up thinking, so the next _think
+        // only happens when the task result arrives via _handleTaskResult.
         return {
-          text: "",
-          finishReason: "stop",
-          usage: { promptTokens: 5, completionTokens: 0 },
+          text: `Thinking about response ${callCount}...`,
+          finishReason: "tool_calls",
+          toolCalls: [
+            {
+              id: `tc-reply-${callCount}`,
+              name: "reply",
+              arguments: {
+                text: `Response ${callCount}`,
+                channelId: "test",
+              },
+            },
+          ],
+          usage: { promptTokens: 20, completionTokens: 10 },
         };
       },
     };
@@ -428,11 +400,6 @@ describe("MainAgent", () => {
     expect(replies.length).toBeGreaterThanOrEqual(1);
     // Each reply has text starting with "Response"
     expect(replies[0]!.text).toMatch(/^Response/);
-
-    // If task completed, we get a second reply for the task result
-    if (replies.length >= 2) {
-      expect(replies[1]!.text).toMatch(/^Response/);
-    }
 
     await agent.stop();
   }, 15_000);
