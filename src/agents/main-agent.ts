@@ -465,6 +465,16 @@ export class MainAgent {
     const style = styleGuides[channelType] ?? "Adapt your response style to the channel.";
     lines.push("", `## Response Style\n\n${style}`);
 
+    // Session history / compact info
+    lines.push("", [
+      "## Session History",
+      "",
+      "Your conversation history may have been compacted to stay within context limits.",
+      "If you see a system message starting with a summary, the full previous conversation",
+      "is archived. You can read it with session_archive_read(file) if you need more detail.",
+      "The archive filename is in the compact metadata.",
+    ].join("\n"));
+
     return lines.join("\n");
   }
 

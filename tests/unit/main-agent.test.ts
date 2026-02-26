@@ -586,6 +586,39 @@ describe("MainAgent", () => {
     await agent.stop();
   }, 10_000);
 
+  it("should include session_archive_read instructions in system prompt", async () => {
+    let capturedSystem = "";
+    const model: LanguageModel = {
+      provider: "test",
+      modelId: "test-model",
+      async generate(options: { system?: string }): Promise<GenerateTextResult> {
+        capturedSystem = options.system ?? "";
+        return {
+          text: "thinking...",
+          finishReason: "stop",
+          usage: { promptTokens: 10, completionTokens: 10 },
+        };
+      },
+    };
+
+    const agent = new MainAgent({
+      model,
+      persona: testPersona,
+      settings: testSettings(),
+    });
+
+    await agent.start();
+    agent.onReply(() => {});
+
+    agent.send({ text: "hi", channel: { type: "cli", channelId: "test" } });
+    await Bun.sleep(300);
+
+    expect(capturedSystem).toContain("session_archive_read");
+    expect(capturedSystem).toContain("Session History");
+
+    await agent.stop();
+  }, 10_000);
+
   it("should compact session when tokens exceed threshold", async () => {
     // Create a model that returns large promptTokens to trigger compact
     let callCount = 0;
