@@ -9,6 +9,8 @@ import type { Persona } from "@pegasus/identity/persona.ts";
 import { SettingsSchema } from "@pegasus/infra/config.ts";
 import type { OutboundMessage } from "@pegasus/channels/types.ts";
 import { rm } from "node:fs/promises";
+import { ModelRegistry } from "@pegasus/infra/model-registry.ts";
+import type { LLMConfig } from "@pegasus/infra/config-schema.ts";
 
 const testDataDir = "/tmp/pegasus-test-main-agent";
 
@@ -19,6 +21,25 @@ const testPersona: Persona = {
   style: "concise",
   values: ["accuracy"],
 };
+
+/**
+ * Create a mock ModelRegistry that returns the given model for all roles.
+ */
+function createMockModelRegistry(model: LanguageModel): ModelRegistry {
+  // Create a minimal LLMConfig with a fake provider that won't be used
+  // because we override the cache directly
+  const llmConfig: LLMConfig = {
+    providers: { test: { type: "openai", apiKey: "dummy", baseURL: undefined } },
+    roles: { default: "test/test-model", subAgent: undefined, compact: undefined, reflection: undefined },
+    maxConcurrentCalls: 3,
+    timeout: 120,
+    contextWindow: undefined,
+  };
+  const registry = new ModelRegistry(llmConfig);
+  // Pre-populate cache so get() never calls _create()
+  (registry as any).cache.set("test/test-model", model);
+  return registry;
+}
 
 /**
  * Create a mock model that uses the reply tool to deliver a response.
@@ -98,7 +119,7 @@ describe("MainAgent", () => {
   it("should reply to a simple message via reply tool", async () => {
     const model = createReplyModel("Hello! How can I help?");
     const agent = new MainAgent({
-      model,
+      models: createMockModelRegistry(model),
       persona: testPersona,
       settings: testSettings(),
     });
@@ -123,7 +144,7 @@ describe("MainAgent", () => {
   it("should persist session messages", async () => {
     const model = createReplyModel("Hi there!");
     const agent = new MainAgent({
-      model,
+      models: createMockModelRegistry(model),
       persona: testPersona,
       settings: testSettings(),
     });
@@ -160,7 +181,7 @@ describe("MainAgent", () => {
     };
 
     const agent = new MainAgent({
-      model,
+      models: createMockModelRegistry(model),
       persona: testPersona,
       settings: testSettings(),
     });
@@ -208,7 +229,7 @@ describe("MainAgent", () => {
     };
 
     const agent = new MainAgent({
-      model,
+      models: createMockModelRegistry(model),
       persona: testPersona,
       settings: testSettings(),
     });
@@ -238,7 +259,7 @@ describe("MainAgent", () => {
   it("should expose taskAgent getter", async () => {
     const model = createReplyModel("ok");
     const agent = new MainAgent({
-      model,
+      models: createMockModelRegistry(model),
       persona: testPersona,
       settings: testSettings(),
     });
@@ -306,7 +327,7 @@ describe("MainAgent", () => {
     };
 
     const agent = new MainAgent({
-      model,
+      models: createMockModelRegistry(model),
       persona: testPersona,
       settings: testSettings(),
     });
@@ -389,7 +410,7 @@ describe("MainAgent", () => {
     };
 
     const agent = new MainAgent({
-      model,
+      models: createMockModelRegistry(model),
       persona: testPersona,
       settings: testSettings(),
     });
@@ -431,7 +452,7 @@ describe("MainAgent", () => {
     };
 
     const agent = new MainAgent({
-      model,
+      models: createMockModelRegistry(model),
       persona: testPersona,
       settings: testSettings(),
     });
@@ -476,7 +497,7 @@ describe("MainAgent", () => {
     };
 
     const agent = new MainAgent({
-      model,
+      models: createMockModelRegistry(model),
       persona: personaWithBackground,
       settings: testSettings(),
     });
@@ -504,7 +525,7 @@ describe("MainAgent", () => {
     const model = createMonologueModel(monologueText);
 
     const agent = new MainAgent({
-      model,
+      models: createMockModelRegistry(model),
       persona: testPersona,
       settings: testSettings(),
     });
@@ -536,7 +557,7 @@ describe("MainAgent", () => {
     const model = createReplyModel("Hey Slack!", "C-slack-123");
 
     const agent = new MainAgent({
-      model,
+      models: createMockModelRegistry(model),
       persona: testPersona,
       settings: testSettings(),
     });
@@ -578,7 +599,7 @@ describe("MainAgent", () => {
     };
 
     const agent = new MainAgent({
-      model,
+      models: createMockModelRegistry(model),
       persona: testPersona,
       settings: testSettings(),
     });
@@ -615,7 +636,7 @@ describe("MainAgent", () => {
     };
 
     const agent = new MainAgent({
-      model,
+      models: createMockModelRegistry(model),
       persona: testPersona,
       settings: testSettings(),
     });
@@ -692,7 +713,7 @@ describe("MainAgent", () => {
       session: { compactThreshold: 0.8 },
     });
 
-    const agent = new MainAgent({ model, persona: testPersona, settings });
+    const agent = new MainAgent({ models: createMockModelRegistry(model), persona: testPersona, settings });
     await agent.start();
 
     const replies: OutboundMessage[] = [];
@@ -772,7 +793,7 @@ describe("MainAgent", () => {
       session: { compactThreshold: 0.8 },
     });
 
-    const agent = new MainAgent({ model, persona: testPersona, settings });
+    const agent = new MainAgent({ models: createMockModelRegistry(model), persona: testPersona, settings });
     await agent.start();
 
     const replies: OutboundMessage[] = [];

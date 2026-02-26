@@ -6,24 +6,21 @@ import { z } from "zod";
 
 // Provider-specific configuration
 export const ProviderConfigSchema = z.object({
+  type: z.enum(["openai", "anthropic"]).optional(),
   apiKey: z.string().optional(),
   baseURL: z.string().optional(),
-  model: z.string().optional(),
+});
+
+export const RolesConfigSchema = z.object({
+  default: z.string(),                    // required: "provider/model"
+  subAgent: z.string().optional(),
+  compact: z.string().optional(),
+  reflection: z.string().optional(),
 });
 
 export const LLMConfigSchema = z.object({
-  // Active provider
-  provider: z.enum(["anthropic", "openai", "openai-compatible"]).default("openai"),
-
-  // Default model (fallback if provider-specific not set)
-  model: z.string().default("gpt-4o-mini"),
-
-  // Provider-specific configurations
-  openai: ProviderConfigSchema.default({}),
-  anthropic: ProviderConfigSchema.default({}),
-
-  // For openai-compatible providers (Ollama, LM Studio, etc.)
-  baseURL: z.string().optional(),
+  providers: z.record(z.string(), ProviderConfigSchema).default({}),
+  roles: RolesConfigSchema.default({ default: "openai/gpt-4o-mini" }),
 
   // System-wide settings
   maxConcurrentCalls: z.coerce.number().int().positive().default(3),
@@ -115,6 +112,7 @@ export const SettingsSchema = z.object({
 
 export type LLMConfig = z.infer<typeof LLMConfigSchema>;
 export type ProviderConfig = z.infer<typeof ProviderConfigSchema>;
+export type RolesConfig = z.infer<typeof RolesConfigSchema>;
 export type MemoryConfig = z.infer<typeof MemoryConfigSchema>;
 export type AgentConfig = z.infer<typeof AgentConfigSchema>;
 export type IdentityConfig = z.infer<typeof IdentityConfigSchema>;

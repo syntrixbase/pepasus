@@ -50,8 +50,7 @@ describe("config-loader", () => {
 
       const settings = loadSettings();
 
-      expect(settings.llm.provider).toBe("openai");
-      expect(settings.llm.model).toBe("gpt-4o-mini");
+      expect(settings.llm.roles.default).toBe("openai/gpt-4o-mini");
       expect(settings.llm.maxConcurrentCalls).toBe(3);
       expect(settings.llm.timeout).toBe(120);
       expect(settings.agent.maxActiveTasks).toBe(5);
@@ -69,8 +68,8 @@ describe("config-loader", () => {
     test("defaults are overridden by config file values", () => {
       const yamlContent = `
 llm:
-  provider: anthropic
-  model: claude-sonnet-4
+  roles:
+    default: anthropic/claude-sonnet-4
   maxConcurrentCalls: 10
 system:
   dataDir: data
@@ -80,8 +79,7 @@ system:
       const settings = loadSettings();
 
       // Overridden by config file
-      expect(settings.llm.provider).toBe("anthropic");
-      expect(settings.llm.model).toBe("claude-sonnet-4");
+      expect(settings.llm.roles.default).toBe("anthropic/claude-sonnet-4");
       expect(settings.llm.maxConcurrentCalls).toBe(10);
 
       // Retained from defaults
@@ -97,11 +95,11 @@ system:
 
       const yamlContent = `
 llm:
-  provider: openai
   providers:
     openai:
-      model: gpt-4o
       apiKey: yaml-key
+  roles:
+    default: openai/gpt-4o
 system:
   dataDir: /tmp/test
 `;
@@ -110,27 +108,25 @@ system:
 
       const settings = loadSettings();
 
-      expect(settings.llm.provider).toBe("openai");
-      expect(settings.llm.openai.model).toBe("gpt-4o");
-      expect(settings.llm.openai.apiKey).toBe("yaml-key");
+      expect(settings.llm.roles.default).toBe("openai/gpt-4o");
+      expect(settings.llm.providers.openai?.apiKey).toBe("yaml-key");
     });
 
     test("config file values override defaults via deep merge", () => {
       const baseConfig = `
 llm:
-  provider: openai
   providers:
     openai:
       apiKey: config-key
-      model: gpt-4o-mini
+  roles:
+    default: openai/gpt-4o-mini
 system:
   dataDir: /tmp/test
 `;
       const localConfig = `
 llm:
-  providers:
-    openai:
-      model: gpt-4o
+  roles:
+    default: openai/gpt-4o
 `;
 
       writeFileSync("config.yaml", baseConfig);
@@ -139,9 +135,9 @@ llm:
       const settings = loadSettings();
 
       // local overrides base
-      expect(settings.llm.openai.model).toBe("gpt-4o");
+      expect(settings.llm.roles.default).toBe("openai/gpt-4o");
       // base value preserved
-      expect(settings.llm.openai.apiKey).toBe("config-key");
+      expect(settings.llm.providers.openai?.apiKey).toBe("config-key");
     });
 
     test("loads from config.local.yaml with env var interpolation", () => {
@@ -149,11 +145,11 @@ llm:
 
       const yamlContent = `
 llm:
-  provider: anthropic
   providers:
     anthropic:
       apiKey: \${ANTHROPIC_API_KEY}
-      model: claude-sonnet-4
+  roles:
+    default: anthropic/claude-sonnet-4
 system:
   dataDir: /tmp/test
 `;
@@ -163,9 +159,8 @@ system:
 
       const settings = loadSettings();
 
-      expect(settings.llm.provider).toBe("anthropic");
-      expect(settings.llm.anthropic.apiKey).toBe("test-yaml-key");
-      expect(settings.llm.anthropic.model).toBe("claude-sonnet-4");
+      expect(settings.llm.roles.default).toBe("anthropic/claude-sonnet-4");
+      expect(settings.llm.providers.anthropic?.apiKey).toBe("test-yaml-key");
     });
 
     test("config.local.yaml merges with and overrides config.yaml", () => {
@@ -174,11 +169,11 @@ system:
       // Base config
       const baseConfig = `
 llm:
-  provider: openai
   providers:
     openai:
-      model: gpt-4o-mini
       apiKey: base-key
+  roles:
+    default: openai/gpt-4o-mini
   maxConcurrentCalls: 3
   timeout: 120
 agent:
@@ -190,11 +185,11 @@ system:
       // Local config overrides some fields
       const localConfig = `
 llm:
-  provider: anthropic
   providers:
     anthropic:
-      model: claude-sonnet-4
       apiKey: local-key
+  roles:
+    default: anthropic/claude-sonnet-4
   maxConcurrentCalls: 10
 `;
 
@@ -204,10 +199,9 @@ llm:
       const settings = loadSettings();
 
       // Overridden by local
-      expect(settings.llm.provider).toBe("anthropic");
+      expect(settings.llm.roles.default).toBe("anthropic/claude-sonnet-4");
       expect(settings.llm.maxConcurrentCalls).toBe(10);
-      expect(settings.llm.anthropic.model).toBe("claude-sonnet-4");
-      expect(settings.llm.anthropic.apiKey).toBe("local-key");
+      expect(settings.llm.providers.anthropic?.apiKey).toBe("local-key");
 
       // Inherited from base (not overridden)
       expect(settings.llm.timeout).toBe(120);
@@ -219,15 +213,14 @@ llm:
 
       const baseConfig = `
 llm:
-  provider: openai
   providers:
     openai:
-      model: gpt-4o-mini
       apiKey: base-openai-key
       baseURL: https://api.openai.com/v1
     anthropic:
-      model: claude-base
       apiKey: base-anthropic-key
+  roles:
+    default: openai/gpt-4o-mini
 system:
   dataDir: /tmp/test
 `;
@@ -238,7 +231,7 @@ llm:
     openai:
       apiKey: local-openai-key
     anthropic:
-      model: claude-sonnet-4
+      baseURL: https://custom-anthropic.example.com
 `;
 
       writeFileSync("config.yaml", baseConfig);
@@ -246,59 +239,13 @@ llm:
 
       const settings = loadSettings();
 
-      // OpenAI: apiKey overridden, model and baseURL inherited
-      expect(settings.llm.openai.apiKey).toBe("local-openai-key");
-      expect(settings.llm.openai.model).toBe("gpt-4o-mini");
-      expect(settings.llm.openai.baseURL).toBe("https://api.openai.com/v1");
+      // OpenAI: apiKey overridden, baseURL inherited
+      expect(settings.llm.providers.openai?.apiKey).toBe("local-openai-key");
+      expect(settings.llm.providers.openai?.baseURL).toBe("https://api.openai.com/v1");
 
-      // Anthropic: model overridden, apiKey inherited
-      expect(settings.llm.anthropic.model).toBe("claude-sonnet-4");
-      expect(settings.llm.anthropic.apiKey).toBe("base-anthropic-key");
-    });
-
-    test("handles ollama provider alias to openai-compatible", () => {
-      resetSettings();
-
-      const config = `
-llm:
-  provider: ollama
-  providers:
-    ollama:
-      apiKey: dummy
-      model: llama3.2
-      baseURL: http://localhost:11434/v1
-system:
-  dataDir: /tmp/test
-`;
-
-      writeFileSync("config.yaml", config);
-
-      const settings = loadSettings();
-
-      expect(settings.llm.provider).toBe("openai-compatible");
-      expect(settings.llm.baseURL).toBe("http://localhost:11434/v1");
-    });
-
-    test("handles lmstudio provider alias to openai-compatible", () => {
-      resetSettings();
-
-      const config = `
-llm:
-  provider: lmstudio
-  providers:
-    lmstudio:
-      model: llama3
-      baseURL: http://localhost:1234/v1
-system:
-  dataDir: /tmp/test
-`;
-
-      writeFileSync("config.yaml", config);
-
-      const settings = loadSettings();
-
-      expect(settings.llm.provider).toBe("openai-compatible");
-      expect(settings.llm.baseURL).toBe("http://localhost:1234/v1");
+      // Anthropic: baseURL overridden, apiKey inherited
+      expect(settings.llm.providers.anthropic?.baseURL).toBe("https://custom-anthropic.example.com");
+      expect(settings.llm.providers.anthropic?.apiKey).toBe("base-anthropic-key");
     });
 
     test("handles missing ${ENV_VAR} by replacing with empty string", () => {
@@ -307,11 +254,11 @@ system:
 
       const config = `
 llm:
-  provider: openai
   providers:
     openai:
       apiKey: \${MISSING_KEY}
-      model: gpt-4o-mini
+  roles:
+    default: openai/gpt-4o-mini
 system:
   dataDir: /tmp/test
 `;
@@ -321,20 +268,20 @@ system:
       const settings = loadSettings();
 
       // Empty string is treated as undefined by Zod optional fields
-      expect(settings.llm.openai.apiKey).toBeUndefined();
+      expect(settings.llm.providers.openai?.apiKey).toBeUndefined();
     });
 
     test("supports ${VAR:-default} syntax for default values", () => {
       delete process.env.OPENAI_API_KEY;
-      delete process.env.OPENAI_MODEL;
+      delete process.env.LLM_DEFAULT_MODEL;
 
       const config = `
 llm:
-  provider: openai
   providers:
     openai:
       apiKey: \${OPENAI_API_KEY:-sk-default-key}
-      model: \${OPENAI_MODEL:-gpt-4o-mini}
+  roles:
+    default: \${LLM_DEFAULT_MODEL:-openai/gpt-4o-mini}
 system:
   dataDir: /tmp/test
 `;
@@ -343,21 +290,21 @@ system:
 
       const settings = loadSettings();
 
-      expect(settings.llm.openai.apiKey).toBe("sk-default-key");
-      expect(settings.llm.openai.model).toBe("gpt-4o-mini");
+      expect(settings.llm.providers.openai?.apiKey).toBe("sk-default-key");
+      expect(settings.llm.roles.default).toBe("openai/gpt-4o-mini");
     });
 
     test("${VAR:-default} uses env var when set", () => {
       process.env.OPENAI_API_KEY = "env-key";
-      process.env.OPENAI_MODEL = "gpt-4o";
+      process.env.LLM_DEFAULT_MODEL = "openai/gpt-4o";
 
       const config = `
 llm:
-  provider: openai
   providers:
     openai:
       apiKey: \${OPENAI_API_KEY:-sk-default-key}
-      model: \${OPENAI_MODEL:-gpt-4o-mini}
+  roles:
+    default: \${LLM_DEFAULT_MODEL:-openai/gpt-4o-mini}
 system:
   dataDir: /tmp/test
 `;
@@ -366,8 +313,8 @@ system:
 
       const settings = loadSettings();
 
-      expect(settings.llm.openai.apiKey).toBe("env-key");
-      expect(settings.llm.openai.model).toBe("gpt-4o");
+      expect(settings.llm.providers.openai?.apiKey).toBe("env-key");
+      expect(settings.llm.roles.default).toBe("openai/gpt-4o");
     });
 
     test("supports ${VAR:=default} syntax to assign default", () => {
@@ -376,11 +323,11 @@ system:
 
       const config = `
 llm:
-  provider: openai
   providers:
     openai:
       apiKey: \${TEST_VAR:=assigned-default}
-      model: gpt-4o-mini
+  roles:
+    default: openai/gpt-4o-mini
 system:
   dataDir: /tmp/test
 `;
@@ -389,7 +336,7 @@ system:
 
       const settings = loadSettings();
 
-      expect(settings.llm.openai.apiKey).toBe("assigned-default");
+      expect(settings.llm.providers.openai?.apiKey).toBe("assigned-default");
       // Verify it was assigned to env
       expect(process.env.TEST_VAR).toBeDefined();
       expect(process.env.TEST_VAR!).toBe("assigned-default");
@@ -401,11 +348,11 @@ system:
 
       const config = `
 llm:
-  provider: openai
   providers:
     openai:
       apiKey: \${REQUIRED_KEY:?API key is required}
-      model: gpt-4o-mini
+  roles:
+    default: openai/gpt-4o-mini
 system:
   dataDir: /tmp/test
 `;
@@ -421,11 +368,11 @@ system:
 
       const config = `
 llm:
-  provider: openai
   providers:
     openai:
       apiKey: \${REQUIRED_KEY:?API key is required}
-      model: gpt-4o-mini
+  roles:
+    default: openai/gpt-4o-mini
 system:
   dataDir: /tmp/test
 `;
@@ -434,7 +381,7 @@ system:
 
       const settings = loadSettings();
 
-      expect(settings.llm.openai.apiKey).toBe("valid-key");
+      expect(settings.llm.providers.openai?.apiKey).toBe("valid-key");
     });
 
     test("supports ${VAR:+alternate} syntax to use alternate when set", () => {
@@ -443,11 +390,11 @@ system:
 
       const config = `
 llm:
-  provider: openai
   providers:
     openai:
       baseURL: \${USE_PROXY:+https://proxy.example.com/v1}
-      model: gpt-4o-mini
+  roles:
+    default: openai/gpt-4o-mini
 system:
   dataDir: /tmp/test
 `;
@@ -456,7 +403,7 @@ system:
 
       const settings = loadSettings();
 
-      expect(settings.llm.openai.baseURL).toBe("https://proxy.example.com/v1");
+      expect(settings.llm.providers.openai?.baseURL).toBe("https://proxy.example.com/v1");
     });
 
     test("${VAR:+alternate} returns empty when var is unset", () => {
@@ -465,11 +412,11 @@ system:
 
       const config = `
 llm:
-  provider: openai
   providers:
     openai:
       baseURL: \${USE_PROXY:+https://proxy.example.com/v1}
-      model: gpt-4o-mini
+  roles:
+    default: openai/gpt-4o-mini
 system:
   dataDir: /tmp/test
 `;
@@ -479,7 +426,7 @@ system:
       const settings = loadSettings();
 
       // Empty string becomes undefined
-      expect(settings.llm.openai.baseURL).toBeUndefined();
+      expect(settings.llm.providers.openai?.baseURL).toBeUndefined();
     });
 
     test("loads all config sections from yaml file", () => {
@@ -487,10 +434,11 @@ system:
 
       const config = `
 llm:
-  provider: openai
   providers:
     openai:
-      model: gpt-4o
+      apiKey: test-key
+  roles:
+    default: openai/gpt-4o
   maxConcurrentCalls: 10
   timeout: 180
 agent:
@@ -523,16 +471,16 @@ system:
     });
 
     test("throws error when both config.yaml and config.yml exist", () => {
-      writeFileSync("config.yaml", "llm:\n  provider: openai\n");
-      writeFileSync("config.yml", "llm:\n  provider: anthropic\n");
+      writeFileSync("config.yaml", "llm:\n  roles:\n    default: openai/gpt-4o\n");
+      writeFileSync("config.yml", "llm:\n  roles:\n    default: anthropic/claude-sonnet-4\n");
 
       expect(() => loadSettings()).toThrow(/Multiple base config files found.*config\.yaml.*config\.yml/);
     });
 
     test("throws error when both config.local.yaml and config.local.yml exist", () => {
-      writeFileSync("config.yaml", "llm:\n  provider: openai\n");
-      writeFileSync("config.local.yaml", "llm:\n  provider: anthropic\n");
-      writeFileSync("config.local.yml", "llm:\n  provider: ollama\n");
+      writeFileSync("config.yaml", "llm:\n  roles:\n    default: openai/gpt-4o\n");
+      writeFileSync("config.local.yaml", "llm:\n  roles:\n    default: anthropic/claude-sonnet-4\n");
+      writeFileSync("config.local.yml", "llm:\n  roles:\n    default: openai/gpt-4o-mini\n");
 
       expect(() => loadSettings()).toThrow(/Multiple local config files found.*config\.local\.yaml.*config\.local\.yml/);
     });
@@ -542,11 +490,11 @@ system:
 
       const yamlContent = `
 llm:
-  provider: openai
   providers:
     openai:
-      model: gpt-4o
       apiKey: yml-key
+  roles:
+    default: openai/gpt-4o
 system:
   dataDir: /tmp/test
 `;
@@ -555,32 +503,30 @@ system:
 
       const settings = loadSettings();
 
-      expect(settings.llm.provider).toBe("openai");
-      expect(settings.llm.openai.model).toBe("gpt-4o");
-      expect(settings.llm.openai.apiKey).toBe("yml-key");
+      expect(settings.llm.roles.default).toBe("openai/gpt-4o");
+      expect(settings.llm.providers.openai?.apiKey).toBe("yml-key");
     });
 
     test("loads config.local.yml when config.local.yaml does not exist", () => {
       resetSettings();
 
-      writeFileSync("config.yaml", "llm:\n  provider: openai\nsystem:\n  dataDir: /tmp/test\n");
+      writeFileSync("config.yaml", "llm:\n  roles:\n    default: openai/gpt-4o\nsystem:\n  dataDir: /tmp/test\n");
 
       const localContent = `
 llm:
-  provider: anthropic
   providers:
     anthropic:
       apiKey: local-yml-key
-      model: claude-sonnet-4
+  roles:
+    default: anthropic/claude-sonnet-4
 `;
 
       writeFileSync("config.local.yml", localContent);
 
       const settings = loadSettings();
 
-      expect(settings.llm.provider).toBe("anthropic");
-      expect(settings.llm.anthropic.model).toBe("claude-sonnet-4");
-      expect(settings.llm.anthropic.apiKey).toBe("local-yml-key");
+      expect(settings.llm.roles.default).toBe("anthropic/claude-sonnet-4");
+      expect(settings.llm.providers.anthropic?.apiKey).toBe("local-yml-key");
     });
 
     test("handles logFormat from YAML env var interpolation", () => {
@@ -589,7 +535,8 @@ llm:
 
       const config = `
 llm:
-  provider: openai
+  roles:
+    default: openai/gpt-4o-mini
 system:
   dataDir: /tmp/test
   logFormat: \${PEGASUS_LOG_FORMAT:-json}
@@ -608,7 +555,8 @@ system:
 
       const config = `
 llm:
-  provider: openai
+  roles:
+    default: openai/gpt-4o-mini
 system:
   dataDir: /tmp/test
   logFormat: \${PEGASUS_LOG_FORMAT:-json}
@@ -629,11 +577,11 @@ system:
 
       const config = `
 llm:
-  provider: openai
   providers:
     openai:
       apiKey: \${TEST_ASSIGN_VAR:=fallback-value}
-      model: gpt-4o-mini
+  roles:
+    default: openai/gpt-4o-mini
 system:
   dataDir: /tmp/test
 `;
@@ -642,7 +590,7 @@ system:
 
       const settings = loadSettings();
 
-      expect(settings.llm.openai.apiKey).toBe("already-set");
+      expect(settings.llm.providers.openai?.apiKey).toBe("already-set");
       // Env var should remain unchanged
       expect(process.env.TEST_ASSIGN_VAR).toBe("already-set");
     });
@@ -653,7 +601,8 @@ system:
 
       const config = `
 llm:
-  provider: openai
+  roles:
+    default: openai/gpt-4o-mini
 tools:
   allowedPaths:
     - \${ALLOWED_PATH}
@@ -678,11 +627,11 @@ system:
       const customConfigPath = join(testDir, "custom-config.yml");
       const config = `
 llm:
-  provider: openai
   providers:
     openai:
-      model: gpt-4o
       apiKey: custom-key
+  roles:
+    default: openai/gpt-4o
 system:
   dataDir: /tmp/test
 `;
@@ -692,9 +641,8 @@ system:
 
       const settings = loadSettings();
 
-      expect(settings.llm.provider).toBe("openai");
-      expect(settings.llm.openai.model).toBe("gpt-4o");
-      expect(settings.llm.openai.apiKey).toBe("custom-key");
+      expect(settings.llm.roles.default).toBe("openai/gpt-4o");
+      expect(settings.llm.providers.openai?.apiKey).toBe("custom-key");
     });
 
     test("falls back to standard config when PEGASUS_CONFIG path does not exist", () => {
@@ -708,6 +656,36 @@ system:
       const settings = loadSettings();
 
       expect(settings.dataDir).toBe("/tmp/fallback");
+    });
+
+    test("roles env var interpolation", () => {
+      resetSettings();
+      process.env.LLM_DEFAULT_MODEL = "anthropic/claude-sonnet-4";
+      process.env.LLM_COMPACT_MODEL = "openai/gpt-4o-mini";
+
+      const config = `
+llm:
+  providers:
+    openai:
+      apiKey: test-key
+    anthropic:
+      apiKey: test-key
+  roles:
+    default: \${LLM_DEFAULT_MODEL:-openai/gpt-4o}
+    compact: \${LLM_COMPACT_MODEL:-}
+system:
+  dataDir: /tmp/test
+`;
+
+      writeFileSync("config.yaml", config);
+
+      const settings = loadSettings();
+
+      expect(settings.llm.roles.default).toBe("anthropic/claude-sonnet-4");
+      expect(settings.llm.roles.compact).toBe("openai/gpt-4o-mini");
+
+      delete process.env.LLM_DEFAULT_MODEL;
+      delete process.env.LLM_COMPACT_MODEL;
     });
   });
 
@@ -757,7 +735,8 @@ system:
 
       const config = `
 llm:
-  provider: openai
+  roles:
+    default: openai/gpt-4o-mini
   contextWindow: 500000
 system:
   dataDir: /tmp/test
@@ -774,7 +753,8 @@ system:
 
       const config = `
 llm:
-  provider: openai
+  roles:
+    default: openai/gpt-4o-mini
   contextWindow: \${LLM_CONTEXT_WINDOW}
 system:
   dataDir: /tmp/test
@@ -793,7 +773,8 @@ system:
 
       const config = `
 llm:
-  provider: openai
+  roles:
+    default: openai/gpt-4o-mini
   contextWindow: \${LLM_CONTEXT_WINDOW:-}
 system:
   dataDir: /tmp/test

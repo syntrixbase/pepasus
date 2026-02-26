@@ -7,7 +7,7 @@
  * complex work to the existing Task System via spawn_task.
  */
 
-import type { LanguageModel, Message } from "../infra/llm-types.ts";
+import type { Message } from "../infra/llm-types.ts";
 import { generateText } from "../infra/llm-utils.ts";
 import type { Persona } from "../identity/persona.ts";
 import type { Settings } from "../infra/config.ts";
@@ -22,6 +22,7 @@ import type { TaskNotification } from "./agent.ts";
 import type { ToolCall } from "../models/tool.ts";
 import { EstimateCounter } from "../infra/token-counter.ts";
 import { getContextWindowSize } from "../session/context-windows.ts";
+import type { ModelRegistry } from "../infra/model-registry.ts";
 
 // Main Agent's curated tool set
 import { mainAgentTools } from "../tools/builtins/index.ts";
@@ -29,7 +30,7 @@ import { mainAgentTools } from "../tools/builtins/index.ts";
 const logger = getLogger("main_agent");
 
 export interface MainAgentDeps {
-  model: LanguageModel;
+  models: ModelRegistry;
   persona: Persona;
   settings?: Settings;
 }
@@ -40,7 +41,7 @@ type QueueItem =
   | { kind: "think"; channel: { type: string; channelId: string; replyTo?: string } };
 
 export class MainAgent {
-  private model: LanguageModel;
+  private models: ModelRegistry;
   private persona: Persona;
   private settings: Settings;
   private agent: Agent; // Task execution engine
@@ -55,15 +56,20 @@ export class MainAgent {
   private tokenCounter = new EstimateCounter();
 
   constructor(deps: MainAgentDeps) {
-    this.model = deps.model;
+    this.models = deps.models;
     this.persona = deps.persona;
     this.settings = deps.settings ?? getSettings();
 
     // Session persistence
     this.sessionStore = new SessionStore(this.settings.dataDir);
 
-    // Task execution engine (existing Agent)
-    this.agent = new Agent(deps);
+    // Task execution engine (existing Agent) — pass sub-agent + reflection models
+    this.agent = new Agent({
+      model: deps.models.get("subAgent"),
+      reflectionModel: deps.models.get("reflection"),
+      persona: deps.persona,
+      settings: this.settings,
+    });
 
     // Main Agent's curated tool set
     this.toolRegistry = new ToolRegistry();
@@ -174,7 +180,7 @@ export class MainAgent {
     const tools = this.toolRegistry.toLLMTools();
 
     const result = await generateText({
-      model: this.model,
+      model: this.models.get("default"),
       system,
       messages: this.sessionMessages,
       tools: tools.length ? tools : undefined,
@@ -303,7 +309,7 @@ export class MainAgent {
    */
   private async _checkAndCompact(): Promise<boolean> {
     const contextWindow = getContextWindowSize(
-      this.model.modelId,
+      this.models.getModelId("default"),
       this.settings.llm.contextWindow,
     );
     const threshold = this.settings.session?.compactThreshold ?? 0.8;
@@ -375,7 +381,7 @@ export class MainAgent {
     ].join("\n");
 
     const result = await generateText({
-      model: this.model,
+      model: this.models.get("compact"),
       system: systemPrompt,
       messages: this.sessionMessages,
     });

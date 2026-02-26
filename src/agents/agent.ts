@@ -96,6 +96,7 @@ class Semaphore {
 
 export interface AgentDeps {
   model: LanguageModel;
+  reflectionModel?: LanguageModel;
   persona: Persona;
   settings?: Settings;
 }
@@ -148,7 +149,10 @@ export class Agent {
     this.thinker = new Thinker(deps.model, deps.persona, toolRegistry);
     this.planner = new Planner(deps.model, deps.persona);
     this.actor = new Actor(deps.model, deps.persona);
-    this.postReflector = new PostTaskReflector(deps.model, deps.persona);
+    this.postReflector = new PostTaskReflector(
+      deps.reflectionModel ?? deps.model,
+      deps.persona,
+    );
   }
 
   // ═══════════════════════════════════════════════════

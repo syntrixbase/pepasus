@@ -24,33 +24,31 @@
 #   ${VAR:+alternate}- Use alternate if VAR is set
 
 llm:
-  # Active provider: openai | anthropic | openai-compatible
-  # Use LLM_PROVIDER env var to override, defaults to openai
-  provider: ${LLM_PROVIDER:-openai}
-
-  # Provider-specific configurations
+  # Provider configurations — each key becomes a provider name
+  # Used in roles as "providerName/modelName"
   providers:
     openai:
-      # OpenAI API key (required when using OpenAI provider)
       apiKey: ${OPENAI_API_KEY}
-      # Default model if not specified
-      model: ${OPENAI_MODEL:-gpt-5.2}
-      # Optional: override API endpoint (e.g., for proxies)
-      baseURL: ${OPENAI_BASE_URL}
+      baseURL: ${OPENAI_BASE_URL:-}
 
     anthropic:
-      # Anthropic API key (required when using Anthropic provider)
       apiKey: ${ANTHROPIC_API_KEY}
-      # Default model if not specified
-      model: ${ANTHROPIC_MODEL:-claude-opus-4.5}
-      # Optional: override API endpoint
-      baseURL: ${ANTHROPIC_BASE_URL}
+      baseURL: ${ANTHROPIC_BASE_URL:-}
 
     # For Ollama, LM Studio, or other OpenAI-compatible endpoints
+    # Usage: roles.default: "ollama/llama3.2:latest"
     ollama:
-      apiKey: dummy  # Most local models don't need a real key
-      model: ${OLLAMA_MODEL:-llama3.2:latest}
+      type: openai
+      apiKey: dummy
       baseURL: ${OLLAMA_BASE_URL:-http://localhost:11434/v1}
+
+  # Role → model mapping (format: "provider/model")
+  # Roles without a value fall back to "default"
+  roles:
+    default: ${LLM_DEFAULT_MODEL:-openai/gpt-5.2}
+    subAgent: ${LLM_SUB_AGENT_MODEL:-}
+    compact: ${LLM_COMPACT_MODEL:-}
+    reflection: ${LLM_REFLECTION_MODEL:-}
 
   # Concurrent request settings
   maxConcurrentCalls: ${LLM_MAX_CONCURRENT_CALLS:-3}
