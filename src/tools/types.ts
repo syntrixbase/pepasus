@@ -59,6 +59,7 @@ export interface ToolContext {
   userId?: string;
   allowedPaths?: string[];
   memoryDir?: string;
+  sessionDir?: string;
 }
 
 // ── ToolStats ─────────────────────────────────

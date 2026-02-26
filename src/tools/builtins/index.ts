@@ -70,6 +70,16 @@ const reply = replyToolModule.reply;
 
 export { reply };
 
+// Session tools
+import * as sessionToolsModule from "./session-tools.ts";
+const session_archive_read = sessionToolsModule.session_archive_read;
+
+export { session_archive_read };
+
+export const sessionTools: Tool[] = [
+  session_archive_read,
+];
+
 // Re-export all tools as arrays
 
 /** System tools available to Task System. */
@@ -132,6 +142,7 @@ export const mainAgentTools: Tool[] = [
   memory_read,
   task_list,
   task_replay,
+  session_archive_read,
   spawn_task,
   reply,
 ];
