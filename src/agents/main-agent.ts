@@ -19,6 +19,8 @@ import type { InboundMessage, OutboundMessage } from "../channels/types.ts";
 import { SessionStore } from "../session/store.ts";
 import { Agent } from "./agent.ts";
 import type { ToolCall } from "../models/tool.ts";
+import { EstimateCounter } from "../infra/token-counter.ts";
+import { getContextWindowSize } from "../session/context-windows.ts";
 
 // Main Agent's curated tool set
 import { mainAgentTools } from "../tools/builtins/index.ts";
@@ -48,6 +50,8 @@ export class MainAgent {
   private replyCallback: ((msg: OutboundMessage) => void) | null = null;
   private queue: QueueItem[] = [];
   private processing = false;
+  private lastPromptTokens = 0;
+  private tokenCounter = new EstimateCounter();
 
   constructor(deps: MainAgentDeps) {
     this.model = deps.model;
@@ -166,6 +170,9 @@ export class MainAgent {
    * which will trigger another _think when processed.
    */
   private async _think(channel: { type: string; channelId: string; replyTo?: string }): Promise<void> {
+    // Check if compact is needed before LLM call
+    await this._checkAndCompact();
+
     const system = this._buildSystemPrompt({ text: "", channel });
     const tools = this.toolRegistry.toLLMTools();
 
@@ -176,6 +183,9 @@ export class MainAgent {
       tools: tools.length ? tools : undefined,
       toolChoice: tools.length ? "auto" : undefined,
     });
+
+    // Update lastPromptTokens for compact estimation
+    this.lastPromptTokens = result.usage.promptTokens;
 
     // Handle tool calls
     if (result.toolCalls?.length) {
@@ -218,6 +228,7 @@ export class MainAgent {
             {
               taskId: "main-agent",
               memoryDir: `${this.settings.dataDir}/memory`,
+              sessionDir: `${this.settings.dataDir}/main`,
             },
           );
           const toolMsg: Message = {
@@ -299,6 +310,91 @@ export class MainAgent {
     if (lastChannel) {
       this.queue.push({ kind: "think", channel: lastChannel });
     }
+  }
+
+  // ── Compact ──
+
+  /**
+   * Check if session needs compaction based on token estimate.
+   * Returns true if compact was performed.
+   */
+  private async _checkAndCompact(): Promise<boolean> {
+    const contextWindow = getContextWindowSize(this.model.modelId);
+    const threshold = this.settings.session?.compactThreshold ?? 0.8;
+    const maxTokens = contextWindow * threshold;
+
+    // Estimate current token usage
+    let estimatedTokens: number;
+    if (this.lastPromptTokens > 0) {
+      // Use lastPromptTokens as base, but also estimate full session
+      // to catch cases where many messages were added since last LLM call
+      const fullEstimate = await this.sessionStore.estimateTokens(
+        this.sessionMessages,
+        this.tokenCounter,
+      );
+      // Use the larger of: lastPromptTokens or full estimate
+      estimatedTokens = Math.max(this.lastPromptTokens, fullEstimate);
+    } else {
+      // First call: no lastPromptTokens, estimate everything
+      estimatedTokens = await this.sessionStore.estimateTokens(
+        this.sessionMessages,
+        this.tokenCounter,
+      );
+    }
+
+    if (estimatedTokens < maxTokens) return false;
+
+    // Trigger compact
+    logger.info(
+      { estimatedTokens, maxTokens, threshold },
+      "compact_triggered",
+    );
+
+    // 1. Generate summary via independent LLM call
+    const summary = await this._generateSummary();
+
+    // 2. Archive current session and create new one with summary
+    const archiveName = await this.sessionStore.compact(summary);
+
+    // 3. Reset in-memory state
+    this.sessionMessages = await this.sessionStore.load();
+    this.lastPromptTokens = 0;
+
+    logger.info({ archiveName }, "compact_completed");
+    return true;
+  }
+
+  /**
+   * Generate a summary of the current session via an independent LLM call.
+   * This is NOT part of Main Agent's inner monologue — it's a system operation.
+   */
+  private async _generateSummary(): Promise<string> {
+    const systemPrompt = [
+      "You are a conversation summarizer. Summarize the following conversation.",
+      "",
+      "Your summary MUST include:",
+      "- The user's most recent intent and what needs to happen next",
+      "- Key decisions and conclusions reached",
+      "- Ongoing tasks and their current status",
+      "- Important user preferences or context",
+      "",
+      "Your summary MUST NOT include:",
+      "- Greetings or small talk",
+      "- Internal reasoning or thinking process",
+      "- Redundant tool call details",
+      "- Intermediate results that led to final conclusions",
+      "",
+      "Write the summary as a concise, structured document.",
+      "Use bullet points for clarity.",
+    ].join("\n");
+
+    const result = await generateText({
+      model: this.model,
+      system: systemPrompt,
+      messages: this.sessionMessages,
+    });
+
+    return result.text || "No summary generated.";
   }
 
   // ── Helpers ──

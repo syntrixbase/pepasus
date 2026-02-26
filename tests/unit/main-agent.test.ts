@@ -585,4 +585,87 @@ describe("MainAgent", () => {
 
     await agent.stop();
   }, 10_000);
+
+  it("should compact session when tokens exceed threshold", async () => {
+    // Create a model that returns large promptTokens to trigger compact
+    let callCount = 0;
+    const model: LanguageModel = {
+      provider: "test",
+      modelId: "test-model",
+      async generate(options: {
+        system?: string;
+        messages: Message[];
+      }): Promise<GenerateTextResult> {
+        callCount++;
+
+        // First call: return huge promptTokens to trigger compact on next think
+        if (callCount === 1) {
+          return {
+            text: "",
+            finishReason: "tool_calls",
+            toolCalls: [
+              {
+                id: "tc-reply-1",
+                name: "reply",
+                arguments: { text: "Got it!", channelId: "test" },
+              },
+            ],
+            usage: { promptTokens: 110_000, completionTokens: 10 },
+          };
+        }
+        // Summarize call: detected by system prompt containing "summarize"
+        if (options.system?.toLowerCase().includes("summarize")) {
+          return {
+            text: "Summary: user asked a question and got a reply.",
+            finishReason: "stop",
+            usage: { promptTokens: 50, completionTokens: 20 },
+          };
+        }
+        // After compact: normal response
+        return {
+          text: "",
+          finishReason: "tool_calls",
+          toolCalls: [
+            {
+              id: `tc-reply-${callCount}`,
+              name: "reply",
+              arguments: { text: "After compact!", channelId: "test" },
+            },
+          ],
+          usage: { promptTokens: 100, completionTokens: 10 },
+        };
+      },
+    };
+
+    const settings = SettingsSchema.parse({
+      dataDir: testDataDir,
+      logLevel: "warn",
+      session: { compactThreshold: 0.8 },
+    });
+
+    const agent = new MainAgent({ model, persona: testPersona, settings });
+    await agent.start();
+
+    const replies: OutboundMessage[] = [];
+    agent.onReply((msg) => replies.push(msg));
+
+    // First message — triggers large promptTokens
+    agent.send({ text: "hello", channel: { type: "cli", channelId: "test" } });
+    await Bun.sleep(500);
+
+    // Second message — should trigger compact before _think
+    agent.send({ text: "how are you", channel: { type: "cli", channelId: "test" } });
+    await Bun.sleep(500);
+
+    // Verify compact happened: archive file should exist
+    const { readdir } = await import("node:fs/promises");
+    const files = await readdir(`${testDataDir}/main`);
+    const archives = files.filter((f: string) => f.endsWith(".jsonl") && f !== "current.jsonl");
+    expect(archives.length).toBeGreaterThanOrEqual(1);
+
+    // After compact, should still be able to reply
+    expect(replies.length).toBeGreaterThanOrEqual(1);
+
+    await agent.stop();
+  }, 15_000);
 });
