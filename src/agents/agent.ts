@@ -13,6 +13,7 @@ import { EventBus } from "../events/bus.ts";
 import { Thinker } from "../cognitive/think.ts";
 import { Planner } from "../cognitive/plan.ts";
 import { Actor } from "../cognitive/act.ts";
+import { PostTaskReflector, shouldReflect } from "../cognitive/reflect.ts";
 import { getLogger } from "../infra/logger.ts";
 import { InvalidStateTransition, TaskNotFoundError } from "../infra/errors.ts";
 import type { Settings } from "../infra/config.ts";
@@ -107,6 +108,7 @@ export class Agent {
   private thinker: Thinker;
   private planner: Planner;
   private actor: Actor;
+  private postReflector: PostTaskReflector;
 
   // Tool infrastructure
   private toolExecutor: ToolExecutor;
@@ -146,6 +148,7 @@ export class Agent {
     this.thinker = new Thinker(deps.model, deps.persona, toolRegistry);
     this.planner = new Planner(deps.model, deps.persona);
     this.actor = new Actor(deps.model, deps.persona);
+    this.postReflector = new PostTaskReflector(deps.model, deps.persona);
   }
 
   // ═══════════════════════════════════════════════════
@@ -313,6 +316,10 @@ export class Agent {
             taskId: task.taskId,
             result: task.context.finalResult,
           });
+        }
+        // Async post-task reflection (fire-and-forget)
+        if (shouldReflect(task.context)) {
+          this._spawn(this._runPostReflection(task));
         }
         break;
 
@@ -485,6 +492,62 @@ export class Agent {
         parentEventId: trigger.id,
       }),
     );
+  }
+
+  private async _runPostReflection(task: TaskFSM): Promise<void> {
+    try {
+      const reflection = await this.llmSemaphore.use(() =>
+        this.postReflector.run(task.context),
+      );
+      task.context.postReflection = reflection;
+
+      // Write facts to memory
+      const memoryDir = path.join(this.settings.dataDir, "memory");
+      for (const fact of reflection.facts) {
+        await this.toolExecutor.execute("memory_write", {
+          path: fact.path,
+          content: fact.content,
+        }, { taskId: task.context.id, memoryDir });
+      }
+
+      // Write episode to memory
+      if (reflection.episode) {
+        const month = new Date().toISOString().slice(0, 7); // "YYYY-MM"
+        const entry = [
+          `## ${reflection.episode.title}`,
+          `- Summary: ${reflection.episode.summary}`,
+          `- Details: ${reflection.episode.details}`,
+          `- Lesson: ${reflection.episode.lesson}`,
+          `- Date: ${new Date().toISOString().slice(0, 10)}`,
+          "",
+        ].join("\n");
+        await this.toolExecutor.execute("memory_append", {
+          path: `episodes/${month}.md`,
+          entry,
+        }, { taskId: task.context.id, memoryDir });
+      }
+
+      // Observability event
+      await this.eventBus.emit(
+        createEvent(EventType.REFLECTION_COMPLETE, {
+          source: "cognitive.reflect",
+          taskId: task.taskId,
+          payload: {
+            factsWritten: reflection.facts.length,
+            hasEpisode: !!reflection.episode,
+            assessment: reflection.assessment,
+          },
+        }),
+      );
+
+      logger.info(
+        { taskId: task.taskId, facts: reflection.facts.length, episode: !!reflection.episode },
+        "post_reflection_complete",
+      );
+    } catch (err) {
+      logger.warn({ taskId: task.taskId, error: err }, "post_reflection_failed");
+      // Fire-and-forget: errors never affect task results
+    }
   }
 
   // ═══════════════════════════════════════════════════
