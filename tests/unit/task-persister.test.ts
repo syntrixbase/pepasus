@@ -221,7 +221,7 @@ describe("TaskPersister", () => {
       expect(line.data.newMessages).toHaveLength(2);
     });
 
-    it("should persist REFLECTION_COMPLETE with facts/episode info", async () => {
+    it("should persist REFLECTION_COMPLETE with reflection metadata", async () => {
       const task = new TaskFSM({ taskId: "reflect-task" });
       (task as any).createdAt = new Date("2026-02-25T10:00:00Z").getTime();
       registry.register(task);
@@ -229,16 +229,15 @@ describe("TaskPersister", () => {
       await bus.emit(createEvent(EventType.REFLECTION_COMPLETE, {
         source: "cognitive.reflect",
         taskId: "reflect-task",
-        payload: { factsWritten: 2, hasEpisode: true, assessment: "good task" },
+        payload: { toolCallsCount: 3, assessment: "recorded 2 facts and 1 episode" },
       }));
       await Bun.sleep(100);
 
       const content = await Bun.file(`${testDir}/tasks/2026-02-25/reflect-task.jsonl`).text();
       const line = JSON.parse(content.trim());
       expect(line.event).toBe("REFLECTION_COMPLETE");
-      expect(line.data.factsWritten).toBe(2);
-      expect(line.data.hasEpisode).toBe(true);
-      expect(line.data.assessment).toBe("good task");
+      expect(line.data.toolCallsCount).toBe(3);
+      expect(line.data.assessment).toBe("recorded 2 facts and 1 episode");
     });
 
     it("should persist TASK_COMPLETED and remove from pending", async () => {
