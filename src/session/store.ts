@@ -14,6 +14,7 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import type { Message } from "../infra/llm-types.ts";
+import type { TokenCounter } from "../infra/token-counter.ts";
 import { getLogger } from "../infra/logger.ts";
 
 const logger = getLogger("session_store");
@@ -122,6 +123,23 @@ export class SessionStore {
     } catch {
       return [];
     }
+  }
+
+  /** Estimate total tokens for a list of messages. */
+  async estimateTokens(
+    messages: Message[],
+    counter: TokenCounter,
+  ): Promise<number> {
+    if (messages.length === 0) return 0;
+    // Concatenate all message content for a rough total estimate
+    const allText = messages
+      .map((m) => {
+        let text = m.content;
+        if (m.toolCalls) text += JSON.stringify(m.toolCalls);
+        return text;
+      })
+      .join("\n");
+    return counter.count(allText);
   }
 
   /**

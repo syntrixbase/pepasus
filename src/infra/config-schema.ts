@@ -28,6 +28,9 @@ export const LLMConfigSchema = z.object({
   // System-wide settings
   maxConcurrentCalls: z.coerce.number().int().positive().default(3),
   timeout: z.coerce.number().int().positive().default(120),
+
+  // Context window size (tokens). Auto-detected from model if not set.
+  contextWindow: z.coerce.number().int().positive().optional(),
 });
 
 export const MemoryConfigSchema = z.object({});
@@ -87,12 +90,19 @@ export const ToolsConfigSchema = z.object({
   ),
 });
 
+export const SessionConfigSchema = z.object({
+  compactThreshold: z.coerce.number().min(0.1).max(1.0).default(0.8),
+});
+
+export type SessionConfig = z.infer<typeof SessionConfigSchema>;
+
 export const SettingsSchema = z.object({
   llm: LLMConfigSchema.default({}),
   memory: MemoryConfigSchema.default({}),
   agent: AgentConfigSchema.default({}),
   identity: IdentityConfigSchema.default({}),
   tools: ToolsConfigSchema.default({}),
+  session: SessionConfigSchema.default({}),
   logLevel: z.string().default("info"),
   dataDir: z.string({ required_error: "dataDir is required — set system.dataDir in config.yml or PEGASUS_DATA_DIR env var" }),
   // Log output destination
