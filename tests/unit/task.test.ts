@@ -9,6 +9,7 @@ import {
   currentStep,
   hasMoreSteps,
   markStepDone,
+  prepareContextForResume,
 } from "@pegasus/task/context.ts";
 import type {
   Plan,
@@ -168,6 +169,85 @@ describe("TaskContext", () => {
     expect(r.verdict).toBe("complete");
     expect(r.lessons).toHaveLength(1);
     expect(r.nextFocus).toBe("monitoring");
+  });
+});
+
+// ── prepareContextForResume ─────────────────────
+
+describe("prepareContextForResume", () => {
+  test("updates inputText to new input", () => {
+    const ctx = createTaskContext({ inputText: "original task" });
+    ctx.messages = [
+      { role: "user", content: "original task" },
+      { role: "assistant", content: "done" },
+    ];
+    ctx.plan = makePlan(1);
+    ctx.reasoning = { response: "done" };
+    ctx.finalResult = { result: "done" };
+    ctx.iteration = 3;
+
+    prepareContextForResume(ctx, "new instructions");
+
+    // inputText MUST be updated to the new input
+    expect(ctx.inputText).toBe("new instructions");
+  });
+
+  test("clears stale cognitive state", () => {
+    const ctx = createTaskContext({ inputText: "original" });
+    ctx.plan = makePlan(1);
+    ctx.reasoning = { response: "done" };
+    ctx.finalResult = { result: "done" };
+    ctx.error = "some error";
+    ctx.suspendedState = "reasoning";
+    ctx.suspendReason = "waiting";
+    ctx.iteration = 5;
+    ctx.postReflection = { assessment: "ok", toolCallsCount: 0 };
+
+    prepareContextForResume(ctx, "resume input");
+
+    expect(ctx.plan).toBeNull();
+    expect(ctx.reasoning).toBeNull();
+    expect(ctx.finalResult).toBeNull();
+    expect(ctx.error).toBeNull();
+    expect(ctx.suspendedState).toBeNull();
+    expect(ctx.suspendReason).toBeNull();
+    expect(ctx.iteration).toBe(0);
+    expect(ctx.postReflection).toBeNull();
+  });
+
+  test("preserves existing messages and appends new input", () => {
+    const ctx = createTaskContext({ inputText: "original" });
+    ctx.messages = [
+      { role: "user", content: "original" },
+      { role: "assistant", content: "response" },
+    ];
+
+    prepareContextForResume(ctx, "follow-up question");
+
+    // Existing messages preserved
+    expect(ctx.messages).toHaveLength(3);
+    expect(ctx.messages[0]!.content).toBe("original");
+    expect(ctx.messages[1]!.content).toBe("response");
+    // New input appended
+    expect(ctx.messages[2]!.role).toBe("user");
+    expect(ctx.messages[2]!.content).toBe("follow-up question");
+  });
+
+  test("preserves actionsDone", () => {
+    const ctx = createTaskContext({ inputText: "original" });
+    const action: ActionResult = {
+      stepIndex: 0,
+      actionType: "tool_call",
+      actionInput: {},
+      success: true,
+      startedAt: 1000,
+    };
+    ctx.actionsDone = [action];
+
+    prepareContextForResume(ctx, "resume");
+
+    expect(ctx.actionsDone).toHaveLength(1);
+    expect(ctx.actionsDone[0]).toBe(action);
   });
 });
 
