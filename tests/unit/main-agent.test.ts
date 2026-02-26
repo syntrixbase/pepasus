@@ -620,6 +620,186 @@ describe("MainAgent", () => {
     await agent.stop();
   }, 10_000);
 
+  it("should handle resume_task tool call on completed task", async () => {
+    let mainCallCount = 0;
+    let spawnedTaskId: string | null = null;
+    const model: LanguageModel = {
+      provider: "test",
+      modelId: "test-model",
+      async generate(options: {
+        system?: string;
+        messages?: Message[];
+      }): Promise<GenerateTextResult> {
+        const isMainAgent = options.system?.includes("INNER MONOLOGUE") ?? false;
+
+        if (isMainAgent) {
+          mainCallCount++;
+          if (mainCallCount === 1) {
+            // First MainAgent call: spawn a task
+            return {
+              text: "I need to spawn a task.",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "tc-spawn",
+                  name: "spawn_task",
+                  arguments: { description: "Do work", input: "initial work" },
+                },
+              ],
+              usage: { promptTokens: 10, completionTokens: 10 },
+            };
+          }
+          if (mainCallCount === 2) {
+            // After task completion notification: resume the task
+            // Extract taskId from session messages
+            const toolMsgs = (options.messages ?? []).filter(
+              (m: Message) => m.role === "tool" && m.content.includes("taskId"),
+            );
+            if (toolMsgs.length > 0) {
+              try {
+                const parsed = JSON.parse(toolMsgs[0]!.content);
+                spawnedTaskId = parsed.taskId;
+              } catch { /* ignore */ }
+            }
+            if (spawnedTaskId) {
+              return {
+                text: "Let me resume that task with more instructions.",
+                finishReason: "tool_calls",
+                toolCalls: [
+                  {
+                    id: "tc-resume",
+                    name: "resume_task",
+                    arguments: { task_id: spawnedTaskId, input: "now do more" },
+                  },
+                ],
+                usage: { promptTokens: 20, completionTokens: 10 },
+              };
+            }
+            // Fallback: just reply
+            return {
+              text: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "tc-reply-2",
+                  name: "reply",
+                  arguments: { text: "Task done", channelId: "test" },
+                },
+              ],
+              usage: { promptTokens: 20, completionTokens: 10 },
+            };
+          }
+          // Subsequent calls: reply
+          return {
+            text: "",
+            finishReason: "tool_calls",
+            toolCalls: [
+              {
+                id: `tc-reply-${mainCallCount}`,
+                name: "reply",
+                arguments: { text: `Response ${mainCallCount}`, channelId: "test" },
+              },
+            ],
+            usage: { promptTokens: 20, completionTokens: 10 },
+          };
+        }
+
+        // Task Agent calls: return plain text
+        return {
+          text: "Task work done.",
+          finishReason: "stop",
+          usage: { promptTokens: 10, completionTokens: 10 },
+        };
+      },
+    };
+
+    const agent = new MainAgent({
+      models: createMockModelRegistry(model),
+      persona: testPersona,
+      settings: testSettings(),
+    });
+
+    await agent.start();
+
+    const replies: OutboundMessage[] = [];
+    agent.onReply((msg) => replies.push(msg));
+
+    agent.send({
+      text: "do complex work",
+      channel: { type: "cli", channelId: "test" },
+    });
+
+    // Wait for spawn → task complete → resume → task complete again
+    await Bun.sleep(5000);
+
+    // Should have received replies
+    expect(replies.length).toBeGreaterThanOrEqual(1);
+
+    await agent.stop();
+  }, 20_000);
+
+  it("should handle resume_task error gracefully", async () => {
+    let callCount = 0;
+    const model: LanguageModel = {
+      provider: "test",
+      modelId: "test-model",
+      async generate(): Promise<GenerateTextResult> {
+        callCount++;
+        if (callCount === 1) {
+          // Request resume_task with non-existent task
+          return {
+            text: "Let me resume that task.",
+            finishReason: "tool_calls",
+            toolCalls: [
+              {
+                id: "tc-resume-bad",
+                name: "resume_task",
+                arguments: { task_id: "nonexistent-task-xyz", input: "continue" },
+              },
+            ],
+            usage: { promptTokens: 10, completionTokens: 10 },
+          };
+        }
+        // After error, reply to user
+        return {
+          text: "",
+          finishReason: "tool_calls",
+          toolCalls: [
+            {
+              id: "tc-reply",
+              name: "reply",
+              arguments: { text: "Sorry, task not found", channelId: "test" },
+            },
+          ],
+          usage: { promptTokens: 15, completionTokens: 10 },
+        };
+      },
+    };
+
+    const agent = new MainAgent({
+      models: createMockModelRegistry(model),
+      persona: testPersona,
+      settings: testSettings(),
+    });
+
+    await agent.start();
+
+    const replies: OutboundMessage[] = [];
+    agent.onReply((msg) => replies.push(msg));
+
+    agent.send({
+      text: "resume some old task",
+      channel: { type: "cli", channelId: "test" },
+    });
+    await Bun.sleep(1000);
+
+    // Should not crash — error is handled gracefully
+    // The LLM sees the error in tool result and replies to user
+    expect(replies.length).toBeGreaterThanOrEqual(1);
+
+    await agent.stop();
+  }, 15_000);
+
   it("should include session_archive_read instructions in system prompt", async () => {
     let capturedSystem = "";
     const model: LanguageModel = {

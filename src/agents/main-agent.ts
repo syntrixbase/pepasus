@@ -223,7 +223,8 @@ export class MainAgent {
         } else if (tc.name === "spawn_task") {
           await this._handleSpawnTask(tc);
         } else if (tc.name === "resume_task") {
-          await this._handleResumeTask(tc);
+          const resumeNeedsFollowUp = await this._handleResumeTask(tc);
+          if (resumeNeedsFollowUp) needsFollowUp = true;
         } else {
           // Execute simple tool directly — results need LLM follow-up
           needsFollowUp = true;
@@ -285,7 +286,11 @@ export class MainAgent {
 
   // ── Task resuming ──
 
-  private async _handleResumeTask(tc: ToolCall): Promise<void> {
+  /**
+   * Handle resume_task tool call.
+   * Returns true if the LLM needs a follow-up think (e.g., on error).
+   */
+  private async _handleResumeTask(tc: ToolCall): Promise<boolean> {
     const { task_id, input } = tc.arguments as { task_id: string; input: string };
 
     try {
@@ -300,6 +305,7 @@ export class MainAgent {
       await this.sessionStore.append(toolMsg);
 
       logger.info({ taskId: task_id, input }, "task_resumed");
+      return false; // No follow-up needed — notification arrives via onNotify
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
       const toolMsg: Message = {
@@ -311,6 +317,7 @@ export class MainAgent {
       await this.sessionStore.append(toolMsg);
 
       logger.warn({ taskId: task_id, error: errorMsg }, "task_resume_failed");
+      return true; // LLM needs to see the error and react
     }
   }
 
