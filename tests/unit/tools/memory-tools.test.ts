@@ -6,6 +6,7 @@ import {
   memory_list,
   memory_read,
   memory_write,
+  memory_patch,
   memory_append,
   extractSummary,
   resolveMemoryPath,
@@ -291,6 +292,63 @@ describe("memory tools", () => {
     });
   });
 
+  // ── memory_patch ─────────────────────────────────
+
+  describe("memory_patch", () => {
+    it("should replace a string in a memory file", async () => {
+      const content = "# User Facts\n\n> Summary: user name\n\n- Name: Alice\n- Lang: EN\n";
+      await Bun.write(`${testDir}/facts/user.md`, content);
+
+      const context = { taskId: "t1", memoryDir: testDir };
+      const result = await memory_patch.execute(
+        { path: "facts/user.md", old_str: "- Name: Alice", new_str: "- Name: Bob" },
+        context,
+      );
+
+      expect(result.success).toBe(true);
+      const updated = await Bun.file(`${testDir}/facts/user.md`).text();
+      expect(updated).toContain("- Name: Bob");
+      expect(updated).not.toContain("- Name: Alice");
+    });
+
+    it("should fail if string not found", async () => {
+      await Bun.write(`${testDir}/facts/user.md`, "# User\n\n- Name: Alice\n");
+
+      const context = { taskId: "t1", memoryDir: testDir };
+      const result = await memory_patch.execute(
+        { path: "facts/user.md", old_str: "- Name: Charlie", new_str: "- Name: Bob" },
+        context,
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("String not found");
+    });
+
+    it("should fail if string appears multiple times", async () => {
+      await Bun.write(`${testDir}/facts/user.md`, "hello world\nhello world\n");
+
+      const context = { taskId: "t1", memoryDir: testDir };
+      const result = await memory_patch.execute(
+        { path: "facts/user.md", old_str: "hello world", new_str: "goodbye" },
+        context,
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("multiple times");
+    });
+
+    it("should reject directory traversal", async () => {
+      const context = { taskId: "t1", memoryDir: testDir };
+      const result = await memory_patch.execute(
+        { path: "../../etc/passwd", old_str: "root", new_str: "hacked" },
+        context,
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("escapes memory directory");
+    });
+  });
+
   // ── memory_append ─────────────────────────────────
 
   describe("memory_append", () => {
@@ -360,6 +418,57 @@ describe("memory tools", () => {
       expect(result.success).toBe(true);
       const content = await Bun.file(`${testDir}/new-dir/log.md`).text();
       expect(content).toBe("first entry");
+    });
+
+    it("should update summary line when summary parameter provided", async () => {
+      const existing = "# 2026-02 Episodes\n\n> Summary: old stuff\n\n## Old Entry\n- done\n";
+      await Bun.write(`${testDir}/episodes/2026-02.md`, existing);
+
+      const context = { taskId: "t1", memoryDir: testDir };
+      const result = await memory_append.execute(
+        { path: "episodes/2026-02.md", entry: "\n## New Entry\n- new\n", summary: "old stuff, new thing" },
+        context,
+      );
+
+      expect(result.success).toBe(true);
+      const content = await Bun.file(`${testDir}/episodes/2026-02.md`).text();
+      expect(content).toContain("> Summary: old stuff, new thing");
+      expect(content).not.toContain("> Summary: old stuff\n");
+      expect(content).toContain("## New Entry");
+    });
+
+    it("should not change summary when summary parameter is omitted", async () => {
+      const existing = "# 2026-02 Episodes\n\n> Summary: original\n\n## Entry\n";
+      await Bun.write(`${testDir}/episodes/2026-02.md`, existing);
+
+      const context = { taskId: "t1", memoryDir: testDir };
+      const result = await memory_append.execute(
+        { path: "episodes/2026-02.md", entry: "\n## Another\n" },
+        context,
+      );
+
+      expect(result.success).toBe(true);
+      const content = await Bun.file(`${testDir}/episodes/2026-02.md`).text();
+      expect(content).toContain("> Summary: original");
+    });
+
+    it("should insert summary after heading when no existing summary line", async () => {
+      const existing = "# 2026-03 Episodes\n\n## Entry 1\n- done\n";
+      await Bun.write(`${testDir}/episodes/2026-03.md`, existing);
+
+      const context = { taskId: "t1", memoryDir: testDir };
+      const result = await memory_append.execute(
+        { path: "episodes/2026-03.md", entry: "\n## Entry 2\n- more\n", summary: "entry 1, entry 2" },
+        context,
+      );
+
+      expect(result.success).toBe(true);
+      const content = await Bun.file(`${testDir}/episodes/2026-03.md`).text();
+      expect(content).toContain("> Summary: entry 1, entry 2");
+      // Summary should appear after the heading
+      const headingIdx = content.indexOf("# 2026-03 Episodes");
+      const summaryIdx = content.indexOf("> Summary: entry 1, entry 2");
+      expect(summaryIdx).toBeGreaterThan(headingIdx);
     });
   });
 });

@@ -190,6 +190,71 @@ export const memory_write: Tool = {
   },
 };
 
+// ── memory_patch ─────────────────────────────────
+
+export const memory_patch: Tool = {
+  name: "memory_patch",
+  description: "Partial string replacement within a memory file. Finds old_str and replaces with new_str.",
+  category: "memory" as ToolCategory,
+  parameters: z.object({
+    path: z.string().describe("Relative path, e.g. 'facts/user.md'"),
+    old_str: z.string().describe("Exact string to find in the file"),
+    new_str: z.string().describe("Replacement string"),
+  }),
+  async execute(params: unknown, context: ToolContext): Promise<ToolResult> {
+    const startedAt = Date.now();
+    const { path: relativePath, old_str, new_str } = params as {
+      path: string; old_str: string; new_str: string;
+    };
+    const memoryDir = getMemoryDir(context);
+
+    try {
+      const filePath = resolveMemoryPath(relativePath, memoryDir);
+      const content = await Bun.file(filePath).text();
+
+      const firstIdx = content.indexOf(old_str);
+      if (firstIdx === -1) {
+        return {
+          success: false,
+          error: `String not found in ${relativePath}`,
+          startedAt,
+          completedAt: Date.now(),
+          durationMs: Date.now() - startedAt,
+        };
+      }
+      const secondIdx = content.indexOf(old_str, firstIdx + 1);
+      if (secondIdx !== -1) {
+        return {
+          success: false,
+          error: `String appears multiple times in ${relativePath} — provide more context to make it unique`,
+          startedAt,
+          completedAt: Date.now(),
+          durationMs: Date.now() - startedAt,
+        };
+      }
+
+      const newContent = content.replace(old_str, new_str);
+      await Bun.write(filePath, newContent);
+
+      return {
+        success: true,
+        result: { path: relativePath, size: newContent.length },
+        startedAt,
+        completedAt: Date.now(),
+        durationMs: Date.now() - startedAt,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+        startedAt,
+        completedAt: Date.now(),
+        durationMs: Date.now() - startedAt,
+      };
+    }
+  },
+};
+
 // ── memory_append ─────────────────────────────────
 
 export const memory_append: Tool = {
@@ -199,10 +264,13 @@ export const memory_append: Tool = {
   parameters: z.object({
     path: z.string().describe("Relative path, e.g. 'episodes/2026-02.md'"),
     entry: z.string().describe("Markdown block to append"),
+    summary: z.string().optional().describe("If provided, update the file-level '> Summary:' line"),
   }),
   async execute(params: unknown, context: ToolContext): Promise<ToolResult> {
     const startedAt = Date.now();
-    const { path: relativePath, entry } = params as { path: string; entry: string };
+    const { path: relativePath, entry, summary } = params as {
+      path: string; entry: string; summary?: string;
+    };
     const memoryDir = getMemoryDir(context);
 
     try {
@@ -221,11 +289,29 @@ export const memory_append: Tool = {
       }
 
       const newContent = existing + entry;
-      await Bun.write(filePath, newContent);
+
+      let finalContent = newContent;
+
+      // Update file-level summary if provided
+      if (summary) {
+        const summaryLine = `> Summary: ${summary}`;
+        if (finalContent.match(/^> Summary:.+$/m)) {
+          finalContent = finalContent.replace(/^> Summary:.+$/m, summaryLine);
+        } else {
+          // Insert after first heading line
+          const headingMatch = finalContent.match(/^#.+$/m);
+          if (headingMatch) {
+            const insertPos = (headingMatch.index ?? 0) + headingMatch[0].length;
+            finalContent = finalContent.slice(0, insertPos) + "\n\n" + summaryLine + finalContent.slice(insertPos);
+          }
+        }
+      }
+
+      await Bun.write(filePath, finalContent);
 
       return {
         success: true,
-        result: { path: relativePath, size: newContent.length },
+        result: { path: relativePath, size: finalContent.length },
         startedAt,
         completedAt: Date.now(),
         durationMs: Date.now() - startedAt,
