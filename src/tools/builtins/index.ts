@@ -153,5 +153,8 @@ export const mainAgentTools: Tool[] = [
   reply,
 ];
 
+/** Memory tools available to PostTaskReflector (no memory_list — info is pre-loaded). */
+export const reflectionTools: Tool[] = [memory_read, memory_write, memory_patch, memory_append];
+
 /** @deprecated Use allTaskTools or mainAgentTools instead. */
 export const allBuiltInTools = allTaskTools;

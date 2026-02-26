@@ -27,9 +27,10 @@ import type { TaskContext } from "../task/context.ts";
 import { ToolRegistry } from "../tools/registry.ts";
 import { ToolExecutor } from "../tools/executor.ts";
 import type { ToolResult } from "../tools/types.ts";
-import { allBuiltInTools } from "../tools/builtins/index.ts";
+import { allBuiltInTools, reflectionTools } from "../tools/builtins/index.ts";
 import type { MemoryIndexEntry } from "../identity/prompt.ts";
 import { TaskPersister } from "../task/persister.ts";
+import { getContextWindowSize } from "../session/context-windows.ts";
 import path from "node:path";
 
 const logger = getLogger("agent");
@@ -149,10 +150,21 @@ export class Agent {
     this.thinker = new Thinker(deps.model, deps.persona, toolRegistry);
     this.planner = new Planner(deps.model, deps.persona);
     this.actor = new Actor(deps.model, deps.persona);
-    this.postReflector = new PostTaskReflector(
-      deps.reflectionModel ?? deps.model,
-      deps.persona,
-    );
+    // Create reflection tool registry (memory tools only, no memory_list)
+    const reflectionToolRegistry = new ToolRegistry();
+    reflectionToolRegistry.registerMany(reflectionTools);
+
+    this.postReflector = new PostTaskReflector({
+      model: deps.reflectionModel ?? deps.model,
+      persona: deps.persona,
+      toolRegistry: reflectionToolRegistry,
+      toolExecutor,
+      memoryDir: path.join(this.settings.dataDir, "memory"),
+      contextWindowSize: getContextWindowSize(
+        (deps.reflectionModel ?? deps.model).modelId,
+        this.settings.llm.contextWindow,
+      ),
+    });
   }
 
   // ═══════════════════════════════════════════════════
@@ -502,36 +514,51 @@ export class Agent {
 
   private async _runPostReflection(task: TaskFSM): Promise<void> {
     try {
+      // Pre-load existing facts (full content) and episode index
+      const memoryDir = path.join(this.settings.dataDir, "memory");
+      const existingFacts: Array<{ path: string; content: string }> = [];
+      const episodeIndex: Array<{ path: string; summary: string }> = [];
+
+      try {
+        const listResult = await this.toolExecutor.execute(
+          "memory_list", {}, { taskId: task.context.id, memoryDir },
+        );
+        if (listResult.success && Array.isArray(listResult.result)) {
+          const entries = listResult.result as Array<{ path: string; summary: string; size: number }>;
+
+          for (const entry of entries) {
+            if (entry.path.startsWith("facts/")) {
+              const readResult = await this.toolExecutor.execute(
+                "memory_read", { path: entry.path }, { taskId: task.context.id, memoryDir },
+              );
+              if (readResult.success && typeof readResult.result === "string") {
+                existingFacts.push({ path: entry.path, content: readResult.result });
+              }
+            } else if (entry.path.startsWith("episodes/")) {
+              episodeIndex.push({ path: entry.path, summary: entry.summary });
+            }
+          }
+
+          // Trim episodes to ~10K chars, most recent first
+          let totalChars = 0;
+          const trimmedEpisodes: typeof episodeIndex = [];
+          for (const ep of [...episodeIndex].reverse()) {
+            const lineLen = ep.path.length + ep.summary.length + 4;
+            if (totalChars + lineLen > 10_000) break;
+            totalChars += lineLen;
+            trimmedEpisodes.push(ep);
+          }
+          episodeIndex.length = 0;
+          episodeIndex.push(...trimmedEpisodes);
+        }
+      } catch {
+        // Memory unavailable — continue without existing memory
+      }
+
       const reflection = await this.llmSemaphore.use(() =>
-        this.postReflector.run(task.context),
+        this.postReflector.run(task.context, existingFacts, episodeIndex),
       );
       task.context.postReflection = reflection;
-
-      // Write facts to memory
-      const memoryDir = path.join(this.settings.dataDir, "memory");
-      for (const fact of reflection.facts) {
-        await this.toolExecutor.execute("memory_write", {
-          path: fact.path,
-          content: fact.content,
-        }, { taskId: task.context.id, memoryDir });
-      }
-
-      // Write episode to memory
-      if (reflection.episode) {
-        const month = new Date().toISOString().slice(0, 7); // "YYYY-MM"
-        const entry = [
-          `## ${reflection.episode.title}`,
-          `- Summary: ${reflection.episode.summary}`,
-          `- Details: ${reflection.episode.details}`,
-          `- Lesson: ${reflection.episode.lesson}`,
-          `- Date: ${new Date().toISOString().slice(0, 10)}`,
-          "",
-        ].join("\n");
-        await this.toolExecutor.execute("memory_append", {
-          path: `episodes/${month}.md`,
-          entry,
-        }, { taskId: task.context.id, memoryDir });
-      }
 
       // Observability event
       await this.eventBus.emit(
@@ -539,20 +566,18 @@ export class Agent {
           source: "cognitive.reflect",
           taskId: task.taskId,
           payload: {
-            factsWritten: reflection.facts.length,
-            hasEpisode: !!reflection.episode,
+            toolCallsCount: reflection.toolCallsCount,
             assessment: reflection.assessment,
           },
         }),
       );
 
       logger.info(
-        { taskId: task.taskId, facts: reflection.facts.length, episode: !!reflection.episode },
+        { taskId: task.taskId, toolCalls: reflection.toolCallsCount },
         "post_reflection_complete",
       );
     } catch (err) {
       logger.warn({ taskId: task.taskId, error: err }, "post_reflection_failed");
-      // Fire-and-forget: errors never affect task results
     }
   }
 
