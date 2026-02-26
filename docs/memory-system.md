@@ -110,15 +110,17 @@ The LLM reads the directory listing to know what memories are available, then se
 - The "schema" is just the directory layout — infinitely extensible
 - No index maintenance, no sync issues, no corruption risk
 
-## 5. Retrieval: LLM Judges Relevance via System Prompt
+## 5. Retrieval: LLM Judges Relevance via User Message
 
 ### Two-Step Retrieval Process
 
-**Step 1 — Build system prompt index from `memory_list`:**
+**Step 1 — Inject memory index as the first user message (iteration=1 only):**
 
-The system prompt includes the output of `memory_list` (called automatically at task start, not by the LLM):
+At the start of a task (first cognitive iteration only), `memory_list` is called and its output is injected as a **user message** — not in the system prompt. This keeps the system prompt clean and avoids wasting context budget on every subsequent iteration.
 
 ```
+[User message injected at iteration=1]
+
 Available memory:
 - facts/user.md (320B): user name, language, role
 - facts/project.md (210B): tech stack, conventions
@@ -127,6 +129,8 @@ Available memory:
 Use memory_read to load relevant files before responding.
 ```
 
+This message is only added once (when `iteration === 1`). On subsequent reasoning iterations (after tool calls return), the memory index is already in the conversation history and does not need to be re-fetched.
+
 **Step 2 — LLM decides** which files to read (if any) based on the current task.
 
 ### Why LLM-Driven?
@@ -134,7 +138,7 @@ Use memory_read to load relevant files before responding.
 - **Semantic understanding**: the LLM knows whether "what's my name?" requires `facts/user.md`
 - **No keyword matching**: avoids brittle regex or TF-IDF approaches
 - **Context-aware**: the same memory file may be relevant in one context and irrelevant in another
-- **System prompt guidance**: we control retrieval behavior through prompt engineering, not code
+- **Prompt guidance**: we control retrieval behavior through prompt engineering, not code
 
 ## 6. Implementation: Memory Tools
 
@@ -146,8 +150,9 @@ Memory is accessed through the existing tool system (M3 infrastructure), requiri
 |------|---------|------------|
 | `memory_read` | Read a specific memory file | Thinker decides current task needs it |
 | `memory_write` | Create or overwrite a fact file | New important fact learned |
+| `memory_patch` | Patch specific sections of a memory file | Update individual facts without rewriting entire file |
 | `memory_append` | Append an episode entry | After significant task completion |
-| `memory_list` | List available memory files with summary | Auto-called to build system prompt index |
+| `memory_list` | List available memory files with summary | Auto-called at iteration=1 to build memory index |
 
 ### Tool Signatures
 
@@ -166,10 +171,27 @@ Memory is accessed through the existing tool system (M3 infrastructure), requiri
   returns: { success: boolean }
 }
 
+// memory_patch: Patch specific sections of a memory file
+{
+  name: "memory_patch",
+  params: {
+    path: string,            // e.g., "facts/user.md"
+    patches: Array<{
+      oldText: string,       // text to find
+      newText: string        // replacement text
+    }>
+  }
+  returns: { success: boolean, appliedCount: number }
+}
+
 // memory_append: Append an episode entry
 {
   name: "memory_append",
-  params: { path: string, entry: string }  // entry is markdown block
+  params: {
+    path: string,
+    entry: string,           // markdown block
+    summary?: string         // optional: override file-level summary line
+  }
   returns: { success: boolean }
 }
 
@@ -191,25 +213,33 @@ All paths are relative to `data/memory/` and **must not escape** that directory.
 
 ## 7. Write Timing: When Memories Are Created
 
+### How the Reflector Works
+
+The **PostTaskReflector** runs as a **tool-use loop** after task completion. Instead of producing structured JSON output that the Agent then parses and executes, the Reflector LLM directly calls memory tools (read/write/patch/append) in a multi-turn conversation.
+
+Before the loop starts, the Agent pre-loads:
+- **Existing facts** (full content of all fact files)
+- **Episode index** (summaries from episode files)
+
+These are provided to the Reflector's system prompt so it has full context to decide what to update.
+
 ### Fact Extraction
 
-The **Reflector**, upon task completion, evaluates whether the conversation contains new facts worth remembering.
-
 ```
-Reflector thinks:
+Reflector (tool-use loop):
   "User mentioned their name is Zhang San — this is a persistent fact."
-  → calls memory_write("facts/user.md", updated content)
+  → LLM calls memory_write("facts/user.md", updated content)
+  "User's role already recorded but needs update."
+  → LLM calls memory_patch("facts/user.md", [{ oldText: ..., newText: ... }])
 ```
 
 ### Episode Archival
 
-The **Reflector**, after significant tasks (not trivial conversations), generates an experience summary.
-
 ```
-Reflector thinks:
+Reflector (tool-use loop):
   "We fixed a non-trivial bug (logger stdout leak). The root cause and
    solution are worth remembering for similar issues."
-  → calls memory_append("episodes/2026-02.md", summary block)
+  → LLM calls memory_append("episodes/2026-02.md", summary block)
 ```
 
 ### What Triggers a Write?
@@ -222,15 +252,16 @@ Not every conversation creates a memory. The LLM judges importance:
 ## 8. Architecture Integration
 
 ```
-                    ┌─ memory_list → directory index
-System Prompt ──────┤
+                    ┌─ memory_list → directory index (iteration=1 only)
+First User Msg ─────┤
                     └─ "use memory tools if relevant"
                            │
 Thinker ───── LLM call ────┤── may request memory_read
                            │── generates response
                            │
-Reflector ── after task ───┤── may call memory_write (new facts)
-                           └── may call memory_append (experience)
+Reflector ── tool-use loop ┤── LLM directly calls memory_write (new facts)
+  (pre-loaded facts +      │── LLM directly calls memory_patch (update facts)
+   episode index)          └── LLM directly calls memory_append (experience)
 ```
 
 ### Key Insight
@@ -239,14 +270,15 @@ The memory system integrates **entirely through the tool mechanism**. No modific
 
 - EventBus
 - TaskFSM state machine
-- Cognitive loop (reason → act → reflect)
+- Cognitive loop (reason → act)
 - Agent event dispatch
 
 The only changes are:
 
-1. Register memory tools in the ToolRegistry
-2. Inject memory directory listing into the system prompt
-3. Let the existing tool-call loop handle `memory_read` / `memory_write` / `memory_append`
+1. Register memory tools in the ToolRegistry (and a separate `reflectionToolRegistry` for PostTaskReflector)
+2. Inject memory directory listing as the first user message (iteration=1 only)
+3. Let the existing tool-call loop handle `memory_read` during reasoning
+4. PostTaskReflector uses its own tool-use loop to call `memory_write` / `memory_patch` / `memory_append` directly
 
 ## 9. Configuration
 

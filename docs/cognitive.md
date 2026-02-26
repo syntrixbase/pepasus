@@ -72,14 +72,23 @@ After a task reaches COMPLETED, the Agent optionally spawns an async **PostTaskR
 COMPLETED → shouldReflect(context)?
               ├── No  → done
               └── Yes → _spawn(_runPostReflection)
-                          ├── LLM call: extract facts + episode
-                          ├── Write facts to memory (memory_write)
-                          ├── Write episode to memory (memory_append)
+                          ├── Pre-load existing facts (full content)
+                          ├── Pre-load episode index (summaries)
+                          ├── Tool-use loop (max 5 rounds):
+                          │     LLM decides what to remember
+                          │     LLM calls memory tools directly:
+                          │       memory_read / memory_write /
+                          │       memory_patch / memory_append
                           └── Emit REFLECTION_COMPLETE (observability only)
 ```
 
 **Key properties**:
 - Runs **after** the task result has been delivered to the user
+- Uses a **tool-use loop**: the LLM calls memory tools directly (read/write/patch/append) rather than producing structured JSON for the Agent to execute
+- The Reflector's system prompt includes memory format instructions so the LLM knows how to structure facts and episodes
+- Existing facts and episode index are pre-loaded and provided as context, so the LLM can make informed decisions about what to update vs. create
+- Maximum **5 tool-use rounds** to prevent runaway reflection
+- `reflectionTools` collection: includes `memory_read`, `memory_write`, `memory_patch`, `memory_append` (no `memory_list` — index is pre-loaded)
 - Errors never affect task results (caught and logged)
 - `shouldReflect()` filters out trivial tasks (single iteration, short response)
 - Emits `REFLECTION_COMPLETE` event for observability and persistence
@@ -97,19 +106,23 @@ class Actor:
     async run(context: TaskContext, step: PlanStep) -> ActionResult
 
 class PostTaskReflector:
-    async run(context: TaskContext) -> PostTaskReflection
+    async run(context: TaskContext, existingFacts: FactFile[], episodeIndex: EpisodeIndex[]) -> PostTaskReflection
 ```
 
 **Stateless**: processors hold no instance state. All needed information is read from TaskContext, and all output is written back to TaskContext. The same Thinker instance can simultaneously serve 10 different tasks.
+
+Note: `PostTaskReflector.run()` receives pre-loaded `existingFacts` (full file content) and `episodeIndex` (summaries only) so the LLM can decide what to update, patch, or create. It returns `PostTaskReflection` containing `{ assessment, toolCallsCount }` — the actual memory writes are performed by the LLM directly via the tool-use loop inside `run()`.
 
 ## Agent._runReason() Internal Flow
 
 ```typescript
 private async _runReason(task, trigger):
-  // 1. Fetch memory index (non-blocking)
-  memoryIndex = await memory_list(...)
+  // 1. Fetch memory index ONLY on first iteration
+  if (context.iteration === 1)
+    memoryIndex = await memory_list(...)
 
   // 2. LLM call — understand + reason + decide actions
+  //    memoryIndex (if present) is injected as a user message, not system prompt
   reasoning = await thinker.run(context, memoryIndex)
   context.reasoning = reasoning
 
@@ -121,7 +134,7 @@ private async _runReason(task, trigger):
   emit(REASON_DONE) or emit(NEED_MORE_INFO)
 ```
 
-One LLM call, one state transition, continuous context maintained via `context.messages`.
+One LLM call, one state transition, continuous context maintained via `context.messages`. Memory index is fetched once and injected as a user message at `iteration === 1` — subsequent iterations already have it in conversation history.
 
 ## Concurrency
 

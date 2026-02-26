@@ -26,6 +26,7 @@ class Agent {
 
     // Tool infrastructure
     toolExecutor: ToolExecutor          // tool executor
+    reflectionToolRegistry: ToolRegistry // memory tools for PostTaskReflector (read/write/patch/append, no list)
 
     // Concurrency control
     llmSemaphore: Semaphore             // limits concurrent LLM calls
@@ -106,10 +107,13 @@ async _runReason(task, trigger):
     task.context.iteration++
     if (iteration > maxCognitiveIterations) → emit(TASK_FAILED)
 
-    // 1. Fetch memory index
-    memoryIndex = await toolExecutor.execute("memory_list", ...)
+    // 1. Fetch memory index ONLY on first iteration
+    memoryIndex = undefined
+    if (task.context.iteration === 1)
+        memoryIndex = await toolExecutor.execute("memory_list", ...)
 
     // 2. LLM call — understand + reason + tool selection
+    //    memoryIndex (if present) is injected as a user message, not system prompt
     reasoning = await llmSemaphore.use(() =>
         thinker.run(task.context, memoryIndex)
     )
@@ -126,7 +130,7 @@ async _runReason(task, trigger):
         emit(REASON_DONE)
 ```
 
-One LLM call handles everything. Planner is called internally without an FSM state transition.
+One LLM call handles everything. Planner is called internally without an FSM state transition. Memory index is fetched once at iteration=1 and injected as a user message — subsequent iterations already have it in conversation history.
 
 ### _runAct — Action Execution
 
@@ -160,25 +164,24 @@ The last `STEP_COMPLETED` or `TOOL_CALL_COMPLETED` event triggers FSM dynamic re
 
 ```typescript
 async _runPostReflection(task):
-    // 1. LLM call — extract facts + episode
+    // 1. Pre-load existing memory for context
+    existingFacts = await loadAllFactFiles()      // full content
+    episodeIndex = await loadEpisodeIndex()        // summaries only
+
+    // 2. Tool-use loop — LLM calls memory tools directly
+    //    reflectionToolRegistry provides: memory_read, memory_write, memory_patch, memory_append
+    //    (no memory_list — index is pre-loaded above)
     reflection = await llmSemaphore.use(() =>
-        postReflector.run(task.context)
+        postReflector.run(task.context, existingFacts, episodeIndex)
     )
     task.context.postReflection = reflection
+    // reflection = { assessment: string, toolCallsCount: number }
 
-    // 2. Write facts to long-term memory
-    for (fact of reflection.facts)
-        await toolExecutor.execute("memory_write", { path, content })
-
-    // 3. Write episode to episodic memory
-    if (reflection.episode)
-        await toolExecutor.execute("memory_append", { path, entry })
-
-    // 4. Emit observability event
+    // 3. Emit observability event
     emit(REFLECTION_COMPLETE)
 ```
 
-**Fire-and-forget**: this runs after the task is already COMPLETED. Errors are caught and logged but never affect the task result. `shouldReflect(context)` filters out trivial tasks to avoid unnecessary LLM calls.
+**Fire-and-forget**: this runs after the task is already COMPLETED. The LLM directly calls memory tools in a tool-use loop (max 5 rounds) — no JSON parsing or proxy memory writes needed. Errors are caught and logged but never affect the task result. `shouldReflect(context)` filters out trivial tasks to avoid unnecessary LLM calls.
 
 ## Concurrency Control
 

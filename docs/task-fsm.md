@@ -163,17 +163,11 @@ Plan provides `currentStep` (next uncompleted step) and `hasMoreSteps` propertie
 **PostTaskReflection data structure**:
 ```
 PostTaskReflection
-├── facts: Array<{ path: string; content: string }>   # memory facts to write
-├── episode: {                                         # episodic memory entry
-│     title: string
-│     summary: string
-│     details: string
-│     lesson: string
-│   } | null
-└── assessment: string                                 # brief assessment
+├── assessment: string                                 # brief assessment of what was learned
+└── toolCallsCount: number                             # number of memory tool calls made
 ```
 
-PostTaskReflection is produced by the async PostTaskReflector after task completion. It writes extracted facts and episode summaries to long-term memory. Unlike the old Reflection verdict, it does not influence the cognitive loop — it is purely for learning.
+PostTaskReflection is produced by the async PostTaskReflector after task completion. The Reflector uses a tool-use loop where the LLM directly calls memory tools (read/write/patch/append) — the actual memory writes happen inside the loop, so the reflection result only records the assessment and how many tool calls were made. Unlike the old Reflection verdict, it does not influence the cognitive loop — it is purely for learning.
 
 ## TaskRegistry
 
