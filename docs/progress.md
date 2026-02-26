@@ -1,0 +1,82 @@
+# Project Progress
+
+## Milestones
+
+| Milestone | Status | Description |
+|-----------|--------|-------------|
+| **M0: Skeleton** | ✅ Done | EventBus + TaskFSM + Agent core architecture |
+| **M1: Conversation** | ✅ Done | CLI chat + Identity system + LLM integration |
+| **M2: Memory** | ✅ Done | Long-term memory (facts + episodes), markdown files |
+| **M3: Action** | ✅ Done | Built-in tools + LLM function calling + event-driven Actor |
+| **Cognitive merge** | ✅ Done | 5-stage → 3-stage pipeline (Reason → Act → Reflect) |
+| **Task persistence** | ✅ Done | JSONL incremental event logs, replay, index |
+| **Main Agent** | ✅ Done | Inner monologue, reply tool, event-driven single-step thinking |
+| **Channel Adapter** | ✅ Done | Multi-channel architecture (CLI adapter implemented) |
+| **Startup recovery** | ✅ Done | Session repair + pending task recovery via onNotify |
+| **Token counting** | ✅ Done | tiktoken (OpenAI) + Anthropic count_tokens API |
+| **M4: Complex reasoning** | 📋 Next | LLM-driven reflection, multi-step planning |
+| **M5: Multi-channel** | 📋 Planned | Slack / SMS / Web channel adapters |
+
+## Test Coverage
+
+- **Tests**: 454 pass, 0 fail
+- **Line coverage**: 99.69%
+- **Function coverage**: 99.26%
+- **Threshold**: 95% per file (enforced by CI + git hooks)
+
+## Project Structure
+
+```
+pegasus/
+├── src/
+│   ├── agents/
+│   │   ├── agent.ts         # Task execution engine (event processor)
+│   │   └── main-agent.ts    # Main Agent (inner monologue + task dispatch)
+│   ├── cli.ts               # CLI channel adapter
+│   ├── channels/            # Channel adapter types (InboundMessage, OutboundMessage)
+│   ├── session/             # Session persistence + compaction
+│   ├── events/              # Event system (EventType, EventBus)
+│   ├── task/                # TaskFSM + TaskContext + TaskPersister
+│   ├── cognitive/           # Reason → Act → Reflect processors
+│   ├── identity/            # Persona + system prompt builder
+│   ├── tools/
+│   │   ├── registry.ts      # Tool registration
+│   │   ├── executor.ts      # Tool execution (timeout, validation)
+│   │   └── builtins/        # Built-in tools (system/file/network/data/memory/task)
+│   ├── models/              # ToolCall, ToolDefinition types
+│   └── infra/               # Config, Logger, LLM clients, TokenCounter
+├── tests/
+│   ├── unit/                # Unit tests
+│   └── integration/         # Integration tests
+├── docs/                    # System design documents
+├── data/
+│   ├── main/                # Main Agent session (current.jsonl)
+│   ├── tasks/               # Task execution logs (JSONL per task)
+│   ├── memory/              # Long-term memory (facts/, episodes/)
+│   └── personas/            # Persona config files
+└── .github/workflows/       # CI/CD
+```
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Runtime | Bun |
+| Language | TypeScript 5.x |
+| Schema | Zod |
+| Logger | pino (lazy init, file-only) |
+| Test | bun:test |
+| Token counting | tiktoken (OpenAI) / Anthropic API |
+| LLM | OpenAI / Anthropic SDKs |
+
+## Development Workflow
+
+All changes go through Pull Request:
+
+1. Create feature branch
+2. Implement + test (≥ 95% coverage per file)
+3. Push (pre-push hook checks coverage)
+4. Create PR → CI runs typecheck + tests + coverage
+5. Merge to main when CI passes
+
+Pre-commit hooks run typecheck + tests on every commit.
