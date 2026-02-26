@@ -56,6 +56,10 @@ llm:
   maxConcurrentCalls: ${LLM_MAX_CONCURRENT_CALLS:-3}
   timeout: ${LLM_TIMEOUT:-120}  # seconds
 
+  # Context window size (tokens). Auto-detected from model if not set.
+  # Override when using providers with different context limits (e.g. OpenRouter).
+  contextWindow: ${LLM_CONTEXT_WINDOW:-}
+
 identity:
   personaPath: ${IDENTITY_PERSONA_PATH:-data/personas/default.json}
 

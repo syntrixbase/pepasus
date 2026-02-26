@@ -28,6 +28,9 @@ export const LLMConfigSchema = z.object({
   // System-wide settings
   maxConcurrentCalls: z.coerce.number().int().positive().default(3),
   timeout: z.coerce.number().int().positive().default(120),
+
+  // Context window size (tokens). Auto-detected from model if not set.
+  contextWindow: z.coerce.number().int().positive().optional(),
 });
 
 export const MemoryConfigSchema = z.object({});

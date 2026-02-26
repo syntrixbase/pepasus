@@ -252,6 +252,7 @@ function configToSettings(config: any): Settings {
       baseURL: llm.baseURL || activeProviderConfig.baseURL,
       maxConcurrentCalls: llm.maxConcurrentCalls,
       timeout: llm.timeout,
+      contextWindow: llm.contextWindow,
     },
     memory: config.memory,
     agent: config.agent,

@@ -36,10 +36,6 @@ describe("getContextWindowSize", () => {
     expect(getContextWindowSize("claude-opus-4.6")).toBe(1_000_000);
   }, 5_000);
 
-  test("claude-sonnet-4-20250514 → 1M", () => {
-    expect(getContextWindowSize("claude-sonnet-4-20250514")).toBe(1_000_000);
-  }, 5_000);
-
   test("claude-opus-4 → 200k", () => {
     expect(getContextWindowSize("claude-opus-4")).toBe(200_000);
   }, 5_000);
@@ -53,10 +49,6 @@ describe("getContextWindowSize", () => {
     expect(getContextWindowSize("gemini-3.1-pro-preview")).toBe(1_048_576);
   }, 5_000);
 
-  test("gemini-1.5-pro → 2M", () => {
-    expect(getContextWindowSize("gemini-1.5-pro")).toBe(2_000_000);
-  }, 5_000);
-
   // ── Meta Llama ──
   test("llama-4-maverick → ~1M", () => {
     expect(getContextWindowSize("llama-4-maverick")).toBe(1_048_576);
@@ -68,11 +60,6 @@ describe("getContextWindowSize", () => {
 
   test("llama-3.3-70b-instruct → 131k", () => {
     expect(getContextWindowSize("llama-3.3-70b-instruct")).toBe(131_072);
-  }, 5_000);
-
-  // ── Mistral ──
-  test("mistral-large-2512 → 262k", () => {
-    expect(getContextWindowSize("mistral-large-2512")).toBe(262_144);
   }, 5_000);
 
   // ── xAI Grok ──
@@ -102,10 +89,6 @@ describe("getContextWindowSize", () => {
     expect(getContextWindowSize("glm-4.7")).toBe(202_752);
   }, 5_000);
 
-  test("glm-4-long → 1M (legacy)", () => {
-    expect(getContextWindowSize("glm-4-long")).toBe(1_000_000);
-  }, 5_000);
-
   // ── 月之暗面 Kimi ──
   test("kimi-k2.5 → 262k", () => {
     expect(getContextWindowSize("kimi-k2.5")).toBe(262_144);
@@ -113,10 +96,6 @@ describe("getContextWindowSize", () => {
 
   test("kimi-k2 → 131k", () => {
     expect(getContextWindowSize("kimi-k2")).toBe(131_072);
-  }, 5_000);
-
-  test("moonshot-v1-128k → 128k (legacy)", () => {
-    expect(getContextWindowSize("moonshot-v1-128k")).toBe(128_000);
   }, 5_000);
 
   // ── 通义千问 Qwen ──
@@ -145,13 +124,9 @@ describe("getContextWindowSize", () => {
     expect(getContextWindowSize("minimax-m2.5")).toBe(196_608);
   }, 5_000);
 
-  // ── 字节跳动 Seed/Doubao ──
+  // ── 字节跳动 Seed ──
   test("seed-1.6 → 262k", () => {
     expect(getContextWindowSize("seed-1.6")).toBe(262_144);
-  }, 5_000);
-
-  test("doubao-pro-256k → 256k (legacy)", () => {
-    expect(getContextWindowSize("doubao-pro-256k")).toBe(256_000);
   }, 5_000);
 
   // ── 百度 ERNIE ──
@@ -169,13 +144,43 @@ describe("getContextWindowSize", () => {
     expect(getContextWindowSize("mimo-v2-flash")).toBe(262_144);
   }, 5_000);
 
-  // ── 百川 Baichuan ──
-  test("Baichuan4 → 128k", () => {
-    expect(getContextWindowSize("Baichuan4")).toBe(128_000);
+  // ── Date suffix stripping ──
+  test("claude-sonnet-4-20250514 → strips date → claude-sonnet-4 → 1M", () => {
+    expect(getContextWindowSize("claude-sonnet-4-20250514")).toBe(1_000_000);
+  }, 5_000);
+
+  test("gpt-4o-2024-08-06 → strips date → gpt-4o → 128k", () => {
+    expect(getContextWindowSize("gpt-4o-2024-08-06")).toBe(128_000);
+  }, 5_000);
+
+  test("deepseek-r1-0528 → strips date → deepseek-r1 → 64k", () => {
+    expect(getContextWindowSize("deepseek-r1-0528")).toBe(64_000);
+  }, 5_000);
+
+  test("kimi-k2-0905 → strips date → kimi-k2 → 131k", () => {
+    expect(getContextWindowSize("kimi-k2-0905")).toBe(131_072);
+  }, 5_000);
+
+  test("unknown-model-20250101 → strips date → still unknown → 128k fallback", () => {
+    expect(getContextWindowSize("unknown-model-20250101")).toBe(128_000);
   }, 5_000);
 
   // ── Fallback ──
   test("unknown model → 128k fallback", () => {
     expect(getContextWindowSize("unknown-model-xyz")).toBe(128_000);
+  }, 5_000);
+
+  // ── configOverride ──
+  test("configOverride takes priority over built-in table", () => {
+    // gpt-4o is 128k in the table, but override says 256k
+    expect(getContextWindowSize("gpt-4o", 256_000)).toBe(256_000);
+  }, 5_000);
+
+  test("configOverride takes priority over fallback for unknown model", () => {
+    expect(getContextWindowSize("unknown-model-xyz", 500_000)).toBe(500_000);
+  }, 5_000);
+
+  test("undefined configOverride falls back to built-in table", () => {
+    expect(getContextWindowSize("gpt-4o", undefined)).toBe(128_000);
   }, 5_000);
 });

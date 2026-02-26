@@ -727,4 +727,81 @@ system:
       expect(settings.session.compactThreshold).toBe(0.6);
     }, 5_000);
   });
+
+  describe("LLMConfig contextWindow", () => {
+    test("contextWindow is undefined by default", () => {
+      const settings = SettingsSchema.parse({
+        dataDir: "/tmp/test",
+      });
+      expect(settings.llm.contextWindow).toBeUndefined();
+    }, 5_000);
+
+    test("contextWindow can be set to a positive integer", () => {
+      const settings = SettingsSchema.parse({
+        dataDir: "/tmp/test",
+        llm: { contextWindow: 256000 },
+      });
+      expect(settings.llm.contextWindow).toBe(256000);
+    }, 5_000);
+
+    test("contextWindow coerces string to number", () => {
+      const settings = SettingsSchema.parse({
+        dataDir: "/tmp/test",
+        llm: { contextWindow: "131072" },
+      });
+      expect(settings.llm.contextWindow).toBe(131072);
+    }, 5_000);
+
+    test("contextWindow is loaded from config file", () => {
+      resetSettings();
+
+      const config = `
+llm:
+  provider: openai
+  contextWindow: 500000
+system:
+  dataDir: /tmp/test
+`;
+      writeFileSync("config.yml", config);
+
+      const settings = loadSettings();
+      expect(settings.llm.contextWindow).toBe(500000);
+    }, 5_000);
+
+    test("contextWindow from env var via interpolation", () => {
+      resetSettings();
+      process.env.LLM_CONTEXT_WINDOW = "262144";
+
+      const config = `
+llm:
+  provider: openai
+  contextWindow: \${LLM_CONTEXT_WINDOW}
+system:
+  dataDir: /tmp/test
+`;
+      writeFileSync("config.yml", config);
+
+      const settings = loadSettings();
+      expect(settings.llm.contextWindow).toBe(262144);
+
+      delete process.env.LLM_CONTEXT_WINDOW;
+    }, 5_000);
+
+    test("contextWindow remains undefined when env var is empty", () => {
+      resetSettings();
+      delete process.env.LLM_CONTEXT_WINDOW;
+
+      const config = `
+llm:
+  provider: openai
+  contextWindow: \${LLM_CONTEXT_WINDOW:-}
+system:
+  dataDir: /tmp/test
+`;
+      writeFileSync("config.yml", config);
+
+      const settings = loadSettings();
+      expect(settings.llm.contextWindow).toBeUndefined();
+    }, 5_000);
+  });
 });

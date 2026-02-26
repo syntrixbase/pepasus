@@ -619,6 +619,89 @@ describe("MainAgent", () => {
     await agent.stop();
   }, 10_000);
 
+  it("should use config contextWindow for compact threshold", async () => {
+    // Create a model that returns moderate promptTokens.
+    // With default gpt-4o (128k), 80k tokens would NOT trigger compact (threshold 0.8 → 102.4k).
+    // But with contextWindow override of 50_000, threshold is 0.8 * 50k = 40k → SHOULD trigger compact.
+    let callCount = 0;
+    const model: LanguageModel = {
+      provider: "test",
+      modelId: "gpt-4o", // Built-in: 128k
+      async generate(options: {
+        system?: string;
+        messages: Message[];
+      }): Promise<GenerateTextResult> {
+        callCount++;
+
+        // First call: return 80k promptTokens
+        if (callCount === 1) {
+          return {
+            text: "",
+            finishReason: "tool_calls",
+            toolCalls: [
+              {
+                id: "tc-reply-1",
+                name: "reply",
+                arguments: { text: "Got it!", channelId: "test" },
+              },
+            ],
+            usage: { promptTokens: 80_000, completionTokens: 10 },
+          };
+        }
+        // Summarize call
+        if (options.system?.toLowerCase().includes("summarize")) {
+          return {
+            text: "Summary: user asked a question.",
+            finishReason: "stop",
+            usage: { promptTokens: 50, completionTokens: 20 },
+          };
+        }
+        // After compact
+        return {
+          text: "",
+          finishReason: "tool_calls",
+          toolCalls: [
+            {
+              id: `tc-reply-${callCount}`,
+              name: "reply",
+              arguments: { text: "After compact!", channelId: "test" },
+            },
+          ],
+          usage: { promptTokens: 100, completionTokens: 10 },
+        };
+      },
+    };
+
+    const settings = SettingsSchema.parse({
+      dataDir: testDataDir,
+      logLevel: "warn",
+      llm: { contextWindow: 50_000 }, // Override: 50k instead of 128k
+      session: { compactThreshold: 0.8 },
+    });
+
+    const agent = new MainAgent({ model, persona: testPersona, settings });
+    await agent.start();
+
+    const replies: OutboundMessage[] = [];
+    agent.onReply((msg) => replies.push(msg));
+
+    // First message — sets lastPromptTokens to 80k
+    agent.send({ text: "hello", channel: { type: "cli", channelId: "test" } });
+    await Bun.sleep(500);
+
+    // Second message — should trigger compact (80k > 50k * 0.8 = 40k)
+    agent.send({ text: "how are you", channel: { type: "cli", channelId: "test" } });
+    await Bun.sleep(500);
+
+    // Verify compact happened: archive file should exist
+    const { readdir } = await import("node:fs/promises");
+    const files = await readdir(`${testDataDir}/main`);
+    const archives = files.filter((f: string) => f.endsWith(".jsonl") && f !== "current.jsonl");
+    expect(archives.length).toBeGreaterThanOrEqual(1);
+
+    await agent.stop();
+  }, 15_000);
+
   it("should compact session when tokens exceed threshold", async () => {
     // Create a model that returns large promptTokens to trigger compact
     let callCount = 0;

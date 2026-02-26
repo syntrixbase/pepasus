@@ -319,7 +319,10 @@ export class MainAgent {
    * Returns true if compact was performed.
    */
   private async _checkAndCompact(): Promise<boolean> {
-    const contextWindow = getContextWindowSize(this.model.modelId);
+    const contextWindow = getContextWindowSize(
+      this.model.modelId,
+      this.settings.llm.contextWindow,
+    );
     const threshold = this.settings.session?.compactThreshold ?? 0.8;
     const maxTokens = contextWindow * threshold;
 
