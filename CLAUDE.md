@@ -30,6 +30,7 @@ IMMEDIATELY STOP and ask user when:
   5. Merge to main (CI passed)
   6. DO NOT merge or push to main directly under any circumstances
 - **NEVER delete or modify files under `data/`**: The `data/` directory contains live runtime data (sessions, task logs, memory). Never `rm -rf data/`, never clean up `data/` subdirectories. If you suspect test pollution, report it — do NOT delete.
+- **NEVER remove or modify worktrees you did not create**: Other worktrees (e.g., `/workspace/pegasus-1`) belong to the user or other sessions. Never run `git worktree remove` on them. If a worktree blocks an operation, STOP and ask the user — do NOT force-remove it.
 
 ## 🔄 DECISION TREE
 
