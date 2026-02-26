@@ -53,6 +53,21 @@ function createToolCallMockModel(toolCalls: ToolCall[]): LanguageModel & { lastO
   return model;
 }
 
+function createMockModelWithCapture(onGenerate: (opts: any) => void): LanguageModel {
+  return {
+    provider: "test",
+    modelId: "test-model",
+    async generate(options: any) {
+      onGenerate(options);
+      return {
+        text: "response",
+        finishReason: "stop",
+        usage: { promptTokens: 10, completionTokens: 10 },
+      };
+    },
+  };
+}
+
 function makePlanStep(overrides: Partial<PlanStep> = {}): PlanStep {
   return {
     index: 0,
@@ -183,54 +198,49 @@ describe("Thinker", () => {
     expect(reasoning.approach).toBe("direct");
   });
 
-  test("thinker should pass memory index to system prompt", async () => {
+  test("Thinker should inject memory index as first user message", async () => {
+    let capturedMessages: Message[] = [];
     let capturedSystem = "";
-    const mockModel: LanguageModel = {
-      provider: "test",
-      modelId: "test-model",
-      async generate(options: any) {
-        capturedSystem = options.system || "";
-        return {
-          text: "ok",
-          finishReason: "stop",
-          usage: { promptTokens: 0, completionTokens: 0 },
-        };
-      },
-    };
+    const model = createMockModelWithCapture((opts) => {
+      capturedSystem = opts.system ?? "";
+      capturedMessages = opts.messages ?? [];
+    });
+    const thinker = new Thinker(model, testPersona);
 
+    const ctx = createTaskContext({ inputText: "Hello" });
     const memoryIndex = [
-      { path: "facts/user.md", summary: "user name", size: 100 },
+      { path: "facts/user.md", summary: "user info", size: 100 },
     ];
 
-    const thinker = new Thinker(mockModel, testPersona);
-    const ctx = createTaskContext({ inputText: "hello" });
     await thinker.run(ctx, memoryIndex);
 
-    expect(capturedSystem).toContain("facts/user.md");
-    expect(capturedSystem).toContain("user name");
-    expect(capturedSystem).toContain("Available memory:");
+    // Memory should NOT be in system prompt
+    expect(capturedSystem).not.toContain("Available memory");
+
+    // Memory should be first user message
+    expect(capturedMessages[0]!.role).toBe("user");
+    expect(capturedMessages[0]!.content).toContain("[Available memory]");
+    expect(capturedMessages[0]!.content).toContain("facts/user.md");
+
+    // Original input should be second user message
+    expect(capturedMessages[1]!.role).toBe("user");
+    expect(capturedMessages[1]!.content).toBe("Hello");
   });
 
-  test("thinker works without memory index", async () => {
-    let capturedSystem = "";
-    const mockModel: LanguageModel = {
-      provider: "test",
-      modelId: "test-model",
-      async generate(options: any) {
-        capturedSystem = options.system || "";
-        return {
-          text: "ok",
-          finishReason: "stop",
-          usage: { promptTokens: 0, completionTokens: 0 },
-        };
-      },
-    };
+  test("Thinker works without memory index", async () => {
+    let capturedMessages: Message[] = [];
+    const model = createMockModelWithCapture((opts) => {
+      capturedMessages = opts.messages ?? [];
+    });
+    const thinker = new Thinker(model, testPersona);
 
-    const thinker = new Thinker(mockModel, testPersona);
-    const ctx = createTaskContext({ inputText: "hello" });
+    const ctx = createTaskContext({ inputText: "Hello" });
     await thinker.run(ctx);
 
-    expect(capturedSystem).not.toContain("Available memory:");
+    // No memory message prepended
+    expect(capturedMessages[0]!.role).toBe("user");
+    expect(capturedMessages[0]!.content).toBe("Hello");
+    expect(capturedMessages[0]!.content).not.toContain("[Available memory]");
   });
 });
 

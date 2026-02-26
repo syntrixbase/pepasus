@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { loadPersona, PersonaSchema } from "@pegasus/identity/persona.ts";
-import { buildSystemPrompt } from "@pegasus/identity/prompt.ts";
+import { buildSystemPrompt, formatSize } from "@pegasus/identity/prompt.ts";
 import type { Persona } from "@pegasus/identity/persona.ts";
 import { writeFileSync, unlinkSync, mkdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
@@ -190,39 +190,25 @@ describe("buildSystemPrompt", () => {
     expect(prompt.length).toBeGreaterThan(50);
   });
 
-  test("should include memory index in reason stage prompt", () => {
-    const memoryIndex = [
-      { path: "facts/user.md", summary: "user name, language", size: 320 },
-      { path: "episodes/2026-02.md", summary: "logger fix, short ID", size: 1200 },
-    ];
-
-    const prompt = buildSystemPrompt(persona, "reason", memoryIndex);
-
-    expect(prompt).toContain("Available memory:");
-    expect(prompt).toContain("facts/user.md (320B): user name, language");
-    expect(prompt).toContain("episodes/2026-02.md (1.2KB): logger fix, short ID");
-    expect(prompt).toContain("memory_read");
-  });
-
-  test("should not include memory section when index is empty", () => {
-    const prompt = buildSystemPrompt(persona, "reason", []);
-    expect(prompt).not.toContain("Available memory:");
-  });
-
-  test("should not include memory section when index is undefined", () => {
+  test("should NOT include memory index in system prompt (moved to user message)", () => {
     const prompt = buildSystemPrompt(persona, "reason");
-    expect(prompt).not.toContain("Available memory:");
+    expect(prompt).not.toContain("Available memory");
+    expect(prompt).not.toContain("memory_read");
   });
 
-  test("should format sizes correctly for memory index", () => {
-    const memoryIndex = [
-      { path: "facts/small.md", summary: "small", size: 100 },
-      { path: "facts/large.md", summary: "large", size: 2048 },
-    ];
+  test("should not include memory section in system prompt", () => {
+    const prompt = buildSystemPrompt(persona, "reason");
+    expect(prompt).not.toContain("Available memory");
+  });
 
-    const prompt = buildSystemPrompt(persona, undefined, memoryIndex);
+  test("should not include memory section when no stage", () => {
+    const prompt = buildSystemPrompt(persona);
+    expect(prompt).not.toContain("Available memory");
+  });
 
-    expect(prompt).toContain("100B");
-    expect(prompt).toContain("2.0KB");
+  test("formatSize formats bytes correctly", () => {
+    expect(formatSize(500)).toBe("500B");
+    expect(formatSize(1024)).toBe("1.0KB");
+    expect(formatSize(2560)).toBe("2.5KB");
   });
 });

@@ -373,19 +373,21 @@ export class Agent {
       );
       return;
     }
-    // Fetch memory index (non-blocking, graceful failure)
+    // Fetch memory index ONLY on first iteration (cache-friendly: avoids system prompt mutation)
     let memoryIndex: MemoryIndexEntry[] | undefined;
-    try {
-      const memResult = await this.toolExecutor.execute(
-        "memory_list",
-        {},
-        { taskId: task.context.id, memoryDir: path.join(this.settings.dataDir, "memory") },
-      );
-      if (memResult.success && Array.isArray(memResult.result)) {
-        memoryIndex = memResult.result as MemoryIndexEntry[];
+    if (task.context.iteration === 1) {
+      try {
+        const memResult = await this.toolExecutor.execute(
+          "memory_list",
+          {},
+          { taskId: task.context.id, memoryDir: path.join(this.settings.dataDir, "memory") },
+        );
+        if (memResult.success && Array.isArray(memResult.result)) {
+          memoryIndex = memResult.result as MemoryIndexEntry[];
+        }
+      } catch {
+        // Memory unavailable — continue without it
       }
-    } catch {
-      // Memory unavailable — continue without it
     }
 
     const reasoning = await this.llmSemaphore.use(() =>
