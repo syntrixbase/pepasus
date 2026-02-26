@@ -1,72 +1,72 @@
-# 🚀 运行 M1：CLI 对话
+# Running Pegasus
 
-本文档说明如何配置和运行 Pegasus CLI 进行对话。
+This document explains how to set up, configure, and run the Pegasus CLI.
 
-## 前置要求
+## Prerequisites
 
-**选择以下任一选项：**
+1. **Bun runtime** — [bun.sh](https://bun.sh)
+2. **An LLM provider** — choose one:
+   - **Cloud API** — OpenAI or Anthropic API key
+     - OpenAI: [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
+     - Anthropic: [console.anthropic.com/settings/keys](https://console.anthropic.com/settings/keys)
+   - **Local model** — Ollama, LM Studio, or any OpenAI-compatible server (no API key required)
+     - [Ollama](https://ollama.com/) — recommended, easy to use
+     - [LM Studio](https://lmstudio.ai/) — GUI-based
 
-1. **云端 API** — OpenAI 或 Anthropic API Key
-   - OpenAI: [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
-   - Anthropic: [console.anthropic.com/settings/keys](https://console.anthropic.com/settings/keys)
+## Quick Start
 
-2. **本地模型** — Ollama、LM Studio 等（无需 API key）
-   - [Ollama](https://ollama.com/) - 推荐，易用
-   - [LM Studio](https://lmstudio.ai/) - GUI 界面
-   - 其他 OpenAI-compatible 服务
-
-3. Bun 运行时（已安装）
-
-## 快速开始
-
-### 选项 1: 使用 OpenAI（推荐，性价比高）
+### Option 1: OpenAI (default)
 
 ```bash
-# 1. 复制配置模板
+# 1. Install dependencies
+bun install
+
+# 2. Set your API key
 cp .env.example .env
+# Edit .env — set OPENAI_API_KEY=sk-proj-...
 
-# 2. 编辑 .env 文件
-# LLM_PROVIDER=openai
-# LLM_API_KEY=sk-proj-your-key-here
-# LLM_MODEL=gpt-4o-mini
-
-# 3. 启动
+# 3. Start the CLI
 bun run dev
 ```
 
-### 选项 2: 使用本地 Ollama（免费，无需 API key）
+The default model is `openai/gpt-4o` as defined in `config.yml`. Override it with:
 
 ```bash
-# 1. 安装并启动 Ollama
-# macOS/Linux: brew install ollama && ollama serve
-# 或访问 https://ollama.com/download
+LLM_DEFAULT_MODEL=openai/gpt-4o-mini
+```
 
-# 2. 拉取模型
+### Option 2: Anthropic Claude
+
+```bash
+# In .env:
+ANTHROPIC_API_KEY=sk-ant-api03-...
+LLM_DEFAULT_MODEL=anthropic/claude-sonnet-4-20250514
+
+bun run dev
+```
+
+### Option 3: Ollama (free, local, no API key)
+
+```bash
+# 1. Install and start Ollama
+# macOS/Linux: brew install ollama && ollama serve
+# Or visit https://ollama.com/download
+
+# 2. Pull a model
 ollama pull llama3.2
 
-# 3. 配置 .env
-# LLM_PROVIDER=openai-compatible
-# LLM_BASE_URL=http://localhost:11434/v1
-# LLM_MODEL=llama3.2:latest
-# LLM_API_KEY=dummy
+# 3. In .env:
+LLM_DEFAULT_MODEL=ollama/llama3.2:latest
 
-# 4. 启动
+# 4. Start
 bun run dev
 ```
 
-### 选项 3: 使用 Anthropic Claude
+The `ollama` provider is pre-configured in `config.yml` to point at `http://localhost:11434/v1`.
 
-```bash
-# 1. 配置 .env
-# LLM_PROVIDER=anthropic
-# LLM_API_KEY=sk-ant-api03-your-key-here
-# LLM_MODEL=claude-sonnet-4-20250514
+### Welcome Screen
 
-# 2. 启动
-bun run dev
-```
-
-你会看到欢迎界面：
+After launching, you will see:
 
 ```
 ╔══════════════════════════════════════╗
@@ -78,85 +78,170 @@ bun run dev
 >
 ```
 
-### 3. 开始对话
+### Example Conversation
 
 ```bash
-> 你好
-  Pegasus: 你好！我是 Pegasus，很高兴认识你。有什么我可以帮你的吗？
+> Hello
+  Pegasus: Hello! I'm Pegasus. How can I help you today?
 
-> 帮我想一个项目名
-  Pegasus: [根据 persona 风格生成回复...]
+> Help me brainstorm a project name
+  Pegasus: [generates a reply based on persona style...]
 
 > /exit
 👋 Goodbye!
 ```
 
-## 可用命令
+## CLI Commands
 
-| 命令 | 说明 |
-|------|------|
-| `/help` | 显示帮助信息 |
-| `/exit` 或 `/quit` | 退出 CLI |
+| Command | Description |
+|---------|-------------|
+| `/help` | Show help message |
+| `/exit` or `/quit` | Exit the CLI |
 
-## 配置说明
+## Configuration
 
-### 默认配置（开箱即用）
+### How Configuration Works
 
-以下配置有合理的默认值，无需在 `.env` 中设置：
+Pegasus uses a layered configuration system with the following priority (highest to lowest):
 
-| 配置项 | 默认值 | 说明 |
-|--------|--------|------|
-| `LLM_PROVIDER` | `openai` | LLM 提供商 |
-| `LLM_MODEL` | `gpt-4o-mini` | 默认模型（性价比高） |
-| `IDENTITY_PERSONA_PATH` | `data/personas/default.json` | 默认人格配置 |
-| `AGENT_MAX_ACTIVE_TASKS` | `5` | 最大并发任务数 |
-| `PEGASUS_LOG_LEVEL` | `info` | 日志级别 |
-
-### 支持的 LLM Providers
-
-| Provider | 配置 | 说明 |
-|----------|------|------|
-| **OpenAI** | `LLM_PROVIDER=openai` | GPT-4o, GPT-4o-mini 等 |
-| **Anthropic** | `LLM_PROVIDER=anthropic` | Claude Sonnet 4, Opus 4 等 |
-| **Ollama** | `LLM_PROVIDER=openai-compatible`<br>`LLM_BASE_URL=http://localhost:11434/v1` | 本地运行，免费 |
-| **LM Studio** | `LLM_PROVIDER=openai-compatible`<br>`LLM_BASE_URL=http://localhost:1234/v1` | 本地运行，GUI 界面 |
-| **Together AI** | `LLM_PROVIDER=openai-compatible`<br>`LLM_BASE_URL=https://api.together.xyz/v1` | 开源模型托管 |
-| **任何 OpenAI-compatible** | `LLM_PROVIDER=openai-compatible`<br>`LLM_BASE_URL=your-url` | vLLM, FastChat 等 |
-
-### 自定义配置
-
-编辑 `.env` 文件自定义配置：
-
-```bash
-# 使用更强大的 OpenAI 模型
-LLM_PROVIDER=openai
-LLM_MODEL=gpt-4o
-LLM_API_KEY=sk-proj-...
-
-# 使用 Claude Opus（最强但最贵）
-LLM_PROVIDER=anthropic
-LLM_MODEL=claude-opus-4-20250514
-LLM_API_KEY=sk-ant-...
-
-# 使用本地 Ollama（免费）
-LLM_PROVIDER=openai-compatible
-LLM_BASE_URL=http://localhost:11434/v1
-LLM_MODEL=qwen2.5:latest
-LLM_API_KEY=dummy
-
-# 使用自定义 persona
-IDENTITY_PERSONA_PATH=data/personas/my-custom.json
-
-# 调试模式（显示详细日志）
-PEGASUS_LOG_LEVEL=debug
+```
+Environment Variables > config.local.yml > config.yml > Schema Defaults
 ```
 
-### 自定义 Persona
+- **`config.yml`** — Base configuration, checked into version control.
+- **`config.local.yml`** — Local overrides, gitignored. Create this for personal settings.
+- **`.env`** — Environment variables, gitignored. Used by `config.yml` via `${VAR}` interpolation.
 
-创建自己的 persona 配置文件：
+`config.yml` supports bash-style env var interpolation:
+
+| Syntax | Behavior |
+|--------|----------|
+| `${VAR}` | Use env var (empty string if unset) |
+| `${VAR:-default}` | Use `default` if VAR is unset or empty |
+| `${VAR:=default}` | Use and assign `default` if VAR is unset or empty |
+| `${VAR:?error}` | Error if VAR is unset or empty |
+| `${VAR:+alternate}` | Use `alternate` only if VAR is set |
+
+### Multi-Model Architecture (Providers & Roles)
+
+Pegasus supports multiple LLM providers simultaneously. The configuration uses two concepts:
+
+**Providers** — Named connections to LLM services, defined in `llm.providers`:
+
+```yaml
+llm:
+  providers:
+    openai:
+      apiKey: ${OPENAI_API_KEY}
+      baseURL: ${OPENAI_BASE_URL:-}
+
+    anthropic:
+      apiKey: ${ANTHROPIC_API_KEY}
+      baseURL: ${ANTHROPIC_BASE_URL:-}
+
+    ollama:
+      type: openai          # OpenAI-compatible protocol
+      apiKey: dummy
+      baseURL: ${OLLAMA_BASE_URL:-http://localhost:11434/v1}
+```
+
+Each provider has:
+- `type` — SDK type: `openai` or `anthropic`. Auto-detected from the provider name if the name is `openai` or `anthropic`; otherwise required.
+- `apiKey` — API key (use `dummy` for local models).
+- `baseURL` — Optional custom endpoint.
+
+**Roles** — Map agent responsibilities to specific models, using `"provider/model"` format:
+
+```yaml
+llm:
+  roles:
+    default: openai/gpt-4o         # Main model for all tasks
+    subAgent: anthropic/claude-sonnet-4-20250514  # Sub-agent tasks
+    compact:                         # Context compaction (falls back to default)
+    reflection:                      # Self-reflection (falls back to default)
+```
+
+Roles without a value fall back to `default`. Override via environment variables:
+
+```bash
+LLM_DEFAULT_MODEL=anthropic/claude-sonnet-4-20250514
+LLM_SUB_AGENT_MODEL=openai/gpt-4o-mini
+LLM_COMPACT_MODEL=openai/gpt-4o-mini
+LLM_REFLECTION_MODEL=openai/gpt-4o-mini
+```
+
+### Adding a Custom Provider
+
+To add a new OpenAI-compatible provider (e.g., Together AI), add it to `config.yml` or `config.local.yml`:
+
+```yaml
+llm:
+  providers:
+    together:
+      type: openai
+      apiKey: ${TOGETHER_API_KEY}
+      baseURL: https://api.together.xyz/v1
+
+  roles:
+    default: together/meta-llama/Llama-3-70b-chat-hf
+```
+
+### Full Configuration Reference
+
+#### LLM Settings (`llm.*`)
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `llm.roles.default` | `openai/gpt-4o` | Default model in `provider/model` format |
+| `llm.maxConcurrentCalls` | `3` | Max parallel LLM requests |
+| `llm.timeout` | `120` | LLM call timeout in seconds |
+| `llm.contextWindow` | Auto-detected | Override context window size (tokens) |
+
+#### Identity (`identity.*`)
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `identity.personaPath` | `data/personas/default.json` | Path to persona JSON file |
+
+#### Agent (`agent.*`)
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `agent.maxActiveTasks` | `5` | Max concurrent tasks |
+| `agent.maxConcurrentTools` | `3` | Max parallel tool executions |
+| `agent.maxCognitiveIterations` | `10` | Max cognitive loop iterations per task |
+| `agent.heartbeatInterval` | `60` | Heartbeat interval in seconds |
+| `agent.taskTimeout` | `300` | Max wait time for task completion (seconds) |
+
+#### Tools (`tools.*`)
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `tools.timeout` | `60` | Tool execution timeout in seconds |
+| `tools.allowedPaths` | `[]` | Allowed paths for file operations (empty = no restriction) |
+| `tools.webSearch.provider` | `tavily` | Web search provider (`tavily`, `google`, `bing`, `duckduckgo`) |
+| `tools.webSearch.apiKey` | — | Web search API key |
+| `tools.mcpServers` | `[]` | MCP server configurations |
+
+#### Session (`session.*`)
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `session.compactThreshold` | `0.8` | Fraction of context window that triggers compaction (0.1–1.0) |
+
+#### System (`system.*`)
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `system.logLevel` | `info` | Log level: `debug`, `info`, `warn`, `error`, `silent` |
+| `system.dataDir` | `data` | Data directory for logs, sessions, and personas |
+| `system.logFormat` | `json` | Log format: `json` (structured) or `line` (human-readable) |
+
+### Custom Persona
+
+Create a persona file:
 
 ```json
-// data/personas/my-assistant.json
 {
   "name": "Alice",
   "role": "helpful assistant",
@@ -167,131 +252,111 @@ PEGASUS_LOG_LEVEL=debug
 }
 ```
 
-然后在 `.env` 中引用：
+Then reference it in `.env`:
 
 ```bash
 IDENTITY_PERSONA_PATH=data/personas/my-assistant.json
 ```
 
-## 故障排除
+## Available Scripts
 
-### 问题：CLI 卡住不响应
+| Command | Description |
+|---------|-------------|
+| `bun run dev` | Start the CLI |
+| `bun test` | Run all tests |
+| `bun run coverage` | Run tests with coverage |
+| `bun run typecheck` | Type-check without emitting |
+| `bun run check` | Typecheck + test |
+| `bun run logs` | Tail live logs with pretty formatting |
+| `bun run logs:all` | View all rotated log files |
+| `make test` | Run tests (via Makefile) |
+| `make coverage` | Run tests with coverage (via Makefile) |
+| `make check` | Typecheck + test (via Makefile) |
 
-**原因**：可能在等待 LLM 响应或遇到网络问题。
+## Troubleshooting
 
-**解决**：
-1. 检查网络连接
-2. 验证 API key 是否有效
-3. 查看日志输出（设置 `PEGASUS_LOG_LEVEL=debug`）
-4. 按 `Ctrl+C` 中断，重新启动
+### CLI hangs with no response
 
-### 问题：API Key 未设置
+**Cause**: May be waiting for the LLM or a network issue.
 
-**错误信息**：
+**Solution**:
+1. Check your network connection
+2. Verify the API key is valid
+3. Enable debug logging: `PEGASUS_LOG_LEVEL=debug bun run dev`
+4. Press `Ctrl+C` to interrupt, then restart
+
+### API key not set
+
+**Error**:
 ```
-Error: API key is required for provider: openai
+Provider "openai" not found in llm.providers
 ```
 
-**解决**：
+**Solution**: Ensure `.env` contains the API key for the provider you're using:
+
 ```bash
-# 确保 .env 文件存在且包含 API key
-cat .env | grep LLM_API_KEY
+# For OpenAI
+OPENAI_API_KEY=sk-proj-...
 
-# 如果没有，创建 .env 文件
-cat > .env << EOF
-LLM_PROVIDER=openai
-LLM_API_KEY=your-key-here
-LLM_MODEL=gpt-4o-mini
-EOF
+# For Anthropic
+ANTHROPIC_API_KEY=sk-ant-api03-...
 ```
 
-**使用本地模型无需 API key**：
+To use a local model (no API key needed):
 ```bash
-# Ollama 配置（无需真实 API key）
-cat > .env << EOF
-LLM_PROVIDER=openai-compatible
-LLM_BASE_URL=http://localhost:11434/v1
-LLM_MODEL=llama3.2:latest
-LLM_API_KEY=dummy
-EOF
+LLM_DEFAULT_MODEL=ollama/llama3.2:latest
 ```
 
-### 问题：`data/personas/default.json` 不存在
+### Persona file not found
 
-**错误信息**：
+**Error**:
 ```
 Error: ENOENT: no such file or directory
 ```
 
-**解决**：
-这个文件应该在版本控制中。如果缺失，检查 git 状态：
+**Solution**: The default persona file should exist at `data/personas/default.json`. Verify:
 
 ```bash
-git status data/personas/
+ls data/personas/default.json
 ```
 
-### 问题：API 配额不足
+### API rate limit exceeded
 
-**错误信息**：
+**Error**:
 ```
 Error: Rate limit exceeded
 ```
 
-**解决**：
-1. 检查 [Anthropic Console](https://console.anthropic.com/settings/limits) 配额
-2. 升级计划或等待配额重置
-3. 临时使用 GPT（需要实现 OpenAI provider）
+**Solution**:
+1. Check your usage limits on the provider's dashboard
+2. Upgrade your plan or wait for the quota to reset
+3. Switch to a different provider/model temporarily
 
-## 测试验证
+## Architecture Overview
 
-### 验证配置加载
-
-```bash
-# 运行配置测试
-bun test tests/unit/infra.test.ts
-```
-
-### 验证 Persona 加载
-
-```bash
-# 运行身份系统测试
-bun test tests/unit/identity.test.ts
-```
-
-### 验证完整流程
-
-```bash
-# 运行集成测试（不需要真实 API key）
-bun test tests/integration/agent-lifecycle.test.ts
-```
-
-## 架构说明
-
-CLI 的执行流程：
+The CLI execution flow:
 
 ```
 startCLI()
   ↓
-1. 加载配置 (getSettings())
-2. 加载 persona (loadPersona())
-3. 创建 LLM model (createAnthropic())
-4. 创建 Agent({ model, persona })
-5. 启动 Agent (agent.start())
+1. Load configuration     (getSettings())
+2. Initialize logger      (initLogger())
+3. Load persona           (loadPersona())
+4. Create ModelRegistry   (new ModelRegistry(settings.llm))
+5. Create MainAgent       (new MainAgent({ models, persona, settings }))
+6. Start agent            (mainAgent.start())
   ↓
-用户输入 → agent.submit(text) → TaskFSM 认知循环
+User input → mainAgent.send(text) → TaskFSM cognitive loop
   ↓
-REASONING → ACTING → REFLECTING
+REASONING → ACTING → COMPLETED (or loop back to REASONING)
   ↓
-agent.waitForTask(id) → 提取 response → 显示给用户
+mainAgent.onReply(callback) → display response to user
 ```
 
-## 下一步
+## Related Documentation
 
-- **M4: 会思考** — 增强复杂任务分解能力
-- **M5: 能并发** — 多任务并发处理验证
-
-## 相关文档
-
-- [Architecture](./architecture.md) - 系统架构总览
-- [Memory System](./memory-system.md) - 长期记忆设计
-- [Cognitive Processors](./cognitive.md) - 认知处理器
+- [Architecture](./architecture.md) — System architecture overview
+- [Configuration](./configuration.md) — YAML config and env var interpolation
+- [Cognitive Processors](./cognitive.md) — Cognitive pipeline: Reason → Act (2-stage)
+- [Memory System](./memory-system.md) — Long-term memory design
+- [Logging](./logging.md) — Log format, output, and rotation

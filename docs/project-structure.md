@@ -1,125 +1,130 @@
-# 代码目录结构
+# Project Structure
 
 ```
 pegasus/
 │
-├── package.json                    # 项目配置、依赖管理
-├── tsconfig.json                   # TypeScript 编译配置
-├── Makefile                        # 常用开发命令
-├── CLAUDE.md                       # Claude Code 开发指南
+├── package.json                    # Project config, dependencies
+├── tsconfig.json                   # TypeScript compiler config
+├── Makefile                        # Dev commands (check, coverage, etc.)
+├── CLAUDE.md                       # Development guidelines
+├── config.yml                      # Default configuration
 │
-├── docs/                           # 设计文档
-│   ├── architecture.md             # 系统架构总览（入口）
-│   ├── events.md                   # 事件系统
-│   ├── task-fsm.md                 # 任务状态机
-│   ├── agent.md                    # Agent 核心
-│   ├── cognitive.md                # 认知阶段（3 阶段：Reason → Act → Reflect）
-│   ├── project-structure.md        # 本文件
-│   └── mvp-plan.md                 # MVP 实现路线
+├── docs/                           # System design documents
+│   ├── architecture.md             # Layered architecture overview
+│   ├── main-agent.md               # Main Agent: inner monologue, reply tool
+│   ├── cognitive.md                # Cognitive pipeline: Reason → Act (2-stage)
+│   ├── task-fsm.md                 # Task state machine (6 states)
+│   ├── events.md                   # Event system (EventType, EventBus)
+│   ├── agent.md                    # Agent (Task System): event processing
+│   ├── tools.md                    # Tool system: registration, execution
+│   ├── memory-system.md            # Long-term memory: facts + episodes
+│   ├── task-persistence.md         # JSONL event logs, replay
+│   ├── multi-model.md              # Per-role model config with ModelRegistry
+│   ├── session-compact.md          # Auto-compact with context window awareness
+│   ├── configuration.md            # YAML config + env var interpolation
+│   ├── logging.md                  # Log format, output, rotation
+│   ├── running.md                  # Setup and usage guide
+│   └── progress.md                 # Milestones, test coverage
 │
 ├── src/
-│   ├── index.ts                    # 包入口（barrel exports）
-│   ├── agent.ts                    # Agent 核心（事件处理器 + 状态转换编排）
+│   ├── cli.ts                      # CLI channel adapter (entry point)
 │   │
-│   ├── events/                     # 事件系统
-│   │   ├── index.ts
-│   │   ├── types.ts                # Event, EventType 定义
-│   │   └── bus.ts                  # EventBus（优先级队列 + 事件分发）
+│   ├── agents/                     # Agent layer
+│   │   ├── agent.ts                # Task execution engine (event processor)
+│   │   └── main-agent.ts           # Main Agent (inner monologue + task dispatch)
 │   │
-│   ├── task/                       # 任务状态机
-│   │   ├── index.ts
-│   │   ├── states.ts               # TaskState 枚举 + 终态/可挂起状态集合
-│   │   ├── fsm.ts                  # TaskFSM（状态机 + 转换表 + 动态决策）
-│   │   ├── context.ts              # TaskContext, Plan, PlanStep, Reflection, ActionResult
-│   │   └── registry.ts             # TaskRegistry（活跃任务管理）
+│   ├── channels/                   # Channel adapter types
+│   │   └── types.ts                # InboundMessage, OutboundMessage, ChannelInfo
 │   │
-│   ├── cognitive/                  # 认知阶段处理器（纯函数，无状态）
-│   │   ├── index.ts
-│   │   ├── think.ts                # Thinker — 推理思考（LLM 调用）
-│   │   ├── plan.ts                 # Planner — 任务规划（纯代码，在 Reason 内部调用）
-│   │   ├── act.ts                  # Actor — 执行动作
-│   │   └── reflect.ts              # Reflector — 反思评估
+│   ├── session/                    # Session management
+│   │   ├── store.ts                # Session persistence (JSONL) + repair
+│   │   └── context-windows.ts      # Model → context window size mapping
 │   │
-│   ├── tools/                      # 工具系统
-│   │   ├── index.ts
+│   ├── events/                     # Event system
+│   │   ├── types.ts                # Event, EventType definitions
+│   │   └── bus.ts                  # EventBus (priority queue + dispatch)
+│   │
+│   ├── task/                       # Task state machine
+│   │   ├── states.ts               # TaskState (6 states) + terminal/suspendable sets
+│   │   ├── fsm.ts                  # TaskFSM (transitions + dynamic resolution)
+│   │   ├── context.ts              # TaskContext, Plan, PlanStep, ActionResult, PostTaskReflection
+│   │   ├── registry.ts             # TaskRegistry (active task management)
+│   │   └── persister.ts            # TaskPersister (JSONL event logs, replay, recovery)
+│   │
+│   ├── cognitive/                  # Cognitive processors (stateless)
+│   │   ├── think.ts                # Thinker — reasoning (LLM call)
+│   │   ├── plan.ts                 # Planner — task planning (pure code)
+│   │   ├── act.ts                  # Actor — action execution
+│   │   └── reflect.ts              # PostTaskReflector — async memory learning (tool-use loop)
+│   │
+│   ├── tools/                      # Tool system
 │   │   ├── types.ts                # Tool, ToolResult, ToolContext, ToolCategory
-│   │   ├── registry.ts             # ToolRegistry（注册 + LLM 格式转换）
-│   │   ├── executor.ts             # ToolExecutor（参数验证 + 超时 + 事件发射）
-│   │   └── builtins/               # 内置工具
-│   │       ├── index.ts
-│   │       ├── system-tools.ts     # current_time
-│   │       └── memory-tools.ts     # memory_list/read/write/append
+│   │   ├── registry.ts             # ToolRegistry (registration + LLM format)
+│   │   ├── executor.ts             # ToolExecutor (validation + timeout + events)
+│   │   └── builtins/               # Built-in tools
+│   │       ├── index.ts            # Tool collections (allTaskTools, mainAgentTools, reflectionTools)
+│   │       ├── system-tools.ts     # current_time, sleep, get_env, set_env
+│   │       ├── file-tools.ts       # read_file, write_file, edit_file, grep_files, list_files, etc.
+│   │       ├── network-tools.ts    # http_get, http_post, http_request, web_search
+│   │       ├── data-tools.ts       # json_parse, json_stringify, base64_encode/decode
+│   │       ├── memory-tools.ts     # memory_list, memory_read, memory_write, memory_patch, memory_append
+│   │       ├── task-tools.ts       # task_list, task_replay
+│   │       ├── reply-tool.ts       # reply (Main Agent only)
+│   │       └── spawn-task-tool.ts  # spawn_task (Main Agent only)
 │   │
-│   ├── identity/                   # 身份层
-│   │   ├── persona.ts              # Persona 类型定义
-│   │   └── prompt.ts               # 系统提示词构建
+│   ├── identity/                   # Identity layer
+│   │   ├── persona.ts              # Persona type + validation
+│   │   └── prompt.ts               # System prompt builder
 │   │
-│   ├── models/                     # 数据模型
-│   │   ├── index.ts
-│   │   └── tool.ts                 # 工具调用模型（ToolDefinition, ToolCall）
+│   ├── models/                     # Data models
+│   │   └── tool.ts                 # ToolDefinition, ToolCall types
 │   │
-│   └── infra/                      # 基础设施
-│       ├── index.ts
-│       ├── config.ts               # 配置加载（Zod schema + env vars）
-│       ├── config-schema.ts        # 配置 schema 定义
-│       ├── config-loader.ts        # 配置文件加载
-│       ├── logger.ts               # 日志（pino）
-│       ├── errors.ts               # 异常层级（PegasusError → ...）
-│       ├── id.ts                   # 短 ID 生成
-│       ├── llm-types.ts            # LLM 类型定义
-│       └── llm-utils.ts            # LLM 调用工具函数
+│   └── infra/                      # Infrastructure
+│       ├── config-schema.ts        # Zod schema for configuration
+│       ├── config-loader.ts        # YAML + env var loading
+│       ├── model-registry.ts       # ModelRegistry (per-role model resolution)
+│       ├── logger.ts               # pino (lazy init, file-only)
+│       ├── errors.ts               # Error hierarchy (PegasusError → ...)
+│       ├── id.ts                   # Short ID generation
+│       ├── llm-types.ts            # LLM type definitions (Message, LanguageModel)
+│       ├── llm-utils.ts            # LLM call utilities
+│       ├── openai-client.ts        # OpenAI-compatible model client
+│       ├── anthropic-client.ts     # Anthropic model client
+│       └── token-counter.ts        # Token counting (tiktoken / Anthropic API / estimate)
 │
 ├── tests/
-│   ├── unit/
-│   │   ├── events.test.ts          # Event + EventBus 测试
-│   │   ├── task.test.ts            # TaskFSM + Registry + Context 测试
-│   │   ├── cognitive.test.ts       # 认知处理器测试
-│   │   ├── llm-router.test.ts      # LLMRouter 测试
-│   │   └── tools/
-│   │       ├── registry.test.ts    # ToolRegistry 测试
-│   │       ├── executor.test.ts    # ToolExecutor 测试
-│   │       └── memory-tools.test.ts # 记忆工具测试
-│   └── integration/
-│       ├── agent-lifecycle.test.ts  # Agent 端到端测试
-│       └── agent-tool-loop.test.ts  # Agent 工具循环测试
+│   ├── unit/                       # Unit tests
+│   └── integration/                # Integration tests
 │
-└── data/                           # 运行时数据（.gitignore）
-    └── memory/                     # 记忆存储
-        ├── facts/                  # 事实文件
-        └── episodes/               # 经历文件
+└── data/                           # Runtime data (.gitignored)
+    ├── main/                       # Main Agent session (current.jsonl)
+    ├── tasks/                      # Task execution logs (JSONL per task)
+    ├── memory/                     # Long-term memory (facts/, episodes/)
+    ├── personas/                   # Persona config files
+    └── logs/                       # Application logs
 ```
 
-## Tech Stack
-
-| Layer     | Choice           |
-|-----------|-----------------|
-| Runtime   | Bun             |
-| Language  | TypeScript 5.x  |
-| Schema    | Zod             |
-| Logger    | pino            |
-| Test      | bun:test        |
-
-## 模块依赖关系
+## Module Dependencies
 
 ```
-interfaces ──▶ agent ──▶ cognitive
-                 │          │
-                 ├──▶ task  │  （TaskFSM + TaskContext）
-                 │          │
-                 ├──▶ events│  （EventBus + Event）
-                 │          │
-                 ├──▶ identity
-                 │
-                 ├──▶ tools
-                 │
-                 └──▶ llm
+CLI ──▶ MainAgent ──▶ Agent ──▶ cognitive (Thinker, Planner, Actor, PostTaskReflector)
+           │            │          │
+           │            ├──▶ task  │  (TaskFSM + TaskContext + TaskPersister)
+           │            │          │
+           │            ├──▶ events│  (EventBus + Event)
+           │            │
+           │            ├──▶ tools (ToolRegistry + ToolExecutor + builtins)
+           │            │
+           │            └──▶ identity (Persona + prompt)
+           │
+           └──▶ session (SessionStore + context-windows)
 
-所有模块 ──▶ infra（config, logger, errors）
+All modules ──▶ infra (config, logger, errors, ModelRegistry)
 ```
 
-**关键约束**：
-- `interfaces` 只依赖 `agent`（通过 EventBus emit 事件）
-- `cognitive` 处理器不依赖 `agent`（纯函数，接收 TaskContext 返回结果）
-- `task` 不依赖 `cognitive`（状态机不知道认知处理的具体实现）
-- `events` 不依赖任何业务模块（纯基础设施）
-- `agent.ts` 是唯一的「知道所有人」的模块，但它自身是薄层
+**Key constraints:**
+- `cognitive` processors are pure functions — receive TaskContext, return results
+- `task` FSM does not know about cognitive implementation details
+- `events` is pure infrastructure — no business logic dependencies
+- `Agent` is the thin orchestrator that connects everything
+- `MainAgent` sits above Agent, managing user-facing conversation

@@ -68,9 +68,11 @@ Before ANY change:
 | `docs/events.md` | EventType, EventBus, priority queue |
 | `docs/agent.md` | Agent (Task System): event processing, cognitive dispatch |
 | `docs/tools.md` | Tool registration, execution, timeout, LLM function calling |
-| `docs/memory-system.md` | Long-term memory: facts + episodes |
+| `docs/memory-system.md` | Long-term memory: facts + episodes, memory tools |
 | `docs/task-persistence.md` | JSONL event logs, replay, index, pending |
 | `docs/configuration.md` | YAML config + env var interpolation |
+| `docs/multi-model.md` | Per-role model config with ModelRegistry |
+| `docs/session-compact.md` | Auto-compact with context window awareness |
 | `docs/logging.md` | Log format, output, rotation |
 | `docs/running.md` | Setup and usage guide |
 | `docs/progress.md` | Milestones, test coverage, tech stack |

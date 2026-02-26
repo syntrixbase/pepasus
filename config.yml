@@ -35,6 +35,11 @@ llm:
       apiKey: ${ANTHROPIC_API_KEY}
       baseURL: ${ANTHROPIC_BASE_URL:-}
 
+    zai:
+      type: openai  # treat ZAI as OpenAI-compatible
+      apiKey: ${ZAI_API_KEY}
+      baseURL: ${ZAI_BASE_URL:https://api.z.ai/api/coding/paas/v4}
+
     # For Ollama, LM Studio, or other OpenAI-compatible endpoints
     # Usage: roles.default: "ollama/llama3.2:latest"
     ollama:
@@ -45,7 +50,7 @@ llm:
   # Role → model mapping (format: "provider/model")
   # Roles without a value fall back to "default"
   roles:
-    default: ${LLM_DEFAULT_MODEL:-openai/gpt-5.2}
+    default: ${LLM_DEFAULT_MODEL:-openai/gpt-4o}
     subAgent: ${LLM_SUB_AGENT_MODEL:-}
     compact: ${LLM_COMPACT_MODEL:-}
     reflection: ${LLM_REFLECTION_MODEL:-}

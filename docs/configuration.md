@@ -1,573 +1,513 @@
 # Pegasus Configuration Guide
 
-Pegasus 支持两种配置方式：**配置文件（推荐）**和**环境变量**。
+Pegasus uses a **layered YAML configuration** system with environment variable interpolation.
 
-## 🎯 快速开始
+## Quick Start
 
-### 方式 1: 配置文件（推荐）
+### Option 1: Config File (Recommended)
 
 ```bash
-# 1. 编辑默认配置文件
+# 1. Edit the default config file
 vim config.yml
-# 修改 provider 和对应的 apiKey（可选）
 
-# 2. （推荐）创建本地覆盖配置
+# 2. (Recommended) Create a local override file
 cp config.yml config.local.yml
-# 编辑 config.local.yml，只保留需要覆盖的字段
+# Edit config.local.yml — keep only the fields you want to override
 
-# 3. 运行
+# 3. Run
 bun run dev
 ```
 
-**提示**: `config.yml` 是项目默认配置,会提交到 git。`config.local.yml` 用于本地覆盖,不会提交到 git。
+> **Tip**: `config.yml` is the shared base configuration (committed to git). `config.local.yml` is for personal local overrides (gitignored).
 
-### 方式 2: 环境变量
+### Option 2: Environment Variables Only
 
 ```bash
-# 仍然支持 .env 文件
 cp .env.example .env
-# 编辑 .env
+# Edit .env with your API keys
 bun run dev
 ```
 
-## 📋 配置文件格式
+Even in this mode, a `config.yml` file provides the structure; env vars are injected via `${VAR}` placeholders.
 
-### config.yml 结构
+## Config File Structure
+
+### Full `config.yml` Reference
 
 ```yaml
 llm:
-  provider: openai  # openai | anthropic | openai-compatible
-
+  # Provider configurations — each key becomes a provider name.
+  # Referenced in roles as "providerName/modelName".
   providers:
     openai:
       apiKey: ${OPENAI_API_KEY}
-      model: gpt-4o-mini
-      baseURL: null  # Optional: override API endpoint
+      baseURL: ${OPENAI_BASE_URL:-}
 
     anthropic:
       apiKey: ${ANTHROPIC_API_KEY}
-      model: claude-sonnet-4-20250514
-      baseURL: null
+      baseURL: ${ANTHROPIC_BASE_URL:-}
 
-    # For Ollama, LM Studio, etc.
+    # OpenAI-compatible providers (Ollama, LM Studio, ZAI, etc.)
     ollama:
-      apiKey: dummy  # Most local models don't need a real key
-      model: llama3.2:latest
-      baseURL: http://localhost:11434/v1
+      type: openai          # treat as OpenAI-compatible
+      apiKey: dummy
+      baseURL: ${OLLAMA_BASE_URL:-http://localhost:11434/v1}
 
-  maxConcurrentCalls: 3
-  timeout: 120  # seconds
+  # Role → model mapping (format: "provider/model")
+  # Roles without a value fall back to "default".
+  roles:
+    default: openai/gpt-4o-mini    # required
+    subAgent:                       # optional — falls back to default
+    compact:                        # optional — falls back to default
+    reflection:                     # optional — falls back to default
+
+  maxConcurrentCalls: 3   # max parallel LLM requests
+  timeout: 120            # per-request timeout in seconds
+
+  # Context window size (tokens). Auto-detected from model if omitted.
+  # Override when using providers with different context limits.
+  contextWindow:
 
 agent:
   maxActiveTasks: 5
   maxConcurrentTools: 3
   maxCognitiveIterations: 10
-  heartbeatInterval: 60
+  heartbeatInterval: 60   # seconds
+  taskTimeout: 300        # seconds — max wait for task completion
+
+identity:
+  personaPath: data/personas/default.json
+
+tools:
+  timeout: 60                     # tool execution timeout in seconds
+  allowedPaths: []                # restrict file operations (empty = no restriction)
+  webSearch:
+    provider: tavily              # tavily | google | bing | duckduckgo
+    apiKey: ${WEB_SEARCH_API_KEY}
+    maxResults: 10
+  mcpServers: []                  # MCP server configurations
+
+session:
+  compactThreshold: 0.8  # fraction of context window that triggers compaction (0.1–1.0)
 
 system:
-  logLevel: info  # debug | info | warn | error | silent
-  dataDir: data   # System data root (logs, memory, etc.)
-  logFormat: json  # Log format: json | line (default: json)
+  logLevel: info          # debug | info | warn | error | silent
+  dataDir: data           # root directory for all runtime data
+  logFormat: json         # json | line
 ```
 
-### 配置文件查找策略
+## Config File Resolution
 
-Pegasus 采用**分层配置**模式：
+Pegasus uses a **layered config** strategy:
 
-1. **PEGASUS_CONFIG 环境变量**（如果设置）
-2. **config.yml** (默认配置) → **config.local.yml** (本地覆盖,深度合并)
-3. **config.yaml** → **config.local.yaml** (备选,深度合并)
-4. 如果没有找到配置文件，回退到**环境变量模式**
+1. **`PEGASUS_CONFIG` env var** — if set, loads that file exclusively.
+2. **`config.yml`** (base) → deep-merged with **`config.local.yml`** (local override).
+3. **`config.yaml`** → **`config.local.yaml`** (alternate extensions, same behavior).
+4. If no config file is found, hardcoded defaults are used.
 
-**推荐使用 `.yml` 扩展名** (项目默认使用 config.yml)
+> **Recommended**: Use the `.yml` extension (the project default).
 
-**重要**: 不能同时存在 `config.yaml` 和 `config.yml`，也不能同时存在 `config.local.yaml` 和 `config.local.yml`。如果检测到冲突，系统会抛出错误提示你删除其中一个文件。
+**Conflict detection**: You cannot have both `config.yml` and `config.yaml` (or both `config.local.yml` and `config.local.yaml`). If both exist, the loader throws an error.
 
 ```bash
-# ❌ 错误示例 - 会抛出错误
+# ERROR — conflicting files
 $ ls config*
-config.yaml  config.yml  # 冲突！
+config.yaml  config.yml    # conflict!
 
-# ✅ 正确示例 - 推荐使用 .yml
+# OK — recommended
 $ ls config*
-config.yml  config.local.yml  # 正确（推荐）
+config.yml  config.local.yml
 
-# ✅ 也可以使用 .yaml
+# OK — alternate extension
 $ ls config*
-config.yaml  config.local.yaml  # 正确（备选）
+config.yaml  config.local.yaml
 ```
 
-#### 深度合并示例
+### Loading Flow
 
-**config.yml** (基础配置):
+```
+Hardcoded Defaults (DEFAULT_CONFIG)
+        │
+        ▼
+   Deep-merge with config.yml  (env var interpolation applied)
+        │
+        ▼
+   Deep-merge with config.local.yml  (env var interpolation applied)
+        │
+        ▼
+   Map YAML shape → flat Settings shape
+        │
+        ▼
+   Zod schema validation
+        │
+        ▼
+   Settings object
+```
+
+### Deep Merge Example
+
+**config.yml** (base):
 ```yaml
 llm:
-  provider: openai
   providers:
     openai:
-      model: gpt-4o-mini
       apiKey: ${OPENAI_API_KEY}
-      baseURL: https://api.openai.com/v1
+  roles:
+    default: openai/gpt-4o-mini
   timeout: 120
 ```
 
-**config.local.yml** (本地覆盖):
+**config.local.yml** (local override):
 ```yaml
 llm:
-  provider: anthropic  # 覆盖 provider
   providers:
     anthropic:
-      model: claude-sonnet-4  # 添加新配置
       apiKey: ${ANTHROPIC_API_KEY}
-  timeout: 180  # 覆盖 timeout
+  roles:
+    default: anthropic/claude-sonnet-4-20250514
+  timeout: 180
 ```
 
-**最终生效配置**:
+**Effective config**:
 ```yaml
 llm:
-  provider: anthropic  # ← 来自 local
   providers:
-    openai:  # ← 来自 base（保留）
-      model: gpt-4o-mini
+    openai:                                    # ← from base (preserved)
       apiKey: ${OPENAI_API_KEY}
-      baseURL: https://api.openai.com/v1
-    anthropic:  # ← 来自 local
-      model: claude-sonnet-4
+    anthropic:                                 # ← from local (added)
       apiKey: ${ANTHROPIC_API_KEY}
-  timeout: 180  # ← 来自 local
+  roles:
+    default: anthropic/claude-sonnet-4-20250514  # ← from local (overridden)
+  timeout: 180                                 # ← from local (overridden)
 ```
 
-## 🔑 环境变量插值
+## Environment Variable Interpolation
 
-配置文件支持 `${VAR_NAME}` 语法引用环境变量，并支持 bash 风格的默认值语法：
+Config files support `${VAR_NAME}` placeholders with bash-style default value syntax:
 
-### 基础语法
+### Syntax Reference
+
+| Syntax | Behavior |
+|--------|----------|
+| `${VAR}` | Substitute the value of `VAR` (empty string if unset) |
+| `${VAR:-default}` | Use `default` if `VAR` is unset or empty |
+| `${VAR:=default}` | Use `default` and assign it to `VAR` if unset or empty |
+| `${VAR:?error msg}` | Throw an error with `error msg` if `VAR` is unset or empty |
+| `${VAR:+alternate}` | Use `alternate` only if `VAR` is set; empty otherwise |
+
+### Examples
 
 ```yaml
 llm:
   providers:
     openai:
-      apiKey: ${OPENAI_API_KEY}  # 引用环境变量
-```
-
-### Bash 风格默认值语法
-
-配置文件支持以下 bash 风格的语法：
-
-#### 1. `${VAR:-default}` - 使用默认值
-
-如果环境变量未设置或为空，使用默认值：
-
-```yaml
-llm:
-  providers:
-    openai:
-      apiKey: ${OPENAI_API_KEY:-sk-default-key}
-      model: ${OPENAI_MODEL:-gpt-4o-mini}
-```
-
-#### 2. `${VAR:=default}` - 设置并使用默认值
-
-如果环境变量未设置或为空，使用默认值并设置到环境变量：
-
-```yaml
-llm:
-  providers:
-    openai:
-      model: ${OPENAI_MODEL:=gpt-4o-mini}
-```
-
-#### 3. `${VAR:?error}` - 必需的环境变量
-
-如果环境变量未设置或为空，抛出错误：
-
-```yaml
-llm:
-  providers:
-    openai:
-      apiKey: ${OPENAI_API_KEY:?API key is required}
-```
-
-#### 4. `${VAR:+alternate}` - 已设置时使用替代值
-
-如果环境变量已设置，使用替代值：
-
-```yaml
-llm:
-  providers:
-    openai:
-      baseURL: ${USE_PROXY:+https://proxy.example.com/v1}
-```
-
-### 实际使用示例
-
-```yaml
-llm:
-  provider: ${LLM_PROVIDER:-openai}
-
-  providers:
-    openai:
-      # 必需的 API key，未设置时报错
+      # Required — error if not set
       apiKey: ${OPENAI_API_KEY:?OpenAI API key is required}
-      # 可选的模型，默认使用 gpt-4o-mini
+      # Optional with default
       model: ${OPENAI_MODEL:-gpt-4o-mini}
-      # 可选的代理，设置 USE_PROXY 时才启用
+      # Conditional proxy — only set when USE_PROXY env var exists
       baseURL: ${USE_PROXY:+https://proxy.example.com/v1}
 
     anthropic:
       apiKey: ${ANTHROPIC_API_KEY}
-      model: ${ANTHROPIC_MODEL:-claude-sonnet-4-20250514}
+
+  roles:
+    default: ${LLM_DEFAULT_MODEL:-openai/gpt-4o-mini}
 
 system:
-  logLevel: ${LOG_LEVEL:-info}
+  logLevel: ${PEGASUS_LOG_LEVEL:-info}
 ```
 
-### 优势
+### Benefits
 
-这样你可以：
-- 配置文件提交到 git（不包含敏感信息）
-- 敏感信息通过环境变量注入
-- 为开发环境提供合理的默认值
-- 强制要求某些关键配置必须设置
+- Config files can be committed to git (no secrets hardcoded).
+- Sensitive values are injected via environment variables or `.env` files.
+- Reasonable defaults for development; required checks for production.
 
-## 📊 配置优先级
+## Configuration Priority
 
-从高到低：
+From highest to lowest:
 
-1. **环境变量** （最高优先级）
-   - `LLM_PROVIDER=anthropic` 覆盖配置文件中的所有设置
+1. **`config.local.yml`** — local overrides (not committed to git)
+2. **`config.yml`** — base configuration (committed to git)
+3. **Hardcoded defaults** — safe fallback values defined in the schema
 
-2. **config.local.yml**
-   - 本地覆盖配置（不提交 git）
+> **Note**: Environment variables are not a separate priority layer. They are resolved _during_ YAML interpolation via `${VAR}` placeholders. The final YAML values (after interpolation) are what get validated by Zod. There are no hardcoded env var names in the loader — all env var names are user-defined in the YAML files. The sole exception is `PEGASUS_CONFIG` (custom config path).
 
-3. **config.yml**
-   - 基础配置（提交 git）
+## Complete Settings Reference
 
-4. **默认值**
-   - Schema 中定义的默认值
+### LLM (`llm`)
 
-### 示例
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `llm.providers` | map | `{}` | Map of provider name → provider config |
+| `llm.providers.<name>.type` | `"openai"` \| `"anthropic"` | auto-detected from key | SDK to use for this provider |
+| `llm.providers.<name>.apiKey` | string | — | API key (supports interpolation) |
+| `llm.providers.<name>.baseURL` | string | — | Custom API endpoint |
+| `llm.roles` | object | see below | Maps logical roles to `"provider/model"` strings |
+| `llm.roles.default` | string | `"openai/gpt-4o-mini"` | **Required.** Default model for all roles |
+| `llm.roles.subAgent` | string | — | Model for sub-agent tasks (falls back to default) |
+| `llm.roles.compact` | string | — | Model for context compaction (falls back to default) |
+| `llm.roles.reflection` | string | — | Model for reflection steps (falls back to default) |
+| `llm.maxConcurrentCalls` | number | `3` | Max parallel LLM requests |
+| `llm.timeout` | number | `120` | Per-request timeout in seconds |
+| `llm.contextWindow` | number | — | Context window size in tokens (auto-detected if omitted) |
 
-**config.yml**:
+#### Provider Type Detection
+
+The `type` field tells Pegasus which SDK to use. If omitted, the provider name itself is used:
+
+- Key `openai` → OpenAI SDK
+- Key `anthropic` → Anthropic SDK
+- Any other key → must set `type: openai` or `type: anthropic` explicitly
+
+This allows you to define multiple OpenAI-compatible providers:
+
 ```yaml
 llm:
-  provider: openai
   providers:
-    openai:
-      model: gpt-4o-mini
+    ollama:
+      type: openai
+      apiKey: dummy
+      baseURL: http://localhost:11434/v1
+    zai:
+      type: openai
+      apiKey: ${ZAI_API_KEY}
+      baseURL: https://api.z.ai/api/coding/paas/v4
 ```
 
-**config.local.yml**:
+#### Role-Based Model Selection
+
+Roles decouple _what_ the system does from _which model_ does it. Each role can point to a different provider/model combination:
+
 ```yaml
 llm:
-  providers:
-    openai:
-      model: gpt-4o  # 覆盖为 gpt-4o
+  roles:
+    default: anthropic/claude-sonnet-4-20250514
+    subAgent: openai/gpt-4o-mini       # cheaper model for sub-tasks
+    compact: openai/gpt-4o-mini        # fast model for compaction
+    reflection: anthropic/claude-sonnet-4-20250514  # strong model for reflection
 ```
+
+If a role is not set, it falls back to `default`.
+
+### Agent (`agent`)
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `agent.maxActiveTasks` | number | `5` | Maximum concurrent active tasks |
+| `agent.maxConcurrentTools` | number | `3` | Maximum parallel tool executions |
+| `agent.maxCognitiveIterations` | number | `10` | Max cognitive loop iterations per cycle |
+| `agent.heartbeatInterval` | number | `60` | Heartbeat interval in seconds |
+| `agent.taskTimeout` | number | `120` | Max wait time for task completion in seconds |
+
+### Identity (`identity`)
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `identity.personaPath` | string | `"data/personas/default.json"` | Path to the persona definition file |
+
+### Tools (`tools`)
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `tools.timeout` | number | `30` | Tool execution timeout in seconds |
+| `tools.allowedPaths` | string[] | `[]` | Allowed paths for file operations (empty = unrestricted) |
+| `tools.webSearch.provider` | string | — | Search provider: `tavily`, `google`, `bing`, `duckduckgo` |
+| `tools.webSearch.apiKey` | string | — | API key for the search provider |
+| `tools.webSearch.maxResults` | number | `10` | Max search results to return |
+| `tools.mcpServers` | array | `[]` | MCP server configurations (`name`, `url`, `enabled`) |
+
+### Session (`session`)
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `session.compactThreshold` | number | `0.8` | Fraction of context window usage that triggers compaction (0.1–1.0) |
+
+### System (`system`)
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `system.logLevel` | string | `"info"` | Log level: `debug`, `info`, `warn`, `error`, `silent` |
+| `system.dataDir` | string | **required** | Root directory for all runtime data (logs, memory, sessions, etc.) |
+| `system.logFormat` | string | `"json"` | Log output format: `json` (structured) or `line` (human-readable) |
+
+> **Note on `dataDir`**: Memory storage is derived from `dataDir` (at `{dataDir}/memory/`). There is no separate `memory.dataDir` setting.
+
+## Logging
+
+Pegasus writes logs exclusively to files — there is no console output.
+
+- **Log file**: `{dataDir}/logs/pegasus.log`
+- **Daily rotation**: new file each day (`pegasus.log.YYYY-MM-DD`)
+- **Size rotation**: rotated when file exceeds 10 MB
+- **Auto-cleanup**: logs older than 30 days are deleted
+- **Auto-create**: log directory is created automatically if missing
+
+### Log Formats
+
+| Format | Description |
+|--------|-------------|
+| `json` (default) | Structured JSON lines — machine-parseable, suitable for log aggregation |
+| `line` | Human-readable single lines: `2026-02-24T10:00:00.000Z INFO  [module] message key=value` |
+
+### Viewing Logs
 
 ```bash
-# 环境变量覆盖（最高优先级）
-export LLM_PROVIDER=anthropic
-export ANTHROPIC_MODEL=claude-opus-4-20250514
+# Follow log output in real time
+tail -f data/logs/pegasus.log
 
-bun run dev
-# → 使用 anthropic provider + claude-opus-4-20250514
+# For human-readable output, set logFormat: line in config.yml
 ```
 
-## 🎨 配置示例
+For more details, see the [Logging documentation](./logging.md).
 
-### 示例 1: 开发环境（多 provider）
+## Configuration Examples
 
-**config.yml** (团队共享,提交到 git):
+### Example 1: Multi-Provider Development
+
+**config.yml** (shared, committed to git):
 ```yaml
 llm:
-  provider: openai
   providers:
     openai:
       apiKey: ${OPENAI_API_KEY}
-      model: gpt-4o-mini
     anthropic:
       apiKey: ${ANTHROPIC_API_KEY}
-      model: claude-sonnet-4-20250514
     ollama:
-      model: llama3.2:latest
+      type: openai
+      apiKey: dummy
       baseURL: http://localhost:11434/v1
-  maxConcurrentCalls: 3
+
+  roles:
+    default: openai/gpt-4o-mini
+    subAgent: openai/gpt-4o-mini
+    compact: openai/gpt-4o-mini
+
+system:
+  logLevel: info
+  dataDir: data
 ```
 
-**config.local.yml** (个人本地,不提交 git):
-```yaml
-# 本地开发时使用 Ollama
-llm:
-  provider: ollama
-```
-
-切换 provider：
-```bash
-# 临时测试 Anthropic
-export LLM_PROVIDER=anthropic
-bun run dev
-```
-
-### 示例 2: 生产环境
-
-**config.yml**:
+**config.local.yml** (personal, not committed):
 ```yaml
 llm:
-  provider: anthropic
+  roles:
+    default: ollama/llama3.2:latest
+```
+
+### Example 2: Production
+
+```yaml
+llm:
   providers:
     anthropic:
       apiKey: ${ANTHROPIC_API_KEY}
-      model: claude-sonnet-4-20250514
+  roles:
+    default: anthropic/claude-sonnet-4-20250514
   maxConcurrentCalls: 10
   timeout: 180
 
 agent:
   maxActiveTasks: 20
   maxConcurrentTools: 5
+  taskTimeout: 600
 
 system:
   logLevel: warn
+  dataDir: /var/lib/pegasus
+  logFormat: json
 ```
 
-### 示例 3: 本地开发（Ollama）
+### Example 3: Local Ollama Development
 
 **config.local.yml**:
 ```yaml
 llm:
-  provider: ollama
   providers:
     ollama:
+      type: openai
       apiKey: dummy
-      model: qwen2.5:latest
       baseURL: http://localhost:11434/v1
+  roles:
+    default: ollama/qwen2.5:latest
 
 system:
   logLevel: debug
+  dataDir: data
+  logFormat: line
 ```
 
-### 示例 4: OpenAI 代理
+### Example 4: Role-Based Model Split
 
-**config.yml**:
 ```yaml
 llm:
-  provider: openai
   providers:
+    anthropic:
+      apiKey: ${ANTHROPIC_API_KEY}
     openai:
       apiKey: ${OPENAI_API_KEY}
-      model: gpt-4o
-      baseURL: https://your-proxy.com/v1
+
+  roles:
+    default: anthropic/claude-sonnet-4-20250514   # strong model for main tasks
+    subAgent: openai/gpt-4o-mini                  # cheap model for sub-tasks
+    compact: openai/gpt-4o-mini                   # fast model for compaction
+    reflection: anthropic/claude-sonnet-4-20250514 # strong model for reflection
+
+  contextWindow: 200000  # explicit override
+
+system:
+  dataDir: data
 ```
 
-## 🔒 安全最佳实践
+## Security Best Practices
 
-### ✅ 推荐做法
+### Recommended
 
-**分层配置 + 环境变量分离**：
+Separate secrets from structure using env var interpolation:
 
-**config.yml** (可以提交 git):
+**config.yml** (committed to git — no secrets):
 ```yaml
 llm:
-  provider: openai
   providers:
     openai:
-      apiKey: ${OPENAI_API_KEY}  # 引用环境变量
-      model: gpt-4o-mini
+      apiKey: ${OPENAI_API_KEY}  # reference, not a value
+  roles:
+    default: openai/gpt-4o-mini
+
+system:
+  dataDir: data
 ```
 
-**config.local.yml** (不提交 git):
-```yaml
-# 本地开发配置
-llm:
-  provider: ollama  # 覆盖为本地模型
-```
-
-**.env** (不提交 git):
+**.env** (gitignored — contains secrets):
 ```bash
 OPENAI_API_KEY=sk-proj-actual-key-here
 ```
 
-### ❌ 不推荐
+### Not Recommended
 
 ```yaml
-# 不要在配置文件中硬编码 API key
+# Do NOT hardcode API keys in config files
 llm:
   providers:
     openai:
-      apiKey: sk-proj-hardcoded-key  # ❌ 不要这样做
+      apiKey: sk-proj-hardcoded-key  # AVOID — will leak if committed
 ```
 
-## 📖 完整配置选项
+## Advanced Usage
 
-### LLM 配置
-
-| 字段 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `llm.provider` | string | `"openai"` | 活跃的 provider |
-| `llm.providers.<name>.apiKey` | string | - | API key（支持插值） |
-| `llm.providers.<name>.model` | string | - | 模型名称 |
-| `llm.providers.<name>.baseURL` | string | null | 自定义 API endpoint |
-| `llm.maxConcurrentCalls` | number | 3 | 最大并发调用数 |
-| `llm.timeout` | number | 120 | 超时时间（秒） |
-
-### Agent 配置
-
-| 字段 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `agent.maxActiveTasks` | number | 5 | 最大活跃任务数 |
-| `agent.maxConcurrentTools` | number | 3 | 最大并发工具调用 |
-| `agent.maxCognitiveIterations` | number | 10 | 最大认知循环次数 |
-| `agent.heartbeatInterval` | number | 60 | 心跳间隔（秒） |
-
-### Identity 配置
-
-| 字段 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `identity.personaPath` | string | `"data/personas/default.json"` | Persona 文件路径 |
-
-### Memory
-
-Memory 文件存放在 `{dataDir}/memory/` 下，由 `system.dataDir` 派生，无需单独配置。
-
-### System 配置
-
-| 字段 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `system.logLevel` | string | `"info"` | 日志级别 (debug/info/warn/error/silent) |
-| `system.dataDir` | string | `"data"` | 数据目录 |
-| `system.logFormat` | string | `"json"` | 日志输出格式: `json` 或 `line` (格式) |
-
-**注意**:
-- 文件日志永远启用，保存到 `{dataDir}/logs/pegasus.log`，无法禁用
-- 日志只输出到文件，不输出到控制台
-- `logFormat` 控制日志**输出格式** (格式)
-
-## 📝 日志配置
-
-Pegasus 的日志系统永远将日志写入文件，不输出到控制台。
-
-### 默认行为
-
-- ✅ **文件日志**: 永远启用，无法禁用，保存到 `{dataDir}/logs/pegasus.log`
-
-### 查看日志
-
-使用标准 Unix 工具查看日志文件：
+### Custom Config Path
 
 ```bash
-# 实时跟踪日志
-tail -f data/logs/pegasus.log
-
-# 使用 line 格式获取人类可读输出
-# 在 config.yml 中设置 logFormat: line
-```
-
-### 日志特性
-
-- **每日轮转**: 每天自动创建新的日志文件（格式：`pegasus.log.YYYY-MM-DD`）
-- **大小轮转**: 当日志文件超过 10MB 时自动轮转
-- **自动清理**: 自动删除 30 天前的旧日志文件
-- **自动创建目录**: 如果日志目录不存在，会自动创建
-
-### 日志格式
-
-日志系统的格式通过 `logFormat` 配置：
-
-| 格式 | 说明 |
-|------|------|
-| `json` (默认) | 结构化 JSON 行，适合机器解析和日志聚合 |
-| `line` | 人类可读单行格式：`2026-02-24T10:00:00.000Z INFO  [module] message key=value` |
-
-### 示例配置
-
-**开发环境（人类可读格式）**:
-```yaml
-system:
-  logLevel: debug
-  dataDir: data
-  logFormat: line  # 人类可读单行格式
-```
-
-**生产环境（仅文件）**:
-```yaml
-system:
-  logLevel: info
-  dataDir: /var/lib/pegasus
-  logFormat: json  # JSON 格式供日志聚合系统解析
-```
-
-更多详细信息，请参考 [日志文档](./logging.md)。
-
-## 🔄 迁移指南
-
-### 从环境变量迁移到配置文件
-
-**之前（.env）**：
-```bash
-LLM_PROVIDER=openai
-OPENAI_API_KEY=sk-proj-...
-OPENAI_MODEL=gpt-4o-mini
-```
-
-**现在（config.yml + .env）**：
-
-**config.yml**:
-```yaml
-llm:
-  provider: openai
-  providers:
-    openai:
-      apiKey: ${OPENAI_API_KEY}
-      model: gpt-4o-mini
-```
-
-**.env**:
-```bash
-OPENAI_API_KEY=sk-proj-...
-```
-
-**优势**：
-- 配置文件可以提交 git（无敏感信息）
-- 团队成员共享配置
-- 更清晰的结构
-- 支持注释
-- 支持本地覆盖（config.local.yml）
-
-## 🚀 高级用法
-
-### 多环境配置
-
-```bash
-# 开发环境 - 使用默认配置
-vim config.yml
-# 编辑基础配置
-
-# 个人本地配置
-cp config.yml config.local.yml
-# 编辑本地覆盖配置
-
-# 生产环境（通过环境变量指定）
 export PEGASUS_CONFIG=/etc/pegasus/config.yml
-```
-
-### 动态切换 Provider
-
-```bash
-# 配置文件中定义所有 provider
-# 运行时通过环境变量切换
-export LLM_PROVIDER=anthropic
 bun run dev
-
-# 或者临时测试
-LLM_PROVIDER=ollama bun run dev
 ```
 
-### 团队协作最佳实践
+### Team Collaboration
 
-1. **提交 `config.yml`** 到 git（基础配置）
-2. 每个成员创建自己的 `config.local.yml`（本地覆盖）
-3. **不提交** `config.local.yml` 和 `.env` 到 git
-4. 敏感信息通过 `.env` 管理
+1. Commit `config.yml` to git (shared base configuration).
+2. Each member creates their own `config.local.yml` (personal overrides).
+3. Keep `config.local.yml` and `.env` out of git.
 
 **.gitignore**:
 ```
@@ -577,21 +517,22 @@ config.local.yaml
 .env.local
 ```
 
-## 🔍 调试配置
+### Debugging Configuration
 
 ```bash
-# 查看当前加载的配置
-PEGASUS_LOG_LEVEL=debug bun run dev
+# Set log level to debug to see config loading details
+# In config.yml or config.local.yml:
+#   system:
+#     logLevel: debug
 
-# 日志会显示：
+# The log will show:
 # INFO: loading_base_config path=config.yml
 # INFO: loading_local_config_override path=config.local.yml
 # INFO: merging_base_and_local_configs
-# INFO: active_provider provider=openai model=gpt-4o-mini
 ```
 
-## 📚 参考
+## References
 
-- [默认配置文件](../config.yml)
-- [配置 Schema 定义](../src/infra/config-schema.ts)
-
+- [Default config file](../config.yml)
+- [Config schema definition](../src/infra/config-schema.ts)
+- [Config loader implementation](../src/infra/config-loader.ts)

@@ -57,8 +57,8 @@ Each line captures a single state transition with its incremental data:
 {"ts":1740000000,"event":"TASK_CREATED","taskId":"abc123","data":{...}}
 {"ts":1740000001,"event":"REASON_DONE","taskId":"abc123","data":{...}}
 {"ts":1740000002,"event":"TOOL_CALL_COMPLETED","taskId":"abc123","data":{...}}
-{"ts":1740000003,"event":"REFLECT_DONE","taskId":"abc123","data":{...}}
-{"ts":1740000004,"event":"TASK_COMPLETED","taskId":"abc123","data":{...}}
+{"ts":1740000003,"event":"TASK_COMPLETED","taskId":"abc123","data":{...}}
+{"ts":1740000004,"event":"REFLECTION_COMPLETE","taskId":"abc123","data":{...}}
 ```
 
 Only new/changed data is written per event — messages are tracked by index to avoid duplication.
