@@ -1,87 +1,90 @@
-# 认知阶段
+# Cognitive Pipeline
 
-> 对应代码：`src/pegasus/cognitive/`
+> Source code: `src/pegasus/cognitive/`
 
-## 核心思想
+## Core Idea
 
-认知不是一个循环，是一个**状态机的路径**。Reason → Act → Reflect 不是 `for` 或 `while`，而是 TaskFSM 的状态转换序列。每个阶段是一个独立的、无状态的处理器——输入 TaskContext，输出结果，仅此而已。
+Cognition is not a loop — it is a **state machine path**. Reason → Act is not `for` or `while`; it is a sequence of FSM state transitions. Each stage is an independent, stateless processor — it takes a TaskContext as input and produces a result. That is all.
 
-## 三个阶段
-
-```
-Reason ──▶ Act ──▶ Reflect
- 推理        行动     反思
-   ▲                   │
-   └── continue/replan─┘
-```
-
-### Reason（推理）
+## Two Stages
 
 ```
-输入：TaskContext（input_text, messages, memory index）
-输出：dict（推理结论）+ Plan（执行计划）
-
-内部流程：
-1. Thinker — LLM 调用：理解输入 + 推理 + 工具选择
-2. Planner — 纯代码：将 Thinker 的 toolCalls 转换为 PlanStep[]
+Reason ──▶ Act
+  ▲          │
+  └── tool_call steps: back to Reason
+             │
+             └── respond steps: → COMPLETED
 ```
 
-Reason 是合并后的第一阶段，取代了原来的 Perceive + Think + Plan 三个独立阶段。合并的原因：
-
-- **Perceive 浪费了一次 LLM 调用** — 它提取 taskType/intent/urgency/keyEntities，但下游只用了 taskType（一个简单的 `=== "conversation"` 判断）
-- **Plan 不调用 LLM** — 它只是把 Think 的 toolCalls 机械转换为 PlanStep[]，这是数据格式转换，不是规划
-- **上下文碎片化** — Perceive 和 Think 各自独立调用 LLM，Perceive 的分析结果不会传入 Think 的上下文
-
-合并后：一次 LLM 调用完成理解 + 推理 + 工具选择，然后 Planner（纯代码）在内部将结果转换为执行计划。
-
-**为什么保留 Planner 类**：
-- 保持格式转换逻辑隔离、可测试
-- 为 M4 阶段的 LLM 规划预留扩展点
-- 避免 `_runReason()` 膨胀
-
-Reason 也是认知循环回来的入口——Reflect 之后如果 verdict 是 "continue" 或 "replan"，回到 Reason 用新的上下文重新推理。
-
-Think 阶段是唯一可能产出 `NEED_MORE_INFO` 的逻辑。如果判断信息不足，任务进入 SUSPENDED 等待补充。
-
-### Act（行动）
+### Reason
 
 ```
-输入：TaskContext（包含 plan.current_step）
-输出：ActionResult
+Input:  TaskContext (inputText, messages, memory index)
+Output: dict (reasoning conclusions) + Plan (execution plan)
 
-职责：
-- 按 Plan 中的步骤逐个执行
-- 调用工具（MCP）、生成内容、或发起子任务
-- 记录每步的执行结果、耗时、成功/失败
+Internal flow:
+1. Thinker — LLM call: understand input + reason + tool selection
+2. Planner — pure code: convert Thinker's toolCalls into PlanStep[]
 ```
 
-Act 和其他阶段不同——它在 ACTING 状态内**自递归**。Plan 有 3 个步骤，Actor 执行 3 次，每次完成后检查 `has_more_steps`，有则继续，无则发出 `ACT_DONE`。
+Reason is the merged first stage, replacing the original Perceive + Think + Plan as three separate stages. Reasons for merging:
 
-Act 使用 `_tool_semaphore` 而非 `_llm_semaphore`，因为它主要是调用工具而非 LLM。
+- **Perceive wasted an LLM call** — it extracted taskType/intent/urgency/keyEntities, but downstream only used taskType (a simple `=== "conversation"` check)
+- **Plan did not call LLM** — it just mechanically converted Think's toolCalls into PlanStep[], which is data format conversion, not planning
+- **Context fragmentation** — Perceive and Think each independently called LLM; Perceive's analysis was never passed into Think's context
 
-### Reflect（反思）
+After merging: a single LLM call handles understanding + reasoning + tool selection, then Planner (pure code) internally converts the result into an execution plan.
+
+**Why keep the Planner class**:
+- Keeps format conversion logic isolated and testable
+- Reserves an extension point for LLM-based planning in future milestones
+- Avoids bloating `_runReason()`
+
+Reason is also the re-entry point after Act completes with tool_call steps — the FSM routes back to REASONING for a new round of reasoning with updated context.
+
+The Think stage is the only place that can produce `NEED_MORE_INFO`. If information is judged insufficient, the task enters SUSPENDED and waits for supplementary input.
+
+### Act
 
 ```
-输入：TaskContext（包含 actions_done）
-输出：Reflection（verdict + assessment + lessons）
+Input:  TaskContext (contains plan.currentStep)
+Output: ActionResult
 
-职责：
-- 评估执行结果是否达到目标
-- 提取可复用的经验教训
-- 决定下一步：complete / continue / replan
+Responsibilities:
+- Execute steps from the Plan one by one
+- Call tools (MCP), generate content, or spawn sub-tasks
+- Record each step's result, duration, success/failure
 ```
 
-Reflect 的 `verdict` 决定了状态机的走向：
+Act differs from Reason — it **self-loops** within the ACTING state. If the Plan has 3 steps, Actor executes 3 times. After each step completes, the FSM checks for remaining steps: if more exist, stay in ACTING; if none remain, the FSM resolves the target state dynamically based on plan step types.
 
-| verdict | 含义 | 状态转换 |
-|---------|------|---------|
-| `complete` | 任务完成 | REFLECTING → COMPLETED |
-| `continue` | 还没完，但方向对 | REFLECTING → REASONING |
-| `replan` | 计划有问题，需要重新规划 | REFLECTING → REASONING |
+**Completion decision**: when all steps are done, the FSM examines the plan:
+- If the plan contains any `tool_call` steps → transition to **REASONING** (continue cognitive loop)
+- If the plan contains only `respond` steps → transition to **COMPLETED** (task is done)
 
-注意：`replan` 现在也回到 REASONING（不再有独立的 PLANNING 状态），因为 Planner 在 Reason 内部运行。
+Act uses `_tool_semaphore` instead of `_llm_semaphore`, since it primarily calls tools rather than LLM.
 
-## 处理器接口
+## Async Post-Task Reflection
+
+After a task reaches COMPLETED, the Agent optionally spawns an async **PostTaskReflector**. This is **not** a cognitive stage — it is a fire-and-forget background process for memory learning.
+
+```
+COMPLETED → shouldReflect(context)?
+              ├── No  → done
+              └── Yes → _spawn(_runPostReflection)
+                          ├── LLM call: extract facts + episode
+                          ├── Write facts to memory (memory_write)
+                          ├── Write episode to memory (memory_append)
+                          └── Emit REFLECTION_COMPLETE (observability only)
+```
+
+**Key properties**:
+- Runs **after** the task result has been delivered to the user
+- Errors never affect task results (caught and logged)
+- `shouldReflect()` filters out trivial tasks (single iteration, short response)
+- Emits `REFLECTION_COMPLETE` event for observability and persistence
+
+## Processor Interface
 
 ```typescript
 class Thinker:
@@ -93,13 +96,13 @@ class Planner:
 class Actor:
     async run(context: TaskContext, step: PlanStep) -> ActionResult
 
-class Reflector:
-    async run(context: TaskContext) -> Reflection
+class PostTaskReflector:
+    async run(context: TaskContext) -> PostTaskReflection
 ```
 
-**无状态**：处理器不持有实例状态。所有需要的信息都从 TaskContext 读取，所有产出都写回 TaskContext。同一个 Thinker 实例可以同时为 10 个不同的任务工作。
+**Stateless**: processors hold no instance state. All needed information is read from TaskContext, and all output is written back to TaskContext. The same Thinker instance can simultaneously serve 10 different tasks.
 
-## Agent._runReason() 内部流程
+## Agent._runReason() Internal Flow
 
 ```typescript
 private async _runReason(task, trigger):
@@ -118,35 +121,35 @@ private async _runReason(task, trigger):
   emit(REASON_DONE) or emit(NEED_MORE_INFO)
 ```
 
-一次 LLM 调用，一次状态转换，通过 `context.messages` 保持连续上下文。
+One LLM call, one state transition, continuous context maintained via `context.messages`.
 
-## 并发场景
+## Concurrency
 
 ```
-时间线：
+Timeline:
 
-t0: 用户: "搜索 AI Agent 论文"
-    → Task-A 创建，进入 REASONING
+t0: User: "Search for AI Agent papers"
+    → Task-A created, enters REASONING
 
-t1: 用户: "另外写一个 CSV 解析脚本"
-    → Task-B 创建，进入 REASONING
-    → Task-A 和 Task-B 的 Thinker 并发执行
+t1: User: "Also write a CSV parsing script"
+    → Task-B created, enters REASONING
+    → Task-A and Task-B Thinkers run concurrently
 
-t2: Task-A 推理完成 → ACTING（调用搜索工具）
-    Task-B 推理完成 → ACTING
-    → 完全并发，互不阻塞
+t2: Task-A reasoning done → ACTING (calls search tool)
+    Task-B reasoning done → ACTING
+    → Fully concurrent, no mutual blocking
 
-t3: 用户: "论文只要 2024 年的"
-    → 新消息进来，但 Task-A 在 ACTING
-    → Agent 可以：
-      a) 创建新任务 Task-C 处理这条消息
-      b) 将信息注入 Task-A 的 context，挂起后重新推理
+t3: User: "Only papers from 2024"
+    → New message arrives, but Task-A is in ACTING
+    → Agent can:
+      a) Create new Task-C to handle this message
+      b) Inject info into Task-A's context, suspend and re-reason
 ```
 
-## 从 5 阶段到 3 阶段的演进
+## Evolution: From 5 Stages to 2 Stages
 
-原 5 阶段：Perceive → Think → Plan → Act → Reflect（2 次 LLM 调用）
+Original 5 stages: Perceive → Think → Plan → Act → Reflect (2 LLM calls in cognitive loop)
 
-现 3 阶段：Reason → Act → Reflect（1 次 LLM 调用）
+Current 2 stages: Reason → Act (1 LLM call in cognitive loop, async reflection outside the loop)
 
-合并减少了 50% 的初始处理 LLM 调用，消除了 3 个无价值的状态转换，并通过 `context.messages` 实现了连续上下文传递。
+The merge reduced initial processing LLM calls by 50%, eliminated 3 valueless state transitions, moved reflection out of the critical path as an async post-task process, and achieved continuous context passing via `context.messages`.

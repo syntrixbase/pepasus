@@ -1,198 +1,243 @@
-# Agent 核心
+# Agent (Task System)
 
-> 对应代码：`src/pegasus/agent.ts`
+> Source code: `src/pegasus/agents/agent.ts`
 
-## 核心思想
+## Core Idea
 
-Agent 是一个**薄层编排器**，不是胖控制器。它做且只做三件事：
-1. 收到事件
-2. 找到对应的 TaskFSM，执行状态转换
-3. 根据新状态，非阻塞启动对应的认知阶段处理器
+Agent is a **thin orchestrator**, not a fat controller. It does only three things:
+1. Receive an event
+2. Find the corresponding TaskFSM and execute a state transition
+3. Based on the new state, non-blockingly spawn the corresponding cognitive stage processor
 
-Agent 本身**不持有任何任务的执行状态**。所有状态都在 TaskFSM 中。
+Agent itself **holds no task execution state**. All state lives in TaskFSM.
 
-## 结构
+## Structure
 
 ```typescript
 class Agent {
-    eventBus: EventBus                  // 事件总线
-    taskRegistry: TaskRegistry          // 活跃任务注册表
+    eventBus: EventBus                  // event bus
+    taskRegistry: TaskRegistry          // active task registry
 
-    // 认知阶段处理器（无状态）
-    thinker: Thinker                    // 推理（LLM 调用）
-    planner: Planner                    // 规划（纯代码，在 Reason 内部调用）
-    actor: Actor                        // 执行动作
-    reflector: Reflector                // 反思评估
+    // Cognitive processors (stateless)
+    thinker: Thinker                    // reasoning (LLM call)
+    planner: Planner                    // planning (pure code, called within Reason)
+    actor: Actor                        // action execution
+    postReflector: PostTaskReflector    // async post-task reflection (memory learning)
 
-    // 工具基础设施
-    toolExecutor: ToolExecutor          // 工具执行器
+    // Tool infrastructure
+    toolExecutor: ToolExecutor          // tool executor
 
-    // 并发控制
-    llmSemaphore: Semaphore             // 限制并发 LLM 调用
-    toolSemaphore: Semaphore            // 限制并发工具调用
-    backgroundTasks: Set<Promise>       // 跟踪后台任务
+    // Concurrency control
+    llmSemaphore: Semaphore             // limits concurrent LLM calls
+    toolSemaphore: Semaphore            // limits concurrent tool calls
+    backgroundTasks: Set<Promise>       // tracks background tasks
 }
 ```
 
-## 事件订阅表
+## Event Subscription Table
 
-Agent 启动时注册两类处理器：
+Agent registers two categories of handlers at startup:
 
-**外部输入 → `_onExternalInput`**（创建新任务）：
+**External input → `_onExternalInput`** (creates new tasks):
 - `MESSAGE_RECEIVED`
 - `WEBHOOK_TRIGGERED`
 - `SCHEDULE_FIRED`
 
-**任务事件 → `_onTaskEvent`**（驱动状态转换）：
-- `TASK_CREATED`、`TASK_SUSPENDED`、`TASK_RESUMED`
+**Task events → `_onTaskEvent`** (drives state transitions):
+- `TASK_CREATED`, `TASK_SUSPENDED`, `TASK_RESUMED`
 - `REASON_DONE`
-- `ACT_DONE`、`STEP_COMPLETED`、`TOOL_CALL_COMPLETED`、`TOOL_CALL_FAILED`
-- `REFLECT_DONE`、`NEED_MORE_INFO`
+- `STEP_COMPLETED`, `TOOL_CALL_COMPLETED`, `TOOL_CALL_FAILED`
+- `NEED_MORE_INFO`
 
-## 事件处理流程
+Note: `REFLECTION_COMPLETE` is **not** subscribed by the Agent — it is an observability-only event handled by TaskPersister.
 
-### 外部输入处理
+## Event Processing Flow
+
+### External Input Processing
 
 ```
 MESSAGE_RECEIVED / WEBHOOK_TRIGGERED / SCHEDULE_FIRED
     ↓
 _onExternalInput(event)
     ↓
-1. TaskFSM.fromEvent(event)     ← 创建新任务
-2. taskRegistry.register(task)   ← 注册
-3. emit(TASK_CREATED)             ← 驱动状态机开始转动
+1. TaskFSM.fromEvent(event)     ← create new task
+2. taskRegistry.register(task)   ← register
+3. emit(TASK_CREATED)             ← start the state machine
 ```
 
-### 任务事件处理
+### Task Event Processing
 
 ```
-任何任务相关事件
+Any task-related event
     ↓
 _onTaskEvent(event)
     ↓
-1. taskRegistry.get(event.taskId)  ← 查找任务
-2. task.transition(event)           ← 执行状态转换
-3. _dispatchCognitiveStage(task, newState)  ← 启动下一阶段
+1. taskRegistry.get(event.taskId)  ← find task
+2. task.transition(event)           ← execute state transition
+3. _dispatchCognitiveStage(task, newState)  ← launch next stage
 ```
 
-### 认知阶段调度
+### Cognitive Stage Dispatch
 
-`_dispatchCognitiveStage` 是一个 switch 语句，根据新状态启动对应的处理器：
+`_dispatchCognitiveStage` is a switch statement that spawns the appropriate processor based on the new state:
 
 ```typescript
 switch (state) {
     case REASONING   → _spawn(_runReason(task))
     case ACTING      → _spawn(_runAct(task))
-    case REFLECTING  → _spawn(_runReflect(task))
-    case SUSPENDED   → // 不做任何事，等待外部事件
-    case COMPLETED   → emit(TASK_COMPLETED)
-    case FAILED      → // 记录日志
+    case SUSPENDED   → // do nothing, wait for external event
+    case COMPLETED   → _compileResult(task)
+                       emit(TASK_COMPLETED)
+                       notify callback
+                       if shouldReflect(context) → _spawn(_runPostReflection(task))
+    case FAILED      → emit(TASK_FAILED), notify callback
 }
 ```
 
-**`_spawn` 是关键**：非阻塞启动异步任务，立即返回。处理器完成后会 emit 新事件，驱动状态机继续前进。所有后台任务被跟踪在 `backgroundTasks` 集合中，关闭时统一等待。
+**`_spawn` is key**: non-blockingly starts an async task and returns immediately. When the processor completes, it emits a new event that drives the state machine forward. All background tasks are tracked in the `backgroundTasks` set and collectively awaited during shutdown.
 
-## 认知阶段执行
+## Cognitive Stage Execution
 
-### _runReason — 合并的推理阶段
+### _runReason — Merged Reasoning Stage
 
 ```typescript
 async _runReason(task, trigger):
-    // 1. 获取记忆索引
+    // 0. Guard: check max cognitive iterations
+    task.context.iteration++
+    if (iteration > maxCognitiveIterations) → emit(TASK_FAILED)
+
+    // 1. Fetch memory index
     memoryIndex = await toolExecutor.execute("memory_list", ...)
 
-    // 2. LLM 调用 — 理解 + 推理 + 工具选择
+    // 2. LLM call — understand + reason + tool selection
     reasoning = await llmSemaphore.use(() =>
         thinker.run(task.context, memoryIndex)
     )
     task.context.reasoning = reasoning
 
-    // 3. 纯代码 — 将 toolCalls 转换为 Plan steps
+    // 3. Pure code — convert toolCalls to Plan steps
     plan = await planner.run(task.context)
     task.context.plan = plan
 
-    // 4. 发出事件
+    // 4. Emit event
     if (reasoning.needsClarification)
         emit(NEED_MORE_INFO)
     else
         emit(REASON_DONE)
 ```
 
-一次 LLM 调用完成全部工作。Planner 在内部调用，不经过 FSM 状态转换。
+One LLM call handles everything. Planner is called internally without an FSM state transition.
 
-### Act 阶段的特殊性
+### _runAct — Action Execution
 
-Act 阶段需要逐步执行 Plan 中的步骤：
+Act executes Plan steps one at a time. The key difference from Reason: there is no single "act done" event. Instead, each step completion emits its own event, and the FSM dynamically resolves the next state:
 
 ```
 _runAct(task)
   ↓
-plan.currentStep 存在？
-  ├── 是 → 执行该步骤
+plan.currentStep exists?
+  ├── Yes → execute the step
   │         ↓
-  │   tool_call？→ toolSemaphore.use → toolExecutor.execute → emit(TOOL_CALL_COMPLETED)
-  │   respond？ → 同步完成 → emit(STEP_COMPLETED)
+  │   tool_call? → toolSemaphore.use → toolExecutor.execute
+  │                → context.actionsDone.push(result)
+  │                → markStepDone
+  │                → ToolExecutor.emitCompletion → TOOL_CALL_COMPLETED
+  │   respond?  → synchronous completion
+  │                → context.actionsDone.push(result)
+  │                → markStepDone
+  │                → emit(STEP_COMPLETED)
   │         ↓
-  │   FSM 动态判断：plan 还有步骤 → ACTING；否则 → REFLECTING
-  └── 否 → emit(ACT_DONE) → REFLECTING
+  │   FSM dynamic resolution:
+  │     more steps → ACTING (continue)
+  │     all done + has tool_call steps → REASONING
+  │     all done + respond only → COMPLETED
+  └── No → return (already handled by last event)
 ```
 
-步骤在 ACTING 状态内循环，不需要状态转换。直到所有步骤完成才进入 REFLECTING。
+The last `STEP_COMPLETED` or `TOOL_CALL_COMPLETED` event triggers FSM dynamic resolution, which determines whether to continue acting, loop back to reasoning, or complete.
 
-## 并发控制
-
-### 信号量
+### _runPostReflection — Async Memory Learning
 
 ```typescript
-llmSemaphore = new Semaphore(maxConcurrentCalls)   // 默认 3
-toolSemaphore = new Semaphore(maxConcurrentTools)   // 默认 3
+async _runPostReflection(task):
+    // 1. LLM call — extract facts + episode
+    reflection = await llmSemaphore.use(() =>
+        postReflector.run(task.context)
+    )
+    task.context.postReflection = reflection
+
+    // 2. Write facts to long-term memory
+    for (fact of reflection.facts)
+        await toolExecutor.execute("memory_write", { path, content })
+
+    // 3. Write episode to episodic memory
+    if (reflection.episode)
+        await toolExecutor.execute("memory_append", { path, entry })
+
+    // 4. Emit observability event
+    emit(REFLECTION_COMPLETE)
 ```
 
-- Thinker/Reflector 调用 LLM 前获取 `llmSemaphore`
-- Actor 调用工具前获取 `toolSemaphore`
-- 超出限制的调用自动排队等待
+**Fire-and-forget**: this runs after the task is already COMPLETED. Errors are caught and logged but never affect the task result. `shouldReflect(context)` filters out trivial tasks to avoid unnecessary LLM calls.
 
-### 任务并发
+## Concurrency Control
 
-TaskRegistry 设有 `maxActiveTasks` 上限（默认 5）。多个任务可以同时处于不同的认知阶段，例如：
-- Task A 在 ACTING（等待工具返回）
-- Task B 在 REASONING（等待 LLM 信号量）
-- Task C 在 REFLECTING
-
-它们互不阻塞，由 EventBus 自然调度。
-
-## 外部接口
+### Semaphores
 
 ```typescript
-// 提交任务，返回 taskId
-const taskId = await agent.submit("帮我搜索论文")
+llmSemaphore = new Semaphore(maxConcurrentCalls)   // default 3
+toolSemaphore = new Semaphore(maxConcurrentTools)   // default 3
+```
 
-// 等待任务完成（用于测试）
+- Thinker and PostTaskReflector acquire `llmSemaphore` before calling LLM
+- Actor acquires `toolSemaphore` before calling tools
+- Calls exceeding the limit automatically queue and wait
+
+### Task Concurrency
+
+TaskRegistry has a `maxActiveTasks` limit (default 5). Multiple tasks can simultaneously be in different cognitive stages, e.g.:
+- Task A in ACTING (waiting for tool return)
+- Task B in REASONING (waiting for LLM semaphore)
+
+They do not block each other, naturally scheduled by the EventBus.
+
+## External API
+
+```typescript
+// Submit a task, returns taskId
+const taskId = await agent.submit("Search for papers")
+
+// Wait for task to complete (for testing)
 const task = await agent.waitForTask(taskId, 5000)
 
-// 注册完成回调
-agent.onTaskComplete(taskId, (task) => { ... })
+// Register notification callback for completion/failure
+agent.onNotify((notification) => {
+    // notification.type: "completed" | "failed"
+    // notification.taskId, notification.result / notification.error
+})
 ```
 
-`submit` 是 CLI/API 调用 Agent 的主要方式。内部发出 `MESSAGE_RECEIVED` 事件，等待 `TASK_CREATED` 事件返回 taskId。
+`submit` is the primary way CLI/API calls the Agent. Internally it emits a `MESSAGE_RECEIVED` event and waits for a `TASK_CREATED` event to return the taskId.
 
-## 生命周期
+`onNotify` replaces the old `onTaskComplete` — it handles both completion and failure notifications in a unified callback.
+
+## Lifecycle
 
 ```typescript
 const agent = new Agent(deps)
-await agent.start()    // 启动 EventBus + 订阅事件 + emit SYSTEM_STARTED
-// ... 运行中 ...
-await agent.stop()     // 等待后台任务 + 关闭 EventBus
+await agent.start()    // start EventBus + subscribe events + emit SYSTEM_STARTED
+// ... running ...
+await agent.stop()     // wait for background tasks + stop EventBus
 ```
 
-优雅关闭：先等待所有后台任务（`backgroundTasks`），再关闭 EventBus。
+Graceful shutdown: first waits for all background tasks (`backgroundTasks`), then stops the EventBus.
 
-## 为什么这是「纯状态驱动」
+## Why This Is "Pure State-Driven"
 
-| 特性 | 实现方式 |
-|------|---------|
-| **无阻塞** | `_onTaskEvent` 启动异步操作后立即返回 |
-| **可并发** | EventBus 不等待 handler 完成，可以立即处理下一个事件 |
-| **可中断** | 任何时刻发出 `TASK_SUSPENDED`，任务保存上下文进入挂起 |
-| **可恢复** | TaskFSM 的完整状态可序列化，崩溃后从检查点恢复 |
-| **可观测** | 每次状态转换记录在 history 中，每个事件有因果链 |
+| Property | Implementation |
+|----------|---------------|
+| **Non-blocking** | `_onTaskEvent` spawns async operations and returns immediately |
+| **Concurrent** | EventBus does not wait for handler completion; can immediately process next event |
+| **Interruptible** | Emit `TASK_SUSPENDED` at any time; task saves context and enters suspension |
+| **Recoverable** | TaskFSM's complete state is serializable; recovers from checkpoint after crash |
+| **Observable** | Every state transition recorded in history; every event has a causality chain |
