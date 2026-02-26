@@ -1,142 +1,128 @@
-# 工具系统 (Tools System)
+# Tools System
 
-> 对应代码：`src/tools/`
+> Source: `src/tools/`
 
-## 核心思想
+## Core Idea
 
-工具是 Agent 与外部世界交互的唯一通道。就像人类的双手，工具让 Agent 能够：
-- 读取和写入文件
-- 发起网络请求
-- 执行系统操作
-- 调用外部 API
-- 访问数据库
+Tools are the sole channel through which an Agent interacts with the outside world. Like human hands, tools enable the Agent to:
+- Read and write files
+- Make network requests
+- Perform system operations
+- Call external APIs
+- Access long-term memory
 
-工具系统遵循以下设计原则：
+The tool system follows these design principles:
 
-| 原则 | 说明 |
-|------|------|
-| **统一接口** | 所有工具（内置、MCP、自定义）使用相同的接口 |
-| **类型安全** | 使用 Zod schema 验证参数 |
-| **异步执行** | 工具执行不阻塞 Agent，通过事件驱动 |
-| **可观测** | 每个工具调用都产生事件，可追溯完整历史 |
-| **可扩展** | 支持动态注册新工具 |
-| **安全可控** | 工具调用受信号量控制，限制并发数 |
+| Principle | Description |
+|-----------|-------------|
+| **Unified Interface** | All tools (built-in, MCP, custom) share the same `Tool` interface |
+| **Type Safety** | Parameters are validated with Zod schemas |
+| **Async Execution** | Tools execute asynchronously without blocking the Agent; results flow through events |
+| **Observability** | Every tool call produces events, providing a fully traceable history |
+| **Extensibility** | New tools can be registered dynamically at runtime |
+| **Controlled Concurrency** | Tool calls are gated by a semaphore to limit parallelism |
 
 ---
 
-## 架构概览
+## Architecture Overview
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                      Agent (Actor)                          │
-│                   认知阶段 - ACTING                          │
+│                  Cognitive Stage — ACTING                   │
 └────────────────────────────┬────────────────────────────────┘
                              │
                              ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                     ToolRegistry                            │
 │  ┌─────────────────┐ ┌─────────────────┐ ┌──────────────┐ │
-│  │  Built-in Tools │ │   MCP Client    │ │  Custom Tools│ │
-│  │  (内置工具)      │ │  (外部工具)      │ │  (自定义工具) │ │
+│  │  Built-in Tools │ │   MCP Client    │ │ Custom Tools  │ │
 │  └─────────────────┘ └─────────────────┘ └──────────────┘ │
 └────────────────────────────┬────────────────────────────────┘
                              │
                              ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                    ToolExecutor                            │
-│              - 参数验证 (Zod)                                │
-│              - 超时控制                                      │
-│              - 错误处理                                      │
-│              - 结果封装                                      │
+│                    ToolExecutor                              │
+│              - Parameter validation (Zod)                    │
+│              - Timeout protection                            │
+│              - Error handling                                │
+│              - Completion event emission                     │
 └────────────────────────────┬────────────────────────────────┘
                              │
                              ▼
                     ┌────────────────┐
-                    │  具体工具实现   │
-                    │  (Tool 接口)   │
+                    │ Concrete Tool  │
+                    │ (Tool iface)   │
                     └────────────────┘
 ```
 
 ---
 
-## 核心类型定义
+## Core Types
 
-### Tool（工具接口）
+### Tool (interface)
 
 ```typescript
 interface Tool {
-  name: string;                      // 工具唯一标识
-  description: string;               // 工具描述（给 LLM 看）
-  category: ToolCategory;            // 工具分类
-  parameters: z.ZodTypeAny;          // Zod schema 用于参数验证
+  name: string;                      // Unique identifier
+  description: string;               // Description shown to the LLM
+  category: ToolCategory;            // Category tag
+  parameters: z.ZodTypeAny;          // Zod schema for parameter validation
   execute: (params: unknown, context: ToolContext) => Promise<ToolResult>;
 }
 
 enum ToolCategory {
-  SYSTEM = "system",      // 系统工具（时间、环境变量等）
-  FILE = "file",          // 文件操作
-  NETWORK = "network",    // 网络请求
-  DATA = "data",          // 数据处理
-  CODE = "code",          // 代码执行
-  MCP = "mcp",            // MCP 外部工具
-  CUSTOM = "custom",      // 自定义工具
+  SYSTEM  = "system",    // System utilities (time, env vars)
+  FILE    = "file",      // File operations
+  NETWORK = "network",   // HTTP requests, web search
+  DATA    = "data",      // JSON, base64, etc.
+  MEMORY  = "memory",    // Long-term memory read/write
+  CODE    = "code",      // (future) Code execution
+  MCP     = "mcp",       // (future) MCP external tools
+  CUSTOM  = "custom",    // (future) User-defined tools
 }
 ```
 
-### ToolResult（工具执行结果）
+### ToolResult
 
 ```typescript
 interface ToolResult {
-  toolName: string;
   success: boolean;
-  result?: unknown;        // 成功时的返回值
-  error?: string;          // 失败时的错误信息
+  result?: unknown;        // Return value on success
+  error?: string;          // Error message on failure
   startedAt: number;       // Unix ms
   completedAt?: number;    // Unix ms
-  durationMs?: number;     // 执行耗时
+  durationMs?: number;     // Execution duration
 }
 ```
 
-### ToolContext（工具执行上下文）
+### ToolContext
 
 ```typescript
 interface ToolContext {
-  taskId: string;          // 关联的任务 ID
-  userId?: string;         // 用户 ID（用于权限控制）
-  allowedPaths?: string[];  // 允许访问的路径（文件操作限制）
-  // 可扩展更多上下文信息
+  taskId: string;            // Associated task ID
+  userId?: string;           // User ID (for access control)
+  allowedPaths?: string[];   // Whitelist for file operations
+  memoryDir?: string;        // Root directory for memory tools
+  sessionDir?: string;       // Session directory for session tools
 }
 ```
 
 ---
 
-## ToolRegistry（工具注册表）
+## ToolRegistry
 
 ```typescript
 class ToolRegistry {
-  // 注册工具
-  register(tool: Tool): void;
-
-  // 批量注册
-  registerMany(tools: Tool[]): void;
-
-  // 获取工具
-  get(name: string): Tool | undefined;
-
-  // 检查工具是否存在
-  has(name: string): boolean;
-
-  // 列出所有工具
-  list(): Tool[];
-
-  // 按分类列出工具
-  listByCategory(category: ToolCategory): Tool[];
-
-  // 转换为 LLM 工具定义格式（用于函数调用）
-  toLLMTools(): ToolDefinition[];
-
-  // 获取工具统计信息
-  getStats(): ToolStats;
+  register(tool: Tool): void;                       // Register a single tool (throws if duplicate)
+  registerMany(tools: Tool[]): void;                // Bulk register
+  get(name: string): Tool | undefined;              // Look up by name
+  has(name: string): boolean;                       // Existence check
+  list(): Tool[];                                   // All registered tools
+  listByCategory(category: ToolCategory): Tool[];   // Filter by category
+  toLLMTools(): ToolDefinition[];                    // Convert to LLM function-calling format
+  getStats(): ToolStats;                            // Usage statistics
+  updateCallStats(name: string, duration: number, success: boolean): void;
 }
 
 interface ToolStats {
@@ -148,107 +134,183 @@ interface ToolStats {
 
 ---
 
-## 内置工具列表
+## Built-in Tool Catalogue
 
-### 系统工具 (SYSTEM)
+### System Tools (SYSTEM)
 
-| 工具名 | 描述 | 参数 | 返回值 |
-|--------|------|------|--------|
-| `current_time` | 获取当前时间 | `{ timezone?: string }` | `{ timestamp: number, iso: string, timezone: string }` |
-| `sleep` | 延时等待 | `{ duration: number }` (秒) | `{ slept: number }` |
-| `get_env` | 获取环境变量 | `{ key: string }` | `{ value: string \| null }` |
-| `set_env` | 设置环境变量 | `{ key: string, value: string }` | `{ previous: string \| null }` |
+| Tool | Description | Parameters | Return |
+|------|-------------|------------|--------|
+| `current_time` | Get the current time | `{ timezone?: string }` | `{ timestamp, iso, timezone }` |
+| `sleep` | Delay execution | `{ duration: number }` (seconds) | `{ slept: number }` |
+| `get_env` | Read an environment variable | `{ key: string }` | `{ value: string \| null }` |
+| `set_env` | Set an environment variable | `{ key: string, value: string }` | `{ previous: string \| null }` |
 
-### 文件工具 (FILE)
+### File Tools (FILE)
 
-| 工具名 | 描述 | 参数 | 返回值 |
-|--------|------|------|--------|
-| `read_file` | 读取文件内容 | `{ path: string, encoding?: string }` | `{ content: string, size: number }` |
-| `write_file` | 写入文件 | `{ path: string, content: string, encoding?: string }` | `{ bytesWritten: number }` |
-| `list_files` | 列出目录 | `{ path: string, recursive?: boolean, pattern?: string }` | `{ files: FileInfo[] }` |
-| `delete_file` | 删除文件 | `{ path: string }` | `{ deleted: boolean }` |
-| `move_file` | 移动/重命名文件 | `{ from: string, to: string }` | `{ success: boolean }` |
-| `get_file_info` | 获取文件信息 | `{ path: string }` | `{ exists: boolean, size: number, modified: number }` |
+| Tool | Description | Parameters | Return |
+|------|-------------|------------|--------|
+| `read_file` | Read file content | `{ path, encoding?, offset?, limit? }` | `{ content, size, totalLines }` |
+| `write_file` | Write/overwrite a file | `{ path, content, encoding? }` | `{ bytesWritten }` |
+| `list_files` | List directory entries | `{ path, recursive?, pattern? }` | `{ files: FileInfo[] }` |
+| `delete_file` | Delete a file | `{ path }` | `{ deleted: boolean }` |
+| `move_file` | Move or rename a file | `{ from, to }` | `{ success: boolean }` |
+| `get_file_info` | File metadata | `{ path }` | `{ exists, size, modified }` |
+| `edit_file` | Apply targeted edits to a file | `{ path, edits }` | `{ applied }` |
+| `grep_files` | Search file contents by pattern | `{ pattern, path?, ... }` | `{ matches }` |
 
-### 网络工具 (NETWORK)
+### Network Tools (NETWORK)
 
-| 工具名 | 描述 | 参数 | 返回值 |
-|--------|------|------|--------|
-| `http_get` | HTTP GET 请求 | `{ url: string, headers?: Record<string, string> }` | `{ status: number, headers: Record<string, string>, body: string }` |
-| `http_post` | HTTP POST 请求 | `{ url: string, body?: string, headers?: Record<string, string> }` | 同上 |
-| `http_request` | 通用 HTTP 请求 | `{ method: string, url: string, body?: string, headers?: Record<string, string> }` | 同上 |
-| `web_search` | 网络搜索 | `{ query: string, limit?: number }` | `{ results: SearchResult[] }` |
+| Tool | Description | Parameters | Return |
+|------|-------------|------------|--------|
+| `http_get` | HTTP GET | `{ url, headers? }` | `{ status, headers, body }` |
+| `http_post` | HTTP POST | `{ url, body?, headers? }` | `{ status, headers, body }` |
+| `http_request` | Generic HTTP request | `{ method, url, body?, headers? }` | `{ status, headers, body }` |
+| `web_search` | Web search | `{ query, limit? }` | `{ results: SearchResult[] }` |
 
-### 数据工具 (DATA)
+### Data Tools (DATA)
 
-| 工具名 | 描述 | 参数 | 返回值 |
-|--------|------|------|--------|
-| `json_parse` | 解析 JSON | `{ text: string }` | `{ data: unknown }` |
-| `json_stringify` | 序列化 JSON | `{ data: unknown, pretty?: boolean }` | `{ text: string }` |
-| `base64_encode` | Base64 编码 | `{ text: string }` | `{ encoded: string }` |
-| `base64_decode` | Base64 解码 | `{ encoded: string }` | `{ decoded: string }` |
+| Tool | Description | Parameters | Return |
+|------|-------------|------------|--------|
+| `json_parse` | Parse JSON string | `{ text }` | `{ data: unknown }` |
+| `json_stringify` | Serialize to JSON | `{ data, pretty? }` | `{ text }` |
+| `base64_encode` | Base64 encode | `{ text }` | `{ encoded }` |
+| `base64_decode` | Base64 decode | `{ encoded }` | `{ decoded }` |
+
+### Memory Tools (MEMORY)
+
+Memory tools operate on markdown files stored under `data/memory/` (facts and episodes). Each file may contain a `> Summary: ...` line used as an index entry.
+
+| Tool | Description | Parameters | Return |
+|------|-------------|------------|--------|
+| `memory_list` | List memory files with summaries | `{}` | `[{ path, summary, size }]` |
+| `memory_read` | Read a memory file | `{ path }` | `string` (file content) |
+| `memory_write` | Write or overwrite a memory file | `{ path, content }` | `{ path, size }` |
+| `memory_patch` | Partial string replacement in a memory file | `{ path, old_str, new_str }` | `{ path, size }` |
+| `memory_append` | Append an entry to a memory file | `{ path, entry, summary? }` | `{ path, size }` |
+
+**`memory_patch`** finds exactly one occurrence of `old_str` in the file and replaces it with `new_str`. Fails if the string is not found or appears multiple times (provide more surrounding context to disambiguate).
+
+**`memory_append`** appends `entry` to the end of the file. If the optional `summary` parameter is provided, it also updates (or inserts) the file-level `> Summary:` line.
+
+### Task Tools (DATA)
+
+| Tool | Description | Parameters | Return |
+|------|-------------|------------|--------|
+| `task_list` | List historical tasks for a date | `{ date?, dataDir? }` | task index entries |
+| `task_replay` | Replay a task's conversation | `{ taskId, dataDir? }` | replayed messages |
+
+### Session Tools (SYSTEM)
+
+| Tool | Description | Parameters | Return |
+|------|-------------|------------|--------|
+| `session_archive_read` | Read a previous archived session file | `{ file }` | session content |
+
+### Main Agent–Only Tools (SYSTEM)
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `spawn_task` | Launch a background task | `{ description, input }` |
+| `reply` | Speak to the user (the **only** way to produce user-visible output) | `{ text, channelId, replyTo? }` |
 
 ---
 
-## 工具调用流程
+## Tool Collections
+
+Different subsystems receive different tool subsets via pre-built arrays:
+
+| Collection | Contents | Used By |
+|------------|----------|---------|
+| `allTaskTools` | systemTools + fileTools + networkTools + dataTools + memoryTools + taskTools | Task System (Agent) |
+| `mainAgentTools` | `current_time`, `memory_list`, `memory_read`, `task_list`, `task_replay`, `session_archive_read`, `spawn_task`, `reply` | Main Agent |
+| `reflectionTools` | `memory_read`, `memory_write`, `memory_patch`, `memory_append` | PostTaskReflector |
+| `sessionTools` | `session_archive_read` | Session layer |
+
+**Key design decisions:**
+
+- **`allTaskTools`** does **not** include `spawn_task` or `reply` — those are Main Agent–only.
+- **`mainAgentTools`** gives the orchestrator read-only access to memory and task history, plus the ability to spawn tasks and reply.
+- **`reflectionTools`** provides full memory write access but omits `memory_list` because the memory index is pre-loaded and injected into the reflection prompt.
+
+---
+
+## Tool Execution Flow
 
 ```
-1. ACTING 阶段
-   Actor 执行 PlanStep，其中 actionType = "tool_call"
+1. ACTING phase
+   Actor executes a PlanStep where actionType = "tool_call"
 
-2. 查找工具
+2. Look up tool
    ToolRegistry.get(toolName)
 
-3. 参数验证
-   tool.parameters.parse(params)
+3. Validate parameters
+   tool.parameters.parse(params)   → throws ToolValidationError on failure
 
-4. 工具执行
+4. Execute with timeout
    await tool.execute(validatedParams, context)
-   使用 toolSemaphore 控制并发
+   Protected by Promise.race against a timeout timer
 
-5. 结果封装
-   ToolResult { success, result, error, durationMs }
+5. Update call statistics
+   registry.updateCallStats(toolName, durationMs, success)
 
-6. 事件发布
-   emit(TOOL_CALL_COMPLETED, { toolName, result })
+6. Caller emits completion event
+   executor.emitCompletion(toolName, result, context)
+   → TOOL_CALL_COMPLETED or TOOL_CALL_FAILED
 
-7. 记录到 TaskContext
+7. Record to TaskContext
    task.context.actionsDone.push(actionResult)
 ```
 
+> **Note:** The ToolExecutor emits `TOOL_CALL_REQUESTED` immediately at the start but does **not** emit the completion event itself. The caller must call `emitCompletion()` after updating dependent state (actionsDone, markStepDone). This avoids a race condition where the EventBus processes the completion event before the caller has finished updating context.
+
 ---
 
-## 事件集成
+## Event Integration
 
-工具调用通过事件与系统其他部分通信：
+Tool calls communicate with the rest of the system through events:
 
-| 事件类型 | 触发时机 | Payload |
-|---------|---------|---------|
-| `TOOL_CALL_REQUESTED` | 工具调用开始 | `{ toolName, params }` |
-| `TOOL_CALL_COMPLETED` | 工具调用成功 | `{ toolName, result, durationMs }` |
-| `TOOL_CALL_FAILED` | 工具调用失败 | `{ toolName, error, durationMs }` |
+| Event Type | Trigger | Payload |
+|------------|---------|---------|
+| `TOOL_CALL_REQUESTED` (400) | Tool execution begins | `{ toolName, params }` |
+| `TOOL_CALL_COMPLETED` (410) | Tool execution succeeds | `{ toolName, result, durationMs }` |
+| `TOOL_CALL_FAILED` (420) | Tool execution fails | `{ toolName, error }` |
 
-事件流示例：
+Event flow example:
 
 ```
-ACTING 状态
+ACTING state
   ↓ Actor.runStep()
 TOOL_CALL_REQUESTED { toolName: "web_search", params: { query: "AI Agent" } }
   ↓ ToolExecutor.execute()
-  ↓ 实际工具执行（可能有网络 I/O）
+  ↓ Actual tool execution (may involve network I/O)
+  ↓ Caller updates context
 TOOL_CALL_COMPLETED { toolName: "web_search", result: { results: [...] } }
-  ↓ 记录结果
-ActionResult 记录到 TaskContext.actionsDone
+  ↓ Record result
+ActionResult appended to TaskContext.actionsDone
 ```
 
 ---
 
-## 安全与权限
+## PostTaskReflection
 
-### 文件访问限制
+After a task completes, the `PostTaskReflector` uses `reflectionTools` to consolidate learnings into long-term memory. It returns:
 
 ```typescript
-// 通过 ToolContext.allowedPaths 限制文件操作
+interface PostTaskReflection {
+  assessment: string;      // Free-form assessment of the task
+  toolCallsCount: number;  // Number of tool calls the reflector made
+}
+```
+
+The reflector receives the full task context plus pre-loaded memory (existing facts and episode index) and autonomously decides what to write, patch, or append to memory files.
+
+---
+
+## Security and Permissions
+
+### File Access Restriction
+
+```typescript
+// File tools check ToolContext.allowedPaths before execution
 const context: ToolContext = {
   taskId: "abc123",
   allowedPaths: [
@@ -257,42 +319,104 @@ const context: ToolContext = {
   ],
 };
 
-// 文件工具在执行前检查路径
+// Path check — subdirectories are automatically included
 if (!isPathAllowed(path, context.allowedPaths)) {
-  throw new ToolPermissionError("Access denied");
+  throw new ToolPermissionError(toolName, "Path not in allowed paths");
 }
 ```
 
-### 超时控制
+### Memory Path Security
+
+Memory tools use `resolveMemoryPath()` to prevent directory traversal. All paths are resolved against `memoryDir` and must remain within it:
 
 ```typescript
-// 每个工具执行有默认超时，可配置
-const DEFAULT_TOOL_TIMEOUT = 30000; // 30 秒
-
-// 网络工具可能有更长的超时
-const NETWORK_TOOL_TIMEOUT = 60000; // 60 秒
+function resolveMemoryPath(relativePath: string, memoryDir: string): string {
+  const resolved = path.resolve(memoryDir, relativePath);
+  if (!resolved.startsWith(memoryRoot + "/") && resolved !== memoryRoot) {
+    throw new Error(`Path "${relativePath}" escapes memory directory`);
+  }
+  return resolved;
+}
 ```
 
-### 并发控制
+### Timeout Protection
 
 ```typescript
-// Agent 中的 toolSemaphore 控制同时执行的工具数量
+// Default tool execution timeout
+const DEFAULT_TOOL_TIMEOUT = 30000; // 30 seconds
+
+// ToolExecutor uses Promise.race to enforce the timeout
+const result = await Promise.race([
+  tool.execute(params, context),
+  timeoutPromise,  // rejects with ToolTimeoutError
+]);
+```
+
+### Concurrency Control
+
+```typescript
+// The Agent's toolSemaphore limits the number of tools executing simultaneously
 this.toolSemaphore = new Semaphore(
-  this.settings.agent.maxConcurrentTools // 默认 3
+  this.settings.agent.maxConcurrentTools // default: 3
 );
 ```
 
 ---
 
-## MCP 集成
+## Error Handling
 
-MCP (Model Context Protocol) 是一种标准化工具协议。MCP 工具作为外部工具集成：
+### Error Types
+
+```typescript
+class ToolError extends Error {
+  constructor(public toolName: string, message: string, public cause?: unknown);
+}
+
+class ToolNotFoundError extends ToolError {
+  // `Tool "${toolName}" not found`
+}
+
+class ToolValidationError extends ToolError {
+  // "Parameter validation failed" — cause contains Zod issues
+}
+
+class ToolTimeoutError extends ToolError {
+  // `Tool execution timed out after ${timeout}ms`
+}
+
+class ToolPermissionError extends ToolError {
+  // `Permission denied: ${message}`
+}
+```
+
+### Error Recovery Strategy
+
+When a tool fails, the Reflector evaluates the situation and decides:
+
+```typescript
+interface Reflection {
+  verdict: "complete" | "continue" | "replan";
+  assessment: string;
+  lessons: string[];
+  nextFocus?: string;
+}
+```
+
+- **`continue`** — Ignore the error and proceed to the next step
+- **`replan`** — Revise the plan, possibly using an alternative tool
+- **`complete`** — Treat the task as finished despite the error (partial success)
+
+---
+
+## MCP Integration
+
+MCP (Model Context Protocol) tools integrate as external tools through the standard `Tool` interface:
 
 ```typescript
 interface MCPTool {
   name: string;
   description: string;
-  inputSchema: JSONSchema;  // JSON Schema 格式
+  inputSchema: JSONSchema;  // JSON Schema format
 }
 
 class MCPClient {
@@ -302,7 +426,7 @@ class MCPClient {
   async disconnect(): Promise<void>;
 }
 
-// 将 MCP 工具包装为标准 Tool 接口
+// MCP tools are wrapped to conform to the standard Tool interface
 function wrapMCPTool(mcpTool: MCPTool, client: MCPClient): Tool {
   return {
     name: mcpTool.name,
@@ -318,18 +442,17 @@ function wrapMCPTool(mcpTool: MCPTool, client: MCPClient): Tool {
 
 ---
 
-## 扩展自定义工具
+## Extending with Custom Tools
 
-创建自定义工具只需实现 Tool 接口：
+Create a custom tool by implementing the `Tool` interface:
 
 ```typescript
 import { z } from "zod";
 import type { Tool, ToolResult, ToolContext } from "./types";
 
-// 1. 定义工具
 const myCustomTool: Tool = {
   name: "my_custom_tool",
-  description: "自定义工具描述",
+  description: "Description of what this tool does",
   category: ToolCategory.CUSTOM,
   parameters: z.object({
     input: z.string(),
@@ -338,15 +461,11 @@ const myCustomTool: Tool = {
 
   async execute(params: unknown, context: ToolContext): Promise<ToolResult> {
     const { input, optional } = params as { input: string; optional?: number };
-
     const startedAt = Date.now();
 
     try {
-      // 实现工具逻辑
       const result = await doSomething(input, optional);
-
       return {
-        toolName: "my_custom_tool",
         success: true,
         result,
         startedAt,
@@ -355,7 +474,6 @@ const myCustomTool: Tool = {
       };
     } catch (error) {
       return {
-        toolName: "my_custom_tool",
         success: false,
         error: error instanceof Error ? error.message : String(error),
         startedAt,
@@ -366,40 +484,33 @@ const myCustomTool: Tool = {
   },
 };
 
-// 2. 注册工具
-import { ToolRegistry } from "./registry";
+// Register it
 const registry = new ToolRegistry();
 registry.register(myCustomTool);
 ```
 
 ---
 
-## 配置
+## Configuration
 
-工具系统通过配置文件控制：
+Tool behavior is controlled through the config file:
 
 ```yaml
 # config.yml
 tools:
-  # 工具调用超时（毫秒）
-  timeout: 30000
+  timeout: 30000        # Tool call timeout (ms)
+  maxConcurrent: 3      # Max parallel tool executions
 
-  # 并发控制（Agent 全局设置中也有）
-  maxConcurrent: 3
-
-  # 文件访问白名单
-  allowedPaths:
+  allowedPaths:          # File access whitelist
     - "./data"
     - "./docs"
     - "./src"
 
-  # 网络搜索配置
   webSearch:
-    provider: "tavily"  # "tavily" | "google" | "bing" | "duckduckgo"
+    provider: "tavily"   # "tavily" | "google" | "bing" | "duckduckgo"
     apiKey: "${WEB_SEARCH_API_KEY}"
     maxResults: 10
 
-  # MCP 服务器配置
   mcpServers:
     - name: "filesystem"
       url: "http://localhost:3000"
@@ -411,80 +522,11 @@ tools:
 
 ---
 
-## 错误处理
+## Testing
 
-### 工具错误类型
-
-```typescript
-class ToolError extends Error {
-  constructor(
-    public toolName: string,
-    message: string,
-    public cause?: unknown,
-  ) {
-    super(message);
-    this.name = "ToolError";
-  }
-}
-
-class ToolNotFoundError extends ToolError {
-  constructor(toolName: string) {
-    super(toolName, `Tool "${toolName}" not found`);
-    this.name = "ToolNotFoundError";
-  }
-}
-
-class ToolValidationError extends ToolError {
-  constructor(toolName: string, validationErrors: unknown) {
-    super(toolName, "Parameter validation failed", validationErrors);
-    this.name = "ToolValidationError";
-  }
-}
-
-class ToolTimeoutError extends ToolError {
-  constructor(toolName: string, timeout: number) {
-    super(toolName, `Tool execution timed out after ${timeout}ms`);
-    this.name = "ToolTimeoutError";
-  }
-}
-
-class ToolPermissionError extends ToolError {
-  constructor(toolName: string, message: string) {
-    super(toolName, `Permission denied: ${message}`);
-    this.name = "ToolPermissionError";
-  }
-}
-```
-
-### 错误恢复策略
+Tool testing strategy:
 
 ```typescript
-// 当工具失败时，Reflector 可以决定：
-// 1. continue - 忽略错误，继续执行下一步
-// 2. replan - 修改计划，可能使用备用工具
-// 3. complete - 尽管有错误，任务也算完成（部分成功）
-
-interface Reflection {
-  verdict: "complete" | "continue" | "replan";
-  assessment: string;
-  lessons: string[];
-  nextFocus?: string;
-  toolFailures?: {
-    toolName: string;
-    error: string;
-    suggestion?: string;
-  }[];
-}
-```
-
----
-
-## 测试
-
-工具测试策略：
-
-```typescript
-// 工具单元测试示例
 import { describe, it, expect } from "bun:test";
 import { read_file } from "./file-tools";
 
@@ -516,30 +558,30 @@ describe("read_file", () => {
     );
 
     expect(result.success).toBe(false);
-    expect(result.error).toContain("Access denied");
+    expect(result.error).toContain("Permission denied");
   });
 });
 ```
 
 ---
 
-## 性能考虑
+## Performance Considerations
 
-| 关注点 | 策略 |
-|--------|------|
-| 并发控制 | 使用 Semaphore 限制并发数，避免资源耗尽 |
-| 超时 | 每个工具设置合理超时，避免无限等待 |
-| 缓存 | 对只读操作（如文件读取）实现内存缓存 |
-| 批处理 | 支持批量操作（如 `list_files` 的递归模式） |
-| 资源清理 | 确保网络连接、文件句柄等正确释放 |
+| Concern | Strategy |
+|---------|----------|
+| Concurrency | Semaphore limits parallel tool calls to prevent resource exhaustion |
+| Timeout | Each tool has a configurable timeout to prevent indefinite blocking |
+| Caching | Read-only operations (e.g., file reads) can leverage in-memory caching |
+| Batch Operations | Bulk operations supported (e.g., `list_files` with recursive mode) |
+| Resource Cleanup | Network connections and file handles are properly released |
 
 ---
 
-## 未来扩展
+## Future Extensions
 
-1. **流式工具**：支持流式返回（如日志实时输出）
-2. **工具链**：支持工具组合和管道操作
-3. **工具依赖**：声明工具间的依赖关系，自动解析执行顺序
-4. **工具版本**：支持同一工具的多个版本
-5. **工具审计**：详细的工具调用审计日志
-6. **A/B 测试**：对不同工具实现进行 A/B 测试
+1. **Streaming Tools** — Support streaming output (e.g., real-time log tailing)
+2. **Tool Chains** — Compose tools into pipelines
+3. **Tool Dependencies** — Declare inter-tool dependencies with automatic execution ordering
+4. **Tool Versioning** — Support multiple versions of the same tool
+5. **Audit Logging** — Detailed tool call audit trail
+6. **A/B Testing** — Compare alternative tool implementations

@@ -8,20 +8,23 @@
 | **M1: Conversation** | ✅ Done | CLI chat + Identity system + LLM integration |
 | **M2: Memory** | ✅ Done | Long-term memory (facts + episodes), markdown files |
 | **M3: Action** | ✅ Done | Built-in tools + LLM function calling + event-driven Actor |
-| **Cognitive merge** | ✅ Done | 5-stage → 3-stage pipeline (Reason → Act → Reflect) |
+| **Cognitive merge** | ✅ Done | 5-stage → 3-stage → 2-stage pipeline (Reason → Act) |
 | **Task persistence** | ✅ Done | JSONL incremental event logs, replay, index |
 | **Main Agent** | ✅ Done | Inner monologue, reply tool, event-driven single-step thinking |
 | **Channel Adapter** | ✅ Done | Multi-channel architecture (CLI adapter implemented) |
 | **Startup recovery** | ✅ Done | Session repair + pending task recovery via onNotify |
 | **Token counting** | ✅ Done | tiktoken (OpenAI) + Anthropic count_tokens API |
-| **M4: Complex reasoning** | 📋 Next | LLM-driven reflection, multi-step planning |
+| **M4: Cognitive upgrade** | ✅ Done | 2-stage pipeline, async PostTaskReflector with tool-use loop |
+| **Multi-model** | ✅ Done | Per-role model config (default, subAgent, compact, reflection) |
+| **Session compact** | ✅ Done | Auto-compact with context window awareness |
+| **Memory redesign** | ✅ Done | Cache-friendly index, tool-use reflector, memory_patch |
 | **M5: Multi-channel** | 📋 Planned | Slack / SMS / Web channel adapters |
 
 ## Test Coverage
 
-- **Tests**: 454 pass, 0 fail
-- **Line coverage**: 99.69%
-- **Function coverage**: 99.26%
+- **Tests**: 548 pass, 0 fail
+- **Line coverage**: 99.82%
+- **Function coverage**: 99.08%
 - **Threshold**: 95% per file (enforced by CI + git hooks)
 
 ## Project Structure
@@ -37,14 +40,14 @@ pegasus/
 │   ├── session/             # Session persistence + compaction
 │   ├── events/              # Event system (EventType, EventBus)
 │   ├── task/                # TaskFSM + TaskContext + TaskPersister
-│   ├── cognitive/           # Reason → Act → Reflect processors
+│   ├── cognitive/           # Reason → Act processors + PostTaskReflector
 │   ├── identity/            # Persona + system prompt builder
 │   ├── tools/
 │   │   ├── registry.ts      # Tool registration
 │   │   ├── executor.ts      # Tool execution (timeout, validation)
 │   │   └── builtins/        # Built-in tools (system/file/network/data/memory/task)
 │   ├── models/              # ToolCall, ToolDefinition types
-│   └── infra/               # Config, Logger, LLM clients, TokenCounter
+│   └── infra/               # Config, Logger, LLM clients, TokenCounter, ModelRegistry
 ├── tests/
 │   ├── unit/                # Unit tests
 │   └── integration/         # Integration tests

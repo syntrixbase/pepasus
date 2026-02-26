@@ -7,13 +7,15 @@
 - 🧠 **Inner monologue** — Main Agent's LLM output is private thinking; only `reply` tool calls reach the user
 - 🔄 **Event-driven architecture** — everything is an event, dispatched via EventBus, non-blocking concurrency
 - 🤖 **State machine task management** — TaskFSM controls task lifecycle precisely, with suspend/resume
-- 🧩 **3-stage cognitive pipeline** — Reason → Act → Reflect
+- 🧩 **2-stage cognitive pipeline** — Reason → Act, with async post-task reflection for memory learning
 - 📡 **Multi-channel adapter** — Channel Adapter pattern, supports CLI / Slack / SMS / Web
 - 🎭 **Identity system** — configurable persona, consistent personality and behavior
 - 🔧 **Built-in tool system** — file, network, system, data, memory tools + LLM function calling
 - 💾 **Memory system** — long-term memory (facts + episodes), markdown file based
 - 📝 **Task persistence** — incremental JSONL event logs with replay
 - 🔁 **Startup recovery** — session repair + pending task auto-recovery
+- 🧠 **Multi-model support** — per-role model configuration (default, subAgent, compact, reflection)
+- 📦 **Session compaction** — automatic context window management with summarization
 
 ## 🚀 Quick Start
 
@@ -79,7 +81,7 @@ bun run dev
 │              reply tool)            │
 ├─────────────────────────────────────┤
 │  EventBus → Agent → TaskFSM        │
-│  Reason → Act → Reflect            │
+│  Reason → Act (+ async Reflection) │
 ├─────────────────────────────────────┤
 │  Tools │ Memory │ Identity │ LLM   │
 └─────────────────────────────────────┘
@@ -89,13 +91,15 @@ bun run dev
 
 - [Architecture](./docs/architecture.md) — layered design, core abstractions, data flow
 - [Main Agent](./docs/main-agent.md) — inner monologue, Channel Adapter, Session, System Prompt
-- [Cognitive Processors](./docs/cognitive.md) — Reason → Act → Reflect pipeline
+- [Cognitive Processors](./docs/cognitive.md) — Reason → Act (2-stage) + async PostTaskReflector
 - [Task FSM](./docs/task-fsm.md) — states, transitions, suspend/resume
 - [Event System](./docs/events.md) — EventType, EventBus, priority queue
 - [Agent Core](./docs/agent.md) — event processing, cognitive dispatch, concurrency
 - [Tool System](./docs/tools.md) — registration, execution, timeout, LLM function calling
 - [Memory System](./docs/memory-system.md) — long-term memory (facts + episodes)
 - [Task Persistence](./docs/task-persistence.md) — JSONL event logs, replay
+- [Multi-Model](./docs/multi-model.md) — per-role model config with ModelRegistry
+- [Session Compact](./docs/session-compact.md) — auto-compact with context window awareness
 - [Configuration](./docs/configuration.md) — YAML config + env var interpolation
 - [Logging](./docs/logging.md) — log format, output, rotation
 - [Running Guide](./docs/running.md) — detailed setup and usage

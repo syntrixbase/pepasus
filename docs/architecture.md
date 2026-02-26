@@ -1,81 +1,85 @@
-# Pegasus — 系统架构
+# Pegasus — System Architecture
 
-## 定位
+## Positioning
 
-Pegasus不是「请求-响应」服务，是一个**持续运行的自主工作者**（continuously running worker）。像一个真正的员工坐在工位上——脑子里同时想着好几件事，手上在做一件事，随时能听到新指令、收到新邮件，自己决定怎么安排。
+Pegasus is not a request-response service. It is a **continuously running autonomous worker**. Think of a real employee at their desk — juggling multiple concerns in their head, working on one thing at a time, ready to hear new instructions or receive new messages at any moment, and deciding on their own how to prioritize.
 
-## 核心设计原则
+## Core Design Principles
 
-| 原则 | 含义 |
-|------|------|
-| **一切皆事件** | 用户消息、工具返回、定时触发、状态变更——统统是 Event，通过 EventBus 分发 |
-| **任务即状态机** | 每个任务是独立的 TaskFSM，有明确的状态和转换规则，不是 while 循环 |
-| **Agent 是事件处理器** | 没有 `while True` 循环，没有 `await task.run()` 阻塞。只有：收到事件 → 驱动状态机 → 产出新事件 |
-| **无阻塞、纯异步、可并发** | Agent 的事件处理函数永远不阻塞，多个任务交错推进，共享算力 |
-| **纯函数认知** | 认知阶段处理器（Thinker/Planner/Actor/Reflector）不持有状态，可被任意任务复用 |
-| **身份一致性** | 无论并发多少任务、跨多少会话，人格和行为风格保持一致 |
-| **记忆持久化** | 经验不丢失，能从历史中学习和改进 |
-| **模型无关** | 核心逻辑不绑定特定 LLM，支持动态切换和路由 |
+| Principle | Meaning |
+|-----------|---------|
+| **Everything is an Event** | User messages, tool returns, scheduled triggers, state changes — all are Events, dispatched through the EventBus |
+| **Task = State Machine** | Each task is an independent TaskFSM with explicit states and transition rules, not a while-loop |
+| **Agent is an Event Processor** | No `while True` loop, no `await task.run()` blocking. Only: receive event → drive state machine → produce new events |
+| **Non-blocking, Fully Async, Concurrent** | Agent event handlers never block; multiple tasks interleave, sharing compute |
+| **Stateless Cognitive Processors** | Cognitive stage processors (Thinker, Planner, Actor, PostTaskReflector) hold no state and can be reused by any task |
+| **Identity Consistency** | Regardless of concurrent task count or session boundaries, personality and behavioral style remain consistent |
+| **Persistent Memory** | Experience is never lost; the system learns and improves from history |
+| **Model Agnostic** | Core logic is not bound to a specific LLM; supports dynamic switching and routing |
 
-## 两个核心抽象
+## Three Core Layers
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│  系统有三个核心层次：                                           │
+│  The system has three core layers:                           │
 │                                                              │
-│  1. Main Agent — 对话大脑（决定做什么）                         │
-│  2. Event + TaskFSM — 执行引擎（怎么做）                       │
-│  3. Channel Adapters — I/O 适配（从哪来、回哪去）               │
+│  1. Main Agent — Conversation brain (decides what to do)     │
+│  2. Event + TaskFSM — Execution engine (how to do it)        │
+│  3. Channel Adapters — I/O adaptation (where it comes from   │
+│     and where it goes back)                                  │
 │                                                              │
-│  Main Agent 接收消息，决定直接回复还是启动 Task。               │
-│  Task 通过 EventBus + FSM 异步执行，结果回传给 Main Agent。     │
+│  Main Agent receives messages and decides whether to reply   │
+│  directly or spawn a Task.                                   │
+│  Tasks execute asynchronously via EventBus + FSM, and        │
+│  results flow back to Main Agent.                            │
 └──────────────────────────────────────────────────────────────┘
 ```
 
-## 分层架构总览
+## Layered Architecture Overview
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│        Channel Adapters (渠道适配层)                   │
-│   CLI │ Slack │ SMS │ Web │ REST API                  │
-│        ↓ 所有输入统一为 InboundMessage ↓               │
+│        Channel Adapters                              │
+│   CLI │ Slack │ SMS │ Web │ REST API                 │
+│       ↓ All input unified as InboundMessage ↓        │
 ├─────────────────────────────────────────────────────┤
-│        Main Agent (全局 LLM 角色 / 对话大脑)            │
-│   Session 管理 │ 对话决策 │ 简单工具 │ Task 调度        │
-│        ↓ 需要执行时 spawn_task ↓                       │
+│        Main Agent (Global LLM Persona / Conv. Brain) │
+│   Session Mgmt │ Conversation Decisions │ Simple     │
+│   Tools │ Task Dispatch via spawn_task                │
+│       ↓ Spawns task when needed ↓                    │
 ├─────────────────────────────────────────────────────┤
-│             EventBus (事件总线 / 神经系统)              │
+│             EventBus (Nervous System)                │
 │   Priority Queue │ Pub/Sub │ Event Routing           │
 ├─────────────────────────────────────────────────────┤
-│         Agent (薄层编排器 / 事件处理器)                  │
-│   事件分发 │ 状态转换 │ 认知阶段调度 │ 并发控制          │
+│         Agent (Thin Orchestrator / Event Processor)   │
+│   Event Dispatch │ State Transitions │ Cognitive      │
+│   Stage Dispatch │ Concurrency Control                │
 ├─────────────────────────────────────────────────────┤
-│        TaskFSM Layer (任务状态机层)                     │
-│   IDLE → REASONING → ACTING → REFLECTING             │
-│                  → COMPLETED                          │
-│                  │ SUSPENDED │ FAILED │                │
+│        TaskFSM Layer (Task State Machine)             │
+│   IDLE → REASONING → ACTING → COMPLETED              │
+│             │ SUSPENDED │ FAILED │                    │
 ├─────────────────────────────────────────────────────┤
-│       Cognitive Processors (认知处理器 / 无状态)         │
-│   Thinker │ Planner │ Actor │ Reflector               │
+│       Cognitive Processors (Stateless)                │
+│   Thinker │ Planner │ Actor │ PostTaskReflector       │
 ├─────────────────────────────────────────────────────┤
-│          Identity Layer (身份层)                       │
+│          Identity Layer                               │
 │   Persona │ Preferences │ Evolution                   │
 ├─────────────────────────────────────────────────────┤
-│          Memory System (记忆系统)                      │
+│          Memory System                                │
 │   Facts │ Episodes │ Long-term Memory                 │
 ├─────────────────────────────────────────────────────┤
-│          LLM Adapter (模型适配层)                      │
+│          LLM Adapter                                  │
 │   Claude │ OpenAI │ Gemini │ Local (Ollama)           │
 ├─────────────────────────────────────────────────────┤
-│        Capability Layer (能力层)                       │
+│        Capability Layer                               │
 │   MCP Tools │ Skills │ A2A │ Multimodal IO            │
 ├─────────────────────────────────────────────────────┤
-│         Infrastructure (基础设施)                      │
+│         Infrastructure                                │
 │   Storage │ Persistence │ Logging │ Config            │
 └─────────────────────────────────────────────────────┘
 ```
 
-## 系统运行全景
+## System Runtime Overview
 
 ```
                      ┌──────────────┐
@@ -93,27 +97,27 @@ Pegasus不是「请求-响应」服务，是一个**持续运行的自主工作�
                             │ spawn_task (when needed)
                             ▼
                      ┌──────────────┐
-  工具返回结果 ────────▶│              │
-  认知阶段完成 ────────▶│  EventBus   │
-  任务状态变更 ────────▶│ (优先级队列) │
+  Tool results ──────▶│              │
+  Cognitive done ─────▶│  EventBus   │
+  Task state change ──▶│ (pri queue) │
                      └──────┬───────┘
-                            │ 分发事件
+                            │ Dispatch events
                             ▼
                      ┌──────────────┐
                      │    Agent     │
-                     │ (事件处理器)  │
+                     │ (event proc) │
                      └──────┬───────┘
-                            │ 查找/驱动
+                            │ Lookup / drive
                             ▼
              ┌──────────────────────────────┐
              │       TaskRegistry           │
              │  ┌──────┐ ┌──────┐ ┌──────┐  │
              │  │Task A│ │Task B│ │Task C│  │
-             │  │ 状态机│ │ 状态机│ │ 状态机│  │
+             │  │  FSM │ │  FSM │ │  FSM │  │
              │  │ACTING│ │REASON│ │IDLE  │  │
              │  └──────┘ └──────┘ └──────┘  │
              └──────────────────────────────┘
-                            │ 调用
+                            │ Invokes
                  ┌──────────┼──────────┐
                  ▼          ▼          ▼
            ┌─────────┐ ┌────────┐ ┌────────┐
@@ -121,23 +125,35 @@ Pegasus不是「请求-响应」服务，是一个**持续运行的自主工作�
            └─────────┘ └────────┘ └────────┘
 ```
 
-## 与传统方案的对比
+## Cognitive Pipeline: 2-Stage (Reason → Act)
 
-| 维度 | 传统 while 循环 | 事件驱动 + 状态机 |
-|------|----------------|------------------|
-| **并发** | 一次一个任务，串行执行 | 多任务交错执行，真正并发 |
-| **阻塞** | 等待工具/LLM 时整个 Agent 阻塞 | 等待期间处理其他任务 |
-| **可恢复** | 进程崩溃 = 任务丢失 | 状态持久化，崩溃后从检查点恢复 |
-| **可挂起** | 不支持（或需要复杂 hack） | 原生 SUSPENDED 状态 |
-| **可观测** | 需要额外日志 | 事件流 = 天然审计日志 |
-| **可测试** | 需要 mock 整个循环 | 单独测试每个状态转换 |
+The cognitive pipeline has two active stages. There is no REFLECTING state in the FSM.
+
+**TaskState has 6 states:** `IDLE`, `REASONING`, `ACTING`, `SUSPENDED`, `COMPLETED`, `FAILED`.
+
+The Reason → Act cycle can loop: after acting (tool calls), the FSM transitions back to REASONING for the next iteration, enabling multi-turn tool use without a dedicated reflection state.
+
+**PostTaskReflector** runs asynchronously after a task reaches COMPLETED (fire-and-forget). It is not part of the cognitive loop and does not affect task state. It uses memory tools to decide what experiences are worth persisting to long-term memory.
+
+**Memory index injection:** On the first cognitive iteration, the memory index is fetched and injected as the first user message in the conversation, not into the system prompt. This is cache-friendly — the system prompt remains stable across iterations.
+
+## Comparison with Traditional Approaches
+
+| Dimension | Traditional while-loop | Event-driven + State Machine |
+|-----------|----------------------|------------------------------|
+| **Concurrency** | One task at a time, serial | Multiple tasks interleave, true concurrency |
+| **Blocking** | Entire Agent blocks while waiting for tool/LLM | Processes other tasks during waits |
+| **Recoverability** | Process crash = task lost | State persisted, recover from checkpoint after crash |
+| **Suspendable** | Not supported (or complex hacks) | Native SUSPENDED state |
+| **Observability** | Requires additional logging | Event stream = natural audit log |
+| **Testability** | Must mock the entire loop | Test each state transition individually |
 
 ```typescript
-// ❌ 旧方案：阻塞式 while 循环
+// ❌ Old approach: blocking while-loop
 class CognitiveLoop {
     async run(task: Task): Promise<TaskResult> {
         const context = await this.perceive(task)
-        while (!context.isComplete) {          // Agent 被锁死在这里
+        while (!context.isComplete) {          // Agent is locked here
             const thinking = await this.think(context)
             const plan = await this.plan(thinking)
             const results = await this.act(plan)
@@ -147,29 +163,29 @@ class CognitiveLoop {
     }
 }
 
-// ✅ 新方案：事件驱动，Agent 是处理器
+// ✅ New approach: event-driven, Agent is a processor
 class Agent {
     async _onTaskEvent(event: Event) {
         const task = this.registry.get(event.taskId)
-        const newState = task.transition(event)       // 纯状态转换
-        this._dispatch(task, newState)                // 非阻塞启动下一阶段
-        // 立即返回，处理下一个事件
+        const newState = task.transition(event)       // Pure state transition
+        this._dispatch(task, newState)                // Non-blocking, spawns next stage
+        // Returns immediately, processes next event
     }
 }
 ```
 
-## 详细设计文档
+## Detailed Design Documents
 
-各子系统的详细设计拆分到独立文档：
+Each subsystem's detailed design is split into its own document:
 
-| 文档 | 内容 |
-|------|------|
-| [main-agent.md](./main-agent.md) | Main Agent：全局 LLM 角色、对话管理、多渠道适配、Session 持久化 |
-| [events.md](./events.md) | 事件系统：Event、EventType、EventBus、优先级队列 |
-| [task-fsm.md](./task-fsm.md) | 任务状态机：TaskState、TaskFSM、TaskContext、状态转换表 |
-| [agent.md](./agent.md) | Agent 核心：事件处理、认知阶段调度、并发控制（信号量）、生命周期 |
-| [cognitive.md](./cognitive.md) | 认知阶段：Reason → Act → Reflect，处理器接口 |
-| [task-persistence.md](./task-persistence.md) | 任务持久化：增量 JSONL 事件日志、replay、index |
-| [memory-system.md](./memory-system.md) | 长期记忆：facts + episodes，Markdown 文件存储 |
-| [tools.md](./tools.md) | 工具系统：注册、执行、超时、LLM 函数调用 |
-| [project-structure.md](./project-structure.md) | 代码目录结构与模块依赖关系 |
+| Document | Content |
+|----------|---------|
+| [main-agent.md](./main-agent.md) | Main Agent: global LLM persona, conversation management, multi-channel adapters, Session persistence |
+| [events.md](./events.md) | Event system: Event, EventType, EventBus, priority queue |
+| [task-fsm.md](./task-fsm.md) | Task state machine: TaskState (6 states), TaskFSM, TaskContext, transition table |
+| [agent.md](./agent.md) | Agent core: event processing, cognitive stage dispatch, concurrency control (semaphore), lifecycle |
+| [cognitive.md](./cognitive.md) | Cognitive pipeline: Reason → Act (2-stage), PostTaskReflector (async post-completion), processor interfaces |
+| [task-persistence.md](./task-persistence.md) | Task persistence: incremental JSONL event logs, replay, index |
+| [memory-system.md](./memory-system.md) | Long-term memory: facts + episodes, Markdown file storage |
+| [tools.md](./tools.md) | Tool system: registration, execution, timeout, LLM function calling |
+| [project-structure.md](./project-structure.md) | Code directory structure and module dependency graph |
