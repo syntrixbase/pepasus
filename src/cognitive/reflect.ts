@@ -1,61 +1,99 @@
 /**
- * Reflector — evaluate results, extract lessons, decide next action.
+ * PostTaskReflector — async post-task reflection for memory learning.
  *
- * For conversation tasks: returns "complete" verdict.
- * After tool_call execution: returns "continue" to trigger another LLM round.
- * Complex reflection with LLM evaluation will be added in M4.
+ * NOT part of the cognitive loop. Runs after COMPLETED state,
+ * fire-and-forget. Extracts facts and episode summaries via LLM call.
  */
 import type { LanguageModel } from "../infra/llm-types.ts";
+import { generateText } from "../infra/llm-utils.ts";
 import { getLogger } from "../infra/logger.ts";
 import type { Persona } from "../identity/persona.ts";
-import type { TaskContext, Reflection } from "../task/context.ts";
+import type { TaskContext, PostTaskReflection } from "../task/context.ts";
 
 const logger = getLogger("cognitive.reflect");
 
-export class Reflector {
-  readonly model: LanguageModel;
-  readonly persona: Persona;
+/** Determine if a completed task is worth reflecting on. */
+export function shouldReflect(context: TaskContext): boolean {
+  if (context.iteration <= 1 && context.actionsDone.length <= 1) {
+    const responseLen =
+      typeof context.finalResult === "object" && context.finalResult !== null
+        ? JSON.stringify(context.finalResult).length
+        : 0;
+    if (responseLen < 200) return false;
+  }
+  return true;
+}
 
-  constructor(model: LanguageModel, persona: Persona) {
-    this.model = model;
-    this.persona = persona;
+export class PostTaskReflector {
+  constructor(
+    private model: LanguageModel,
+    private persona: Persona,
+  ) {}
+
+  async run(context: TaskContext): Promise<PostTaskReflection> {
+    logger.info({ taskId: context.id, iteration: context.iteration }, "post_task_reflect_start");
+
+    const emptyResult: PostTaskReflection = {
+      facts: [],
+      episode: null,
+      assessment: "",
+    };
+
+    try {
+      const prompt = this._buildPrompt(context);
+      const { text } = await generateText({
+        model: this.model,
+        system: `You are ${this.persona.name}. Reflect on a completed task and extract learnings. Respond in JSON only.`,
+        messages: [{ role: "user", content: prompt }],
+      });
+
+      const parsed = JSON.parse(text);
+      const result: PostTaskReflection = {
+        facts: Array.isArray(parsed.facts) ? parsed.facts : [],
+        episode: parsed.episode ?? null,
+        assessment: typeof parsed.assessment === "string" ? parsed.assessment : "",
+      };
+
+      logger.info(
+        { taskId: context.id, factsCount: result.facts.length, hasEpisode: !!result.episode },
+        "post_task_reflect_done",
+      );
+      return result;
+    } catch (err) {
+      const message = err instanceof SyntaxError
+        ? `Failed to parse LLM reflection output`
+        : `Reflection error: ${err instanceof Error ? err.message : String(err)}`;
+      logger.warn({ taskId: context.id, error: message }, "post_task_reflect_failed");
+      return { ...emptyResult, assessment: message };
+    }
   }
 
-  async run(context: TaskContext): Promise<Reflection> {
-    logger.info({ iteration: context.iteration }, "reflect_start");
+  private _buildPrompt(context: TaskContext): string {
+    const actions = context.actionsDone
+      .map((a) => `- ${a.actionType}: ${a.success ? "success" : "failed"}${a.error ? ` (${a.error})` : ""}`)
+      .join("\n");
 
-    const taskType = "conversation"; // Task type detection removed with Perceiver
-    const allSuccess = context.actionsDone.every((a) => a.success);
+    const result = typeof context.finalResult === "object" && context.finalResult !== null
+      ? JSON.stringify(context.finalResult).slice(0, 500)
+      : String(context.finalResult ?? "");
 
-    // Check if the CURRENT plan has tool_call steps (not historical actions)
-    const currentPlanHasToolCalls = context.plan?.steps.some(
-      (s) => s.actionType === "tool_call",
-    ) ?? false;
-
-    let reflection: Reflection;
-
-    if (currentPlanHasToolCalls && allSuccess) {
-      // Tool calls executed successfully — need another LLM round for summary
-      reflection = {
-        verdict: "continue",
-        assessment: `Tool calls executed in iteration ${context.iteration}, continuing for LLM summary`,
-        lessons: [],
-      };
-    } else if (taskType === "conversation") {
-      reflection = {
-        verdict: "complete",
-        assessment: "Conversation response delivered successfully",
-        lessons: [],
-      };
-    } else {
-      reflection = {
-        verdict: allSuccess ? "complete" : "continue",
-        assessment: `Iteration ${context.iteration}, ${context.actionsDone.length} actions, ${allSuccess ? "all succeeded" : "some failed"}`,
-        lessons: [`Completed: ${context.inputText.slice(0, 50)}`],
-      };
-    }
-
-    logger.info({ verdict: reflection.verdict, taskType }, "reflect_done");
-    return reflection;
+    return [
+      `Task: ${context.inputText}`,
+      `Iterations: ${context.iteration}`,
+      `Actions:\n${actions || "(none)"}`,
+      `Result: ${result}`,
+      "",
+      "Respond in JSON with this schema:",
+      "{",
+      '  "facts": [{"path": "facts/<name>.md", "content": "markdown content"}],',
+      '  "episode": {"title": "...", "summary": "< 10 words", "details": "2-3 sentences", "lesson": "..."} | null,',
+      '  "assessment": "brief assessment string"',
+      "}",
+      "",
+      "Rules:",
+      "- Only add facts if genuinely new/useful information was discovered",
+      "- Episode summary must be under 10 words",
+      "- Return empty facts array and null episode if nothing worth recording",
+    ].join("\n");
   }
 }
