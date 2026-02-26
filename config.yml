@@ -38,7 +38,7 @@ llm:
     zai:
       type: openai  # treat ZAI as OpenAI-compatible
       apiKey: ${ZAI_API_KEY}
-      baseURL: ${ZAI_BASE_URL:https://api.z.ai/api/coding/paas/v4}
+      baseURL: ${ZAI_BASE_URL:-https://api.z.ai/api/coding/paas/v4}
 
     # For Ollama, LM Studio, or other OpenAI-compatible endpoints
     # Usage: roles.default: "ollama/llama3.2:latest"
