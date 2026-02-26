@@ -145,7 +145,7 @@ describe("Agent tool use loop", () => {
       const task = await agent.waitForTask(taskId, 10_000);
 
       // Task should complete (not hang)
-      expect(task.isTerminal).toBe(true);
+      expect(task.isDone).toBe(true);
 
       // Tool action should have failed
       const toolActions = task.context.actionsDone.filter(

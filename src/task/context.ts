@@ -123,3 +123,24 @@ export function createTaskContext(
     messages: [],
   };
 }
+
+/**
+ * Prepare a TaskContext for resumption with new instructions.
+ * Clears stale cognitive artifacts while preserving conversation history.
+ */
+export function prepareContextForResume(context: TaskContext, newInput: string): void {
+  // Clear stale cognitive state — old plan/reasoning are done
+  context.plan = null;
+  context.reasoning = null;
+  context.finalResult = null;
+  context.error = null;
+  context.suspendedState = null;
+  context.suspendReason = null;
+  context.iteration = 0;
+  context.postReflection = null;
+
+  // Preserve: context.messages, context.actionsDone — core value of resume
+
+  // Append new instruction as user message
+  context.messages.push({ role: "user", content: newInput });
+}

@@ -4,7 +4,7 @@
 import { TaskNotFoundError } from "../infra/errors.ts";
 import { getLogger } from "../infra/logger.ts";
 import { TaskFSM } from "./fsm.ts";
-import type { TaskState } from "./states.ts";
+import { TaskState } from "./states.ts";
 import { TERMINAL_STATES } from "./states.ts";
 
 const logger = getLogger("task_registry");

@@ -105,9 +105,9 @@ describe("Agent.onNotify", () => {
         }),
       );
 
-      // Wait for task to reach terminal state
+      // Wait for task to reach done state
       const task = await agent.waitForTask(taskId, 5000);
-      expect(task.isTerminal).toBe(true);
+      expect(task.isDone).toBe(true);
 
       // Verify at least one notification was received for this task
       const taskNotifs = notifications.filter((n) => n.taskId === taskId);

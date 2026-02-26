@@ -22,7 +22,7 @@ import type { Persona } from "../identity/persona.ts";
 import { TaskFSM } from "../task/fsm.ts";
 import { TaskRegistry } from "../task/registry.ts";
 import { TaskState } from "../task/states.ts";
-import { currentStep, markStepDone } from "../task/context.ts";
+import { currentStep, markStepDone, prepareContextForResume } from "../task/context.ts";
 import type { TaskContext } from "../task/context.ts";
 import { ToolRegistry } from "../tools/registry.ts";
 import { ToolExecutor } from "../tools/executor.ts";
@@ -638,13 +638,57 @@ export class Agent {
     return "";
   }
 
+  /**
+   * Resume a previously completed task with new instructions.
+   * Reuses existing conversation history and re-enters the cognitive loop.
+   */
+  async resume(taskId: string, newInput: string): Promise<string> {
+    // 1. Check if task is already in registry
+    let task = this.taskRegistry.getOrNull(taskId);
+
+    if (task) {
+      // Task is in registry — verify it's completed
+      if (task.state !== TaskState.COMPLETED) {
+        throw new Error(`Task ${taskId} is in state ${task.state}, can only resume COMPLETED tasks`);
+      }
+    } else {
+      // 2. Not in registry — try to hydrate from JSONL
+      const tasksDir = path.join(this.settings.dataDir, "tasks");
+      const filePath = await TaskPersister.resolveTaskPath(tasksDir, taskId);
+      if (!filePath) {
+        throw new TaskNotFoundError(`Task ${taskId} not found`);
+      }
+
+      // 3. Replay JSONL to reconstruct context
+      const context = await TaskPersister.replay(filePath);
+
+      // 4. Hydrate FSM and register
+      task = TaskFSM.hydrate(taskId, context, TaskState.COMPLETED);
+      this.taskRegistry.register(task);
+    }
+
+    // 5. Prepare context for resume
+    prepareContextForResume(task.context, newInput);
+
+    // 6. Emit TASK_RESUMED → triggers FSM transition COMPLETED → REASONING
+    await this.eventBus.emit(
+      createEvent(EventType.TASK_RESUMED, {
+        source: "agent",
+        taskId: task.taskId,
+        payload: { newInput },
+      }),
+    );
+
+    return taskId;
+  }
+
   /** Wait for a task to complete (for testing and simple scenarios). */
   async waitForTask(taskId: string, timeout?: number): Promise<TaskFSM> {
     const effectiveTimeout = timeout ?? this.settings.agent.taskTimeout * 1000;
     const deadline = Date.now() + effectiveTimeout;
     while (Date.now() < deadline) {
       const task = this.taskRegistry.getOrNull(taskId);
-      if (task?.isTerminal) return task;
+      if (task?.isDone) return task;
       await Bun.sleep(50);
     }
     throw new Error(`Task ${taskId} did not complete within ${effectiveTimeout}ms`);
