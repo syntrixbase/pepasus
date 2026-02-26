@@ -54,8 +54,8 @@ Before ANY change:
 
 - Uses `bun` for frontend package scripts.
 - `README.md` is the project entry point.
-- `docs/` — persistent system design docs (no implementation details).
-- `docs/plans/` — disposable working documents (plans, design drafts, reviews). Local only, gitignored. Throw away after use.
+- `docs/` — persistent system design docs: architecture decisions, the "Why" behind designs. Survives implementation.
+- `docs/plans/` — disposable implementation plans: step-by-step task lists, checklists. Gitignored. Delete after execution.
 
 ## Documentation Map
 

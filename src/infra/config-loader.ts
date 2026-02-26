@@ -26,9 +26,8 @@ const logger = getLogger("config_loader");
  */
 const DEFAULT_CONFIG = {
   llm: {
-    provider: "openai",
-    model: "gpt-4o-mini",
     providers: {},
+    roles: { default: "openai/gpt-4o-mini" },
     maxConcurrentCalls: 3,
     timeout: 120,
   },
@@ -232,28 +231,8 @@ function findAndMergeConfigs(): any {
  * All env var resolution happens during YAML interpolation.
  */
 function configToSettings(config: any): Settings {
-  const llm = config.llm || {};
-  const providers = llm.providers || {};
-
-  // Determine active provider with alias mapping
-  let provider = llm.provider || "openai";
-  if (provider === "ollama" || provider === "lmstudio") {
-    provider = "openai-compatible";
-  }
-
-  const activeProviderConfig = providers[llm.provider] || {};
-
   return SettingsSchema.parse({
-    llm: {
-      provider,
-      model: llm.model,
-      openai: providers.openai,
-      anthropic: providers.anthropic,
-      baseURL: llm.baseURL || activeProviderConfig.baseURL,
-      maxConcurrentCalls: llm.maxConcurrentCalls,
-      timeout: llm.timeout,
-      contextWindow: llm.contextWindow,
-    },
+    llm: config.llm,
     memory: config.memory,
     agent: config.agent,
     identity: config.identity,

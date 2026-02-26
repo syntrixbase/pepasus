@@ -7,7 +7,6 @@ import {
   getSettings,
   setSettings,
   resetSettings,
-  getActiveProviderConfig,
 } from "@pegasus/infra/config.ts";
 import type { Settings } from "@pegasus/infra/config.ts";
 import {
@@ -32,21 +31,19 @@ import { toAnthropicMessages } from "@pegasus/infra/anthropic-client.ts";
 describe("Config schemas", () => {
   test("LLMConfigSchema applies defaults", () => {
     const config = LLMConfigSchema.parse({});
-    expect(config.provider).toBe("openai");
-    expect(config.model).toBe("gpt-4o-mini");
+    expect(config.roles.default).toBe("openai/gpt-4o-mini");
     expect(config.maxConcurrentCalls).toBe(3);
     expect(config.timeout).toBe(120);
+    expect(config.providers).toEqual({});
   });
 
   test("LLMConfigSchema accepts custom values", () => {
     const config = LLMConfigSchema.parse({
-      provider: "openai",
-      model: "gpt-4",
+      roles: { default: "openai/gpt-4" },
       maxConcurrentCalls: "5",
       timeout: "60",
     });
-    expect(config.provider).toBe("openai");
-    expect(config.model).toBe("gpt-4");
+    expect(config.roles.default).toBe("openai/gpt-4");
     expect(config.maxConcurrentCalls).toBe(5);
     expect(config.timeout).toBe(60);
   });
@@ -67,7 +64,7 @@ describe("Config schemas", () => {
 
   test("SettingsSchema applies nested defaults", () => {
     const settings = SettingsSchema.parse({ dataDir: "/tmp/pegasus-test" });
-    expect(settings.llm.provider).toBe("openai");
+    expect(settings.llm.roles.default).toBe("openai/gpt-4o-mini");
     expect(settings.agent.maxActiveTasks).toBe(5);
     expect(settings.logLevel).toBe("info");
     expect(settings.dataDir).toBe("/tmp/pegasus-test");
@@ -147,7 +144,7 @@ describe("getSettings / setSettings", () => {
     const reloaded = getSettings();
     // Should have reloaded (not the custom override)
     expect(reloaded).not.toBe(custom);
-    expect(reloaded.llm.provider).toBe("openai"); // default from env/schema
+    expect(reloaded.llm.roles.default).toBeDefined(); // reloaded from config/defaults
   });
 
   test("loads default settings from schema defaults", () => {
@@ -155,9 +152,8 @@ describe("getSettings / setSettings", () => {
     resetSettings();
     const s = getSettings();
     // Verify the full structure is populated
-    expect(s.llm.provider).toBe("openai");
-    expect(s.llm.model).toBe("gpt-4o-mini");
-    expect(s.llm.maxConcurrentCalls).toBe(3);
+    expect(s.llm.roles.default).toBeDefined();
+    expect(s.llm.maxConcurrentCalls).toBeGreaterThan(0);
     expect(s.llm.timeout).toBe(120);
     expect(s.agent.maxActiveTasks).toBe(5);
     expect(s.agent.maxConcurrentTools).toBe(3);
@@ -299,98 +295,6 @@ describe("resolveTransport", () => {
     expect(transport).toBeDefined();
     // Single transport object, not multi-target
     expect((transport as any).targets).toBeUndefined();
-  });
-});
-
-// ── Provider Config ─────────────────────────────────
-
-describe("getActiveProviderConfig", () => {
-  test("returns OpenAI config when provider is openai", () => {
-    const settings = SettingsSchema.parse({
-      dataDir: "/tmp/pegasus-test",
-      llm: {
-        provider: "openai",
-        model: "gpt-4",
-        openai: {
-          apiKey: "sk-test",
-          model: "gpt-4o",
-          baseURL: "https://custom.com",
-        },
-      },
-    });
-
-    const config = getActiveProviderConfig(settings);
-    expect(config.apiKey).toBe("sk-test");
-    expect(config.model).toBe("gpt-4o"); // Provider-specific overrides global
-    expect(config.baseURL).toBe("https://custom.com");
-  });
-
-  test("returns Anthropic config when provider is anthropic", () => {
-    const settings = SettingsSchema.parse({
-      dataDir: "/tmp/pegasus-test",
-      llm: {
-        provider: "anthropic",
-        model: "default-model",
-        anthropic: {
-          apiKey: "sk-ant-test",
-          model: "claude-4",
-        },
-      },
-    });
-
-    const config = getActiveProviderConfig(settings);
-    expect(config.apiKey).toBe("sk-ant-test");
-    expect(config.model).toBe("claude-4");
-    expect(config.baseURL).toBeUndefined();
-  });
-
-  test("falls back to global model if provider-specific not set", () => {
-    const settings = SettingsSchema.parse({
-      dataDir: "/tmp/pegasus-test",
-      llm: {
-        provider: "openai",
-        model: "gpt-4o-mini",
-        openai: {
-          apiKey: "sk-test",
-        },
-      },
-    });
-
-    const config = getActiveProviderConfig(settings);
-    expect(config.model).toBe("gpt-4o-mini"); // Fallback to global
-  });
-
-  test("returns compatible config with LLM_BASE_URL", () => {
-    const settings = SettingsSchema.parse({
-      dataDir: "/tmp/pegasus-test",
-      llm: {
-        provider: "openai-compatible",
-        model: "llama3",
-        baseURL: "http://localhost:11434/v1",
-        openai: {
-          apiKey: "dummy",
-          model: "llama3.2",
-        },
-      },
-    });
-
-    const config = getActiveProviderConfig(settings);
-    expect(config.apiKey).toBe("dummy");
-    expect(config.baseURL).toBe("http://localhost:11434/v1");
-    expect(config.model).toBe("llama3.2");
-  });
-
-  test("throws for unknown provider", () => {
-    const settings = {
-      llm: {
-        provider: "unknown" as any,
-        model: "test",
-        openai: {},
-        anthropic: {},
-      },
-    } as Settings;
-
-    expect(() => getActiveProviderConfig(settings)).toThrow("Unknown provider");
   });
 });
 

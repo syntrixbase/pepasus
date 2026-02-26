@@ -33,38 +33,3 @@ export function setSettings(s: Settings): void {
 export function resetSettings(): void {
   _settings = null;
 }
-
-/**
- * Get the active provider's configuration.
- * Returns the provider-specific config merged with defaults.
- */
-export function getActiveProviderConfig(settings: Settings): {
-  apiKey?: string;
-  baseURL?: string;
-  model: string;
-} {
-  const { provider, model: defaultModel, openai, anthropic, baseURL } = settings.llm;
-
-  switch (provider) {
-    case "openai":
-      return {
-        apiKey: openai.apiKey,
-        baseURL: openai.baseURL,
-        model: openai.model || defaultModel,
-      };
-    case "anthropic":
-      return {
-        apiKey: anthropic.apiKey,
-        baseURL: anthropic.baseURL,
-        model: anthropic.model || defaultModel,
-      };
-    case "openai-compatible":
-      return {
-        apiKey: openai.apiKey,
-        baseURL: baseURL,
-        model: openai.model || defaultModel,
-      };
-    default:
-      throw new Error(`Unknown provider: ${provider}`);
-  }
-}
