@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { read_file, write_file, list_files, delete_file, move_file, get_file_info } from "../../../src/tools/builtins/file-tools.ts";
+import { read_file, write_file, list_files, delete_file, move_file, get_file_info, edit_file, grep_files } from "../../../src/tools/builtins/file-tools.ts";
 import { rm, mkdir } from "node:fs/promises";
 
 const testDir = "/tmp/pegasus-test-files";
@@ -54,6 +54,82 @@ describe("file tools", () => {
 
       expect(result.success).toBe(false);
       expect(result.error).toContain("not in allowed paths");
+    });
+
+    it("should read with offset and limit", async () => {
+      const context = { taskId: "test-task-id" };
+      const filePath = `${testDir}/lines.txt`;
+      const lines = ["line0", "line1", "line2", "line3", "line4"];
+      await Bun.write(filePath, lines.join("\n"));
+
+      const result = await read_file.execute({ path: filePath, offset: 1, limit: 2 }, context);
+
+      expect(result.success).toBe(true);
+      const r = result.result as { content: string; totalLines: number; offset: number; limit: number; truncated: boolean };
+      expect(r.content).toBe("line1\nline2");
+      expect(r.totalLines).toBe(5);
+      expect(r.offset).toBe(1);
+      expect(r.limit).toBe(2);
+      expect(r.truncated).toBe(true);
+    });
+
+    it("should read with offset only (to end)", async () => {
+      const context = { taskId: "test-task-id" };
+      const filePath = `${testDir}/lines-offset.txt`;
+      const lines = ["a", "b", "c", "d"];
+      await Bun.write(filePath, lines.join("\n"));
+
+      const result = await read_file.execute({ path: filePath, offset: 2 }, context);
+
+      expect(result.success).toBe(true);
+      const r = result.result as { content: string; totalLines: number; offset: number; truncated: boolean };
+      expect(r.content).toBe("c\nd");
+      expect(r.offset).toBe(2);
+      expect(r.truncated).toBe(false);
+    });
+
+    it("should read with limit only (from start)", async () => {
+      const context = { taskId: "test-task-id" };
+      const filePath = `${testDir}/lines-limit.txt`;
+      const lines = ["x", "y", "z"];
+      await Bun.write(filePath, lines.join("\n"));
+
+      const result = await read_file.execute({ path: filePath, limit: 2 }, context);
+
+      expect(result.success).toBe(true);
+      const r = result.result as { content: string; totalLines: number; offset: number; limit: number; truncated: boolean };
+      expect(r.content).toBe("x\ny");
+      expect(r.offset).toBe(0);
+      expect(r.limit).toBe(2);
+      expect(r.truncated).toBe(true);
+    });
+
+    it("should return full content when no offset/limit (backward compatible)", async () => {
+      const context = { taskId: "test-task-id" };
+      const filePath = `${testDir}/full.txt`;
+      await Bun.write(filePath, "full content here");
+
+      const result = await read_file.execute({ path: filePath }, context);
+
+      expect(result.success).toBe(true);
+      const r = result.result as { content: string; totalLines?: number };
+      expect(r.content).toBe("full content here");
+      // Should NOT have totalLines when no offset/limit
+      expect(r.totalLines).toBeUndefined();
+    });
+
+    it("should return empty content when offset is beyond file length", async () => {
+      const context = { taskId: "test-task-id" };
+      const filePath = `${testDir}/small.txt`;
+      await Bun.write(filePath, "one\ntwo");
+
+      const result = await read_file.execute({ path: filePath, offset: 100 }, context);
+
+      expect(result.success).toBe(true);
+      const r = result.result as { content: string; totalLines: number; truncated: boolean };
+      expect(r.content).toBe("");
+      expect(r.totalLines).toBe(2);
+      expect(r.truncated).toBe(false);
     });
   });
 
@@ -317,6 +393,254 @@ describe("file tools", () => {
 
       expect(result.success).toBe(false);
       expect(result.error).toContain("not in allowed paths");
+    });
+  });
+
+  describe("edit_file", () => {
+    it("should replace a unique string in a file", async () => {
+      const context = { taskId: "test-task-id" };
+      const filePath = `${testDir}/edit-test.txt`;
+      await Bun.write(filePath, "Hello world, this is a test file.\nSecond line here.");
+
+      const result = await edit_file.execute({
+        path: filePath,
+        old_string: "this is a test file",
+        new_string: "this is an edited file",
+      }, context);
+
+      expect(result.success).toBe(true);
+      const r = result.result as { path: string; replacements: number };
+      expect(r.replacements).toBe(1);
+
+      const content = await Bun.file(filePath).text();
+      expect(content).toBe("Hello world, this is an edited file.\nSecond line here.");
+    });
+
+    it("should replace all occurrences with replace_all=true", async () => {
+      const context = { taskId: "test-task-id" };
+      const filePath = `${testDir}/edit-all.txt`;
+      await Bun.write(filePath, "foo bar foo baz foo");
+
+      const result = await edit_file.execute({
+        path: filePath,
+        old_string: "foo",
+        new_string: "qux",
+        replace_all: true,
+      }, context);
+
+      expect(result.success).toBe(true);
+      const r = result.result as { replacements: number };
+      expect(r.replacements).toBe(3);
+
+      const content = await Bun.file(filePath).text();
+      expect(content).toBe("qux bar qux baz qux");
+    });
+
+    it("should error when old_string is not found", async () => {
+      const context = { taskId: "test-task-id" };
+      const filePath = `${testDir}/edit-notfound.txt`;
+      await Bun.write(filePath, "some content here");
+
+      const result = await edit_file.execute({
+        path: filePath,
+        old_string: "nonexistent string",
+        new_string: "replacement",
+      }, context);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("old_string not found in file");
+    });
+
+    it("should error when old_string matches multiple times without replace_all", async () => {
+      const context = { taskId: "test-task-id" };
+      const filePath = `${testDir}/edit-ambiguous.txt`;
+      await Bun.write(filePath, "abc def abc ghi abc");
+
+      const result = await edit_file.execute({
+        path: filePath,
+        old_string: "abc",
+        new_string: "xyz",
+      }, context);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("found 3 times");
+      expect(result.error).toContain("replace_all");
+    });
+
+    it("should reject unauthorized paths", async () => {
+      const allowedPaths = [testDir];
+      const context = { taskId: "test-task-id", allowedPaths };
+
+      const result = await edit_file.execute({
+        path: "/etc/passwd",
+        old_string: "root",
+        new_string: "hacked",
+      }, context);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("not in allowed paths");
+    });
+
+    it("should error on non-existent file", async () => {
+      const context = { taskId: "test-task-id" };
+
+      const result = await edit_file.execute({
+        path: `${testDir}/does-not-exist.txt`,
+        old_string: "hello",
+        new_string: "world",
+      }, context);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("File not found");
+    });
+  });
+
+  describe("grep_files", () => {
+    it("should search a single file and return matches with line numbers", async () => {
+      const context = { taskId: "test-task-id" };
+      const filePath = `${testDir}/grep-single.txt`;
+      await Bun.write(filePath, "first line\nsecond match here\nthird line\nfourth match here");
+
+      const result = await grep_files.execute({
+        pattern: "match",
+        path: filePath,
+      }, context);
+
+      expect(result.success).toBe(true);
+      const r = result.result as { matches: Array<{ file: string; line: string; lineNumber: number; match: string }>; totalMatches: number; truncated: boolean };
+      expect(r.totalMatches).toBe(2);
+      expect(r.matches).toHaveLength(2);
+      expect(r.matches[0]!.lineNumber).toBe(2);
+      expect(r.matches[0]!.line).toBe("second match here");
+      expect(r.matches[0]!.match).toBe("match");
+      expect(r.matches[1]!.lineNumber).toBe(4);
+      expect(r.truncated).toBe(false);
+    });
+
+    it("should search across multiple files in a directory", async () => {
+      const context = { taskId: "test-task-id" };
+      await Bun.write(`${testDir}/a.txt`, "hello world");
+      await Bun.write(`${testDir}/b.txt`, "hello there");
+      await Bun.write(`${testDir}/c.txt`, "goodbye");
+
+      const result = await grep_files.execute({
+        pattern: "hello",
+        path: testDir,
+      }, context);
+
+      expect(result.success).toBe(true);
+      const r = result.result as { matches: Array<{ file: string }>; totalMatches: number };
+      expect(r.totalMatches).toBe(2);
+      const files = r.matches.map(m => m.file);
+      expect(files.some(f => f.endsWith("a.txt"))).toBe(true);
+      expect(files.some(f => f.endsWith("b.txt"))).toBe(true);
+    });
+
+    it("should filter files with include pattern", async () => {
+      const context = { taskId: "test-task-id" };
+      await Bun.write(`${testDir}/code.ts`, "const x = 1;");
+      await Bun.write(`${testDir}/code.js`, "const x = 2;");
+      await Bun.write(`${testDir}/data.json`, '{"x": 3}');
+
+      const result = await grep_files.execute({
+        pattern: "const",
+        path: testDir,
+        include: "*.ts",
+      }, context);
+
+      expect(result.success).toBe(true);
+      const r = result.result as { matches: Array<{ file: string }>; totalMatches: number };
+      expect(r.totalMatches).toBe(1);
+      expect(r.matches[0]!.file).toContain("code.ts");
+    });
+
+    it("should return empty matches when no results found", async () => {
+      const context = { taskId: "test-task-id" };
+      await Bun.write(`${testDir}/nope.txt`, "nothing here");
+
+      const result = await grep_files.execute({
+        pattern: "zzzzz_not_found",
+        path: testDir,
+      }, context);
+
+      expect(result.success).toBe(true);
+      const r = result.result as { matches: unknown[]; totalMatches: number; truncated: boolean };
+      expect(r.matches).toHaveLength(0);
+      expect(r.totalMatches).toBe(0);
+      expect(r.truncated).toBe(false);
+    });
+
+    it("should respect max_results and report truncation", async () => {
+      const context = { taskId: "test-task-id" };
+      const lines = Array.from({ length: 20 }, (_, i) => `line ${i} match`);
+      await Bun.write(`${testDir}/many.txt`, lines.join("\n"));
+
+      const result = await grep_files.execute({
+        pattern: "match",
+        path: `${testDir}/many.txt`,
+        max_results: 5,
+      }, context);
+
+      expect(result.success).toBe(true);
+      const r = result.result as { matches: unknown[]; totalMatches: number; truncated: boolean };
+      expect(r.matches).toHaveLength(5);
+      expect(r.totalMatches).toBe(20);
+      expect(r.truncated).toBe(true);
+    });
+
+    it("should error on invalid regex pattern", async () => {
+      const context = { taskId: "test-task-id" };
+      await Bun.write(`${testDir}/regex-test.txt`, "content");
+
+      const result = await grep_files.execute({
+        pattern: "[invalid",
+        path: testDir,
+      }, context);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("Invalid regex pattern");
+    });
+
+    it("should reject unauthorized paths", async () => {
+      const allowedPaths = [testDir];
+      const context = { taskId: "test-task-id", allowedPaths };
+
+      const result = await grep_files.execute({
+        pattern: "root",
+        path: "/etc",
+      }, context);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("not in allowed paths");
+    });
+
+    it("should search recursively in subdirectories", async () => {
+      const context = { taskId: "test-task-id" };
+      const subDir = `${testDir}/sub`;
+      await mkdir(subDir, { recursive: true });
+      await Bun.write(`${testDir}/top.txt`, "find_me_here");
+      await Bun.write(`${subDir}/nested.txt`, "find_me_here too");
+
+      const result = await grep_files.execute({
+        pattern: "find_me_here",
+        path: testDir,
+      }, context);
+
+      expect(result.success).toBe(true);
+      const r = result.result as { matches: Array<{ file: string }>; totalMatches: number };
+      expect(r.totalMatches).toBe(2);
+    });
+
+    it("should error on non-existent path", async () => {
+      const context = { taskId: "test-task-id" };
+
+      const result = await grep_files.execute({
+        pattern: "test",
+        path: `${testDir}/nonexistent-dir`,
+      }, context);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("Path not found");
     });
   });
 });
