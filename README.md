@@ -1,271 +1,114 @@
 # Pegasus — Event-Driven Autonomous Agent System
 
-**Pegasus** 是一个事件驱动、状态机驱动的自主代理系统。它不是传统的"请求-响应"服务，而是一个持续运行的自主工作者，能够同时处理多个任务、调用工具、自主决策和学习改进。
+**Pegasus** is an event-driven, state-machine-based autonomous agent system. Rather than a traditional request-response service, it is a continuously running autonomous worker that can handle multiple tasks concurrently, call tools, make decisions, and learn from experience.
 
-## ✨ 核心特性
+## ✨ Core Features
 
-- 🔄 **事件驱动架构** — 一切皆事件，通过 EventBus 分发，无阻塞并发
-- 🤖 **状态机任务管理** — TaskFSM 精确控制任务生命周期，可挂起/恢复
-- 🧠 **三阶段认知循环** — Reason → Act → Reflect
-- 🎭 **身份系统** — 可配置的 persona，保持一致的人格和行为风格
-- 🔧 **内置工具系统** — 文件、网络、系统、数据工具 + LLM 函数调用
-- 💾 **记忆系统** — 长期记忆（facts + episodes），基于 Markdown 文件
+- 🧠 **Inner monologue** — Main Agent's LLM output is private thinking; only `reply` tool calls reach the user
+- 🔄 **Event-driven architecture** — everything is an event, dispatched via EventBus, non-blocking concurrency
+- 🤖 **State machine task management** — TaskFSM controls task lifecycle precisely, with suspend/resume
+- 🧩 **3-stage cognitive pipeline** — Reason → Act → Reflect
+- 📡 **Multi-channel adapter** — Channel Adapter pattern, supports CLI / Slack / SMS / Web
+- 🎭 **Identity system** — configurable persona, consistent personality and behavior
+- 🔧 **Built-in tool system** — file, network, system, data, memory tools + LLM function calling
+- 💾 **Memory system** — long-term memory (facts + episodes), markdown file based
+- 📝 **Task persistence** — incremental JSONL event logs with replay
+- 🔁 **Startup recovery** — session repair + pending task auto-recovery
 
-## 🚀 快速开始
+## 🚀 Quick Start
 
-### 前置要求
+### Prerequisites
 
 - [Bun](https://bun.sh/) v1.0+
-- **选择以下任一选项**：
-  - **OpenAI API Key**（推荐，性价比高）— [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
+- **Choose one**:
+  - **OpenAI API Key** (recommended) — [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
   - **Anthropic API Key** — [console.anthropic.com/settings/keys](https://console.anthropic.com/settings/keys)
-  - **本地模型**（无需 API key）— [Ollama](https://ollama.com/) 或 [LM Studio](https://lmstudio.ai/)
+  - **Local model** (no API key needed) — [Ollama](https://ollama.com/) or [LM Studio](https://lmstudio.ai/)
 
-### 安装依赖
+### Install
 
 ```bash
 bun install
 ```
 
-### 配置
+### Configure
 
-Pegasus 使用分层配置：`config.yml`（base）→ `config.local.yml`（override）→ Zod 校验。
+Pegasus uses layered config: `config.yml` (base) → `config.local.yml` (override) → Zod validation.
 
-环境变量名在 YAML 中通过 `${VAR:-default}` 语法自由定义，代码不 hardcode 环境变量名。
-
-**选项 1: OpenAI（推荐）**
-
-创建 `config.local.yml`：
+Create `config.local.yml`:
 
 ```yaml
+# OpenAI
 llm:
   provider: openai
   providers:
     openai:
       apiKey: sk-proj-your-key
       model: gpt-4o-mini
+
+# Or Anthropic
+# llm:
+#   provider: anthropic
+#   providers:
+#     anthropic:
+#       apiKey: sk-ant-your-key
+#       model: claude-sonnet-4-20250514
+
+# Or local Ollama
+# llm:
+#   provider: ollama
+#   providers:
+#     ollama:
+#       model: llama3.2:latest
+#       baseURL: http://localhost:11434/v1
 ```
 
-**选项 2: 本地 Ollama（免费，无需 API key）**
-
-```bash
-# 安装 Ollama
-brew install ollama  # macOS
-# 或访问 https://ollama.com/download
-
-# 启动 Ollama 并拉取模型
-ollama serve &
-ollama pull llama3.2
-```
-
-创建 `config.local.yml`：
-
-```yaml
-llm:
-  provider: ollama
-  providers:
-    ollama:
-      model: llama3.2:latest
-      baseURL: http://localhost:11434/v1
-```
-
-**选项 3: Anthropic Claude**
-
-创建 `config.local.yml`：
-
-```yaml
-llm:
-  provider: anthropic
-  providers:
-    anthropic:
-      apiKey: sk-ant-api03-your-key
-      model: claude-sonnet-4-20250514
-```
-
-### 运行 CLI（M1 - 对话能力）
+### Run
 
 ```bash
 bun run dev
 ```
 
-你会看到：
-
-```
-╔══════════════════════════════════════╗
-║          🚀 Pegasus CLI              ║
-╚══════════════════════════════════════╝
-  Persona: Pegasus (intelligent digital employee)
-  Type /help for commands, /exit to quit
-
-> 你好
-  Pegasus: 你好！我是 Pegasus，很高兴认识你。有什么我可以帮你的吗？
-```
-
-详细配置说明请查看 [docs/running.md](./docs/running.md)。
-
-## 🧪 开发
-
-### 运行测试
-
-```bash
-# 运行所有测试
-bun test
-
-# 运行测试并查看覆盖率
-bun run coverage
-
-# 类型检查
-bun run typecheck
-
-# 运行所有检查（类型检查 + 测试）
-make check
-```
-
-### 代码质量
-
-项目要求：
-- ✅ 测试覆盖率 ≥ 95%（当前：**99.53%**）
-- ✅ 所有测试必须通过（当前：**359 tests**）
-- ✅ TypeScript 类型检查通过
-
-Git hooks 会在 push 前自动运行检查。
-
-## 📊 项目状态
-
-| 里程碑 | 状态 | 说明 |
-|--------|------|------|
-| **M0: 骨架跑通** | ✅ 完成 | EventBus + TaskFSM + Agent 核心架构 |
-| **M1: 能对话** | ✅ 完成 | CLI 对话 + Identity 系统 + LLM 集成 |
-| **M3: 能行动** | ✅ 完成 | 内置工具系统 + LLM 函数调用 + 事件驱动 Actor |
-| **M2: 有记忆** | ✅ 完成 | 长期记忆系统（facts + episodes） |
-| **M4: 会思考** | 📋 待开始 | 复杂任务分解和规划 |
-| **M5: 能并发** | 📋 待验证 | 多任务并发处理 |
-| **M6: 能挂起** | 📋 待开始 | 任务挂起/恢复机制 |
-| **M7: 能学习** | 📋 待开始 | 从历史经验中学习改进 |
-
-当前测试覆盖率：**99.53%** ✅ | 测试数：**359 pass**
-
-## 🏗️ 架构设计
-
-### 核心设计原则
-
-1. **一切皆事件** — 用户消息、工具返回、状态变更都是 Event
-2. **任务即状态机** — 每个任务是独立的 TaskFSM，有明确的状态转换规则
-3. **Agent 是事件处理器** — 没有阻塞循环，只有事件驱动的状态转换
-4. **无阻塞、纯异步** — 多任务交错执行，共享算力
-5. **认知处理器无状态** — Thinker/Planner/Actor/Reflector 可被任意任务复用
-
-### 系统架构
+## 🏗️ Architecture
 
 ```
 ┌─────────────────────────────────────┐
-│  Interface Layer (CLI / API / ...)  │
+│  Channel Adapters (CLI / Slack ...) │
 ├─────────────────────────────────────┤
-│       EventBus (优先级队列)          │
+│  Main Agent (inner monologue +      │
+│              reply tool)            │
 ├─────────────────────────────────────┤
-│    Agent (事件处理器 + 状态转换)     │
+│  EventBus → Agent → TaskFSM        │
+│  Reason → Act → Reflect            │
 ├─────────────────────────────────────┤
-│  TaskFSM Layer (任务状态机)          │
-│  IDLE → REASONING → ACTING          │
-│     → REFLECTING → COMPLETED        │
-├─────────────────────────────────────┤
-│  Cognitive Processors (认知处理器)   │
-│  Thinker │ Planner │ Actor          │
-│  Reflector                          │
-├─────────────────────────────────────┤
-│  Identity Layer (身份系统)           │
-├─────────────────────────────────────┤
-│  Memory System (长期记忆)            │
-├─────────────────────────────────────┤
-│  Tool System (内置工具 + 执行器)     │
-├─────────────────────────────────────┤
-│  LLM Adapter (OpenAI / Anthropic)   │
-├─────────────────────────────────────┤
-│  Capability Layer (MCP - 规划中)    │
+│  Tools │ Memory │ Identity │ LLM   │
 └─────────────────────────────────────┘
 ```
 
-详细设计请查看：
-- [架构总览](./docs/architecture.md)
-- [事件系统](./docs/events.md)
-- [任务状态机](./docs/task-fsm.md)
-- [Agent 核心](./docs/agent.md)
-- [认知处理器](./docs/cognitive.md)
+## 📚 Documentation
 
-## 📁 项目结构
+- [Architecture](./docs/architecture.md) — layered design, core abstractions, data flow
+- [Main Agent](./docs/main-agent.md) — inner monologue, Channel Adapter, Session, System Prompt
+- [Cognitive Processors](./docs/cognitive.md) — Reason → Act → Reflect pipeline
+- [Task FSM](./docs/task-fsm.md) — states, transitions, suspend/resume
+- [Event System](./docs/events.md) — EventType, EventBus, priority queue
+- [Agent Core](./docs/agent.md) — event processing, cognitive dispatch, concurrency
+- [Tool System](./docs/tools.md) — registration, execution, timeout, LLM function calling
+- [Memory System](./docs/memory-system.md) — long-term memory (facts + episodes)
+- [Task Persistence](./docs/task-persistence.md) — JSONL event logs, replay
+- [Configuration](./docs/configuration.md) — YAML config + env var interpolation
+- [Logging](./docs/logging.md) — log format, output, rotation
+- [Running Guide](./docs/running.md) — detailed setup and usage
+- [Progress](./docs/progress.md) — milestones, test coverage, tech stack
 
-```
-pegasus/
-├── src/
-│   ├── agent.ts            # Agent 核心（事件处理 + 状态转换）
-│   ├── cli.ts              # CLI 交互界面
-│   ├── events/             # 事件系统（Event + EventBus）
-│   ├── task/               # 任务状态机（TaskFSM + Context）
-│   ├── cognitive/          # 认知处理器（3 阶段：Reason → Act → Reflect）
-│   ├── identity/           # 身份系统（Persona + Prompt）
-│   ├── tools/              # 工具系统
-│   │   ├── registry.ts     # 工具注册表
-│   │   ├── executor.ts     # 工具执行器（事件驱动 + 超时控制）
-│   │   └── builtins/       # 内置工具（system/file/network/data/memory）
-│   └── infra/              # 基础设施（Config + Logger + LLM clients）
-├── tests/
-│   ├── unit/               # 单元测试
-│   └── integration/        # 集成测试
-├── docs/                   # 设计文档
-├── data/
-│   └── personas/           # Persona 配置文件
-└── .github/workflows/      # CI/CD 配置
-```
-
-## 🛠️ 技术栈
-
-| 层级 | 技术选型 |
-|------|---------|
-| Runtime | Bun |
-| Language | TypeScript 5.x |
-| Schema | Zod |
-| Logger | pino |
-| Test | bun:test |
-| LLM | OpenAI / Anthropic official SDKs |
-
-## 🤝 开发工作流
-
-### 提交代码
+## 🛠️ Development
 
 ```bash
-# 1. 确保所有检查通过
-make check
-
-# 2. 提交代码
-git add .
-git commit -m "feat: your feature description"
-
-# 3. Push（git hooks 会自动运行检查）
-git push
+make check     # typecheck + tests
+make coverage  # tests + coverage report
+bun test       # run tests
 ```
 
-### 创建 Pull Request
-
-PR 到 `main` 分支会自动触发 CI 检查：
-- ✅ 类型检查
-- ✅ 所有测试通过
-- ✅ 代码覆盖率 ≥ 95%
-
-只有所有检查通过才能合并。
-
-## 📚 文档
-
-- [运行指南](./docs/running.md) - 配置和使用说明
-- [配置指南](./docs/configuration.md) - YAML 配置 + 环境变量插值
-- [日志系统](./docs/logging.md) - 日志格式、输出目标、log rotation
-- [系统架构](./docs/architecture.md) - 架构设计总览
-- [记忆系统](./docs/memory-system.md) - 长期记忆设计
-- [项目结构](./docs/project-structure.md) - 代码组织说明
-
-## 📄 许可证
+## 📄 License
 
 MIT
-
----
-
-**Status**: M2 完成 ✅ | 覆盖率 99.53% ✅ | 下一步: M4 会思考

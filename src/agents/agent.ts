@@ -34,6 +34,10 @@ import path from "node:path";
 
 const logger = getLogger("agent");
 
+export type TaskNotification =
+  | { type: "completed"; taskId: string; result: unknown }
+  | { type: "failed"; taskId: string; error: string };
+
 /** Push a tool result message into context.messages. */
 function context_pushToolResult(
   context: TaskContext,
@@ -117,6 +121,7 @@ export class Agent {
   private _running = false;
   private backgroundTasks = new Set<Promise<void>>();
   private settings: Settings;
+  private notifyCallback: ((notification: TaskNotification) => void) | null = null;
 
   constructor(deps: AgentDeps) {
     this.settings = deps.settings ?? getSettings();
@@ -159,6 +164,22 @@ export class Agent {
     await this.eventBus.emit(
       createEvent(EventType.SYSTEM_STARTED, { source: "system" }),
     );
+
+    // Recover pending tasks from previous run
+    const tasksDir = path.join(this.settings.dataDir, "tasks");
+    const recovered = await TaskPersister.recoverPending(tasksDir);
+    if (recovered.length > 0) {
+      logger.info({ count: recovered.length, taskIds: recovered }, "recovered_pending_tasks");
+      for (const taskId of recovered) {
+        if (this.notifyCallback) {
+          this.notifyCallback({
+            type: "failed",
+            taskId,
+            error: "process restarted, task cancelled",
+          });
+        }
+      }
+    }
 
     logger.info("agent_started");
   }
@@ -294,6 +315,13 @@ export class Agent {
             parentEventId: trigger.id,
           }),
         );
+        if (this.notifyCallback) {
+          this.notifyCallback({
+            type: "completed",
+            taskId: task.taskId,
+            result: task.context.finalResult,
+          });
+        }
         break;
 
       case TaskState.FAILED:
@@ -306,6 +334,13 @@ export class Agent {
             parentEventId: trigger.id,
           }),
         );
+        if (this.notifyCallback) {
+          this.notifyCallback({
+            type: "failed",
+            taskId: task.taskId,
+            error: task.context.error ?? "unknown error",
+          });
+        }
         break;
     }
   }
@@ -518,27 +553,9 @@ export class Agent {
   // Public API (convenience methods)
   // ═══════════════════════════════════════════════════
 
-  /** Register a one-shot callback for task completion (or failure). */
-  onTaskComplete(taskId: string, callback: (task: TaskFSM) => void): void {
-    // Check if already terminal (race condition safety)
-    const existing = this.taskRegistry.getOrNull(taskId);
-    if (existing?.isTerminal) {
-      callback(existing);
-      return;
-    }
-
-    // Subscribe to both TASK_COMPLETED and TASK_FAILED
-    const handler = async (event: Event): Promise<void> => {
-      if (event.taskId !== taskId) return;
-      const task = this.taskRegistry.getOrNull(taskId);
-      if (!task) return;
-      this.eventBus.unsubscribe(EventType.TASK_COMPLETED, handler);
-      this.eventBus.unsubscribe(EventType.TASK_FAILED, handler);
-      callback(task);
-    };
-
-    this.eventBus.subscribe(EventType.TASK_COMPLETED, handler);
-    this.eventBus.subscribe(EventType.TASK_FAILED, handler);
+  /** Register a callback for task completion/failure notifications. */
+  onNotify(callback: (notification: TaskNotification) => void): void {
+    this.notifyCallback = callback;
   }
 
   /** Submit a task. Returns the taskId. */

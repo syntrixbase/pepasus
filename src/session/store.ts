@@ -59,7 +59,7 @@ export class SessionStore {
     try {
       const content = await readFile(this.currentPath, "utf-8");
       const lines = content.trim().split("\n").filter(Boolean);
-      return lines.map((line) => {
+      const messages = lines.map((line) => {
         const entry = JSON.parse(line) as SessionEntry;
         const msg: Message = {
           role: entry.role as Message["role"],
@@ -70,6 +70,7 @@ export class SessionStore {
           msg.toolCalls = entry.toolCalls as Message["toolCalls"];
         return msg;
       });
+      return this._repairUnclosedToolCalls(messages);
     } catch {
       return []; // No session yet
     }
@@ -139,5 +140,49 @@ export class SessionStore {
       })
       .join("\n");
     return counter.count(allText);
+  }
+
+  /**
+   * Scan for the last assistant message with toolCalls.
+   * If any toolCall lacks a matching tool result, inject a cancellation.
+   * This ensures message history is always well-formed for LLM calls.
+   */
+  private _repairUnclosedToolCalls(messages: Message[]): Message[] {
+    if (messages.length === 0) return messages;
+
+    // Find the last assistant message with toolCalls
+    let lastAssistantIdx = -1;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i]!.role === "assistant" && messages[i]!.toolCalls?.length) {
+        lastAssistantIdx = i;
+        break;
+      }
+    }
+    if (lastAssistantIdx === -1) return messages;
+
+    // Collect toolCall IDs that need results
+    const unclosed = new Set(
+      messages[lastAssistantIdx]!.toolCalls!.map((tc: { id: string }) => tc.id),
+    );
+
+    // Remove IDs that already have a tool result
+    for (let i = lastAssistantIdx + 1; i < messages.length; i++) {
+      if (messages[i]!.role === "tool" && messages[i]!.toolCallId) {
+        unclosed.delete(messages[i]!.toolCallId!);
+      }
+    }
+
+    if (unclosed.size === 0) return messages;
+
+    // Inject cancellation for each unclosed tool call
+    const repaired = [...messages];
+    for (const id of unclosed) {
+      repaired.push({
+        role: "tool",
+        content: JSON.stringify({ cancelled: true, reason: "process restarted" }),
+        toolCallId: id,
+      });
+    }
+    return repaired;
   }
 }

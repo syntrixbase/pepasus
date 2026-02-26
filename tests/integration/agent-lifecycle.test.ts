@@ -1,9 +1,8 @@
 import { describe, expect, test, afterAll } from "bun:test";
 import { Agent } from "@pegasus/agents/agent.ts";
-import type { AgentDeps } from "@pegasus/agents/agent.ts";
+import type { AgentDeps, TaskNotification } from "@pegasus/agents/agent.ts";
 import { createEvent, EventType } from "@pegasus/events/types.ts";
 import { TaskState } from "@pegasus/task/states.ts";
-import type { TaskFSM } from "@pegasus/task/fsm.ts";
 import { SettingsSchema } from "@pegasus/infra/config.ts";
 import type { LanguageModel } from "@pegasus/infra/llm-types.ts";
 import type { Persona } from "@pegasus/identity/persona.ts";
@@ -159,28 +158,36 @@ describe("Agent lifecycle", () => {
     }
   }, 10_000);
 
-  test("onTaskComplete fires asynchronously", async () => {
+  test("onNotify fires for completed task", async () => {
     const agent = new Agent(testAgentDeps());
     await agent.start();
 
     try {
+      const notifications: TaskNotification[] = [];
+
+      agent.onNotify((notification) => {
+        notifications.push(notification);
+      });
+
       const taskId = await agent.submit("async callback test");
       expect(taskId).toBeTruthy();
 
-      const completedTask = await new Promise<TaskFSM>((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error("onTaskComplete timed out")), 5000);
-        agent.onTaskComplete(taskId, (task) => {
-          clearTimeout(timeout);
-          resolve(task);
-        });
-      });
+      const completedTask = await agent.waitForTask(taskId, 5000);
 
       expect(completedTask.state).toBe(TaskState.COMPLETED);
       expect(completedTask.taskId).toBe(taskId);
       expect(completedTask.context.inputText).toBe("async callback test");
       expect(completedTask.context.finalResult).not.toBeNull();
 
-      const result = completedTask.context.finalResult as Record<string, unknown>;
+      // Verify onNotify received the notification
+      const completedNotif = notifications.find(
+        (n) => n.taskId === taskId && n.type === "completed",
+      );
+      expect(completedNotif).toBeDefined();
+      expect(completedNotif!.type).toBe("completed");
+      expect(completedNotif!.taskId).toBe(taskId);
+
+      const result = (completedNotif as { type: "completed"; taskId: string; result: unknown }).result as Record<string, unknown>;
       expect(result["taskId"]).toBe(taskId);
     } finally {
       await agent.stop();
