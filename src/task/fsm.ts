@@ -42,14 +42,10 @@ const TRANSITION_TABLE = new Map<TransitionKey, TaskState | null>([
   [`${TaskState.REASONING}:${EventType.REASON_DONE}`, TaskState.ACTING],
   [`${TaskState.REASONING}:${EventType.NEED_MORE_INFO}`, TaskState.SUSPENDED],
 
-  // Act → Act (tool chain) / Reflect
+  // Act → Act (tool chain) / Reasoning / Completed (dynamic)
   [`${TaskState.ACTING}:${EventType.TOOL_CALL_COMPLETED}`, null], // dynamic
   [`${TaskState.ACTING}:${EventType.TOOL_CALL_FAILED}`, null],    // dynamic
   [`${TaskState.ACTING}:${EventType.STEP_COMPLETED}`, null],      // dynamic
-  [`${TaskState.ACTING}:${EventType.ACT_DONE}`, TaskState.REFLECTING],
-
-  // Reflect → Complete / Reason (dynamic)
-  [`${TaskState.REFLECTING}:${EventType.REFLECT_DONE}`, null],
 
   // Suspended → Resume
   [`${TaskState.SUSPENDED}:${EventType.TASK_RESUMED}`, null],     // dynamic
@@ -187,7 +183,7 @@ export class TaskFSM {
   }
 
   private _resolveDynamicTarget(event: Event): TaskState {
-    // ACTING + tool completed/failed
+    // ACTING + tool completed/failed/step completed
     if (
       this.state === TaskState.ACTING &&
       (event.type === EventType.TOOL_CALL_COMPLETED ||
@@ -197,14 +193,11 @@ export class TaskFSM {
       if (this.context.plan && this.context.plan.steps.some((s) => !s.completed)) {
         return TaskState.ACTING;
       }
-      return TaskState.REFLECTING;
-    }
-
-    // REFLECTING + reflect done → check verdict
-    if (this.state === TaskState.REFLECTING && event.type === EventType.REFLECT_DONE) {
-      const verdict = event.payload["verdict"] as string | undefined;
-      if (verdict === "complete") return TaskState.COMPLETED;
-      return TaskState.REASONING; // "continue" or "replan" both go to REASONING
+      // All steps done — route by plan step type
+      const hasToolCalls = this.context.plan?.steps.some(
+        (s) => s.actionType === "tool_call",
+      ) ?? false;
+      return hasToolCalls ? TaskState.REASONING : TaskState.COMPLETED;
     }
 
     // SUSPENDED + resumed → restore previous state

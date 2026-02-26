@@ -13,7 +13,7 @@ import { EventBus } from "../events/bus.ts";
 import { Thinker } from "../cognitive/think.ts";
 import { Planner } from "../cognitive/plan.ts";
 import { Actor } from "../cognitive/act.ts";
-import { Reflector } from "../cognitive/reflect.ts";
+import { PostTaskReflector, shouldReflect } from "../cognitive/reflect.ts";
 import { getLogger } from "../infra/logger.ts";
 import { InvalidStateTransition, TaskNotFoundError } from "../infra/errors.ts";
 import type { Settings } from "../infra/config.ts";
@@ -108,7 +108,7 @@ export class Agent {
   private thinker: Thinker;
   private planner: Planner;
   private actor: Actor;
-  private reflector: Reflector;
+  private postReflector: PostTaskReflector;
 
   // Tool infrastructure
   private toolExecutor: ToolExecutor;
@@ -148,7 +148,7 @@ export class Agent {
     this.thinker = new Thinker(deps.model, deps.persona, toolRegistry);
     this.planner = new Planner(deps.model, deps.persona);
     this.actor = new Actor(deps.model, deps.persona);
-    this.reflector = new Reflector(deps.model, deps.persona);
+    this.postReflector = new PostTaskReflector(deps.model, deps.persona);
   }
 
   // ═══════════════════════════════════════════════════
@@ -221,11 +221,9 @@ export class Agent {
 
     // Cognitive stage completions
     bus.subscribe(EventType.REASON_DONE, this._onTaskEvent);
-    bus.subscribe(EventType.ACT_DONE, this._onTaskEvent);
     bus.subscribe(EventType.STEP_COMPLETED, this._onTaskEvent);
     bus.subscribe(EventType.TOOL_CALL_COMPLETED, this._onTaskEvent);
     bus.subscribe(EventType.TOOL_CALL_FAILED, this._onTaskEvent);
-    bus.subscribe(EventType.REFLECT_DONE, this._onTaskEvent);
     bus.subscribe(EventType.NEED_MORE_INFO, this._onTaskEvent);
   }
 
@@ -297,15 +295,12 @@ export class Agent {
         this._spawn(this._runAct(task, trigger));
         break;
 
-      case TaskState.REFLECTING:
-        this._spawn(this._runReflect(task, trigger));
-        break;
-
       case TaskState.SUSPENDED:
         logger.info({ taskId: task.taskId }, "task_suspended");
         break;
 
       case TaskState.COMPLETED:
+        task.context.finalResult = this._compileResult(task);
         logger.info({ taskId: task.taskId, iterations: task.context.iteration }, "task_completed");
         await this.eventBus.emit(
           createEvent(EventType.TASK_COMPLETED, {
@@ -321,6 +316,10 @@ export class Agent {
             taskId: task.taskId,
             result: task.context.finalResult,
           });
+        }
+        // Async post-task reflection (fire-and-forget)
+        if (shouldReflect(task.context)) {
+          this._spawn(this._runPostReflection(task));
         }
         break;
 
@@ -423,15 +422,7 @@ export class Agent {
 
     const step = currentStep(task.context.plan);
     if (!step) {
-      // No pending steps — signal act phase is done
-      await this.eventBus.emit(
-        createEvent(EventType.ACT_DONE, {
-          source: "cognitive.act",
-          taskId: task.taskId,
-          payload: { actionsCount: task.context.actionsDone.length },
-          parentEventId: trigger.id,
-        }),
-      );
+      // No pending steps — transition already handled by last STEP_COMPLETED/TOOL_CALL_COMPLETED
       return;
     }
 
@@ -503,23 +494,60 @@ export class Agent {
     );
   }
 
-  private async _runReflect(task: TaskFSM, trigger: Event): Promise<void> {
-    // Reflector is pure logic — no LLM call, no semaphore needed
-    const reflection = await this.reflector.run(task.context);
-    task.context.reflections.push(reflection);
+  private async _runPostReflection(task: TaskFSM): Promise<void> {
+    try {
+      const reflection = await this.llmSemaphore.use(() =>
+        this.postReflector.run(task.context),
+      );
+      task.context.postReflection = reflection;
 
-    if (reflection.verdict === "complete") {
-      task.context.finalResult = this._compileResult(task);
+      // Write facts to memory
+      const memoryDir = path.join(this.settings.dataDir, "memory");
+      for (const fact of reflection.facts) {
+        await this.toolExecutor.execute("memory_write", {
+          path: fact.path,
+          content: fact.content,
+        }, { taskId: task.context.id, memoryDir });
+      }
+
+      // Write episode to memory
+      if (reflection.episode) {
+        const month = new Date().toISOString().slice(0, 7); // "YYYY-MM"
+        const entry = [
+          `## ${reflection.episode.title}`,
+          `- Summary: ${reflection.episode.summary}`,
+          `- Details: ${reflection.episode.details}`,
+          `- Lesson: ${reflection.episode.lesson}`,
+          `- Date: ${new Date().toISOString().slice(0, 10)}`,
+          "",
+        ].join("\n");
+        await this.toolExecutor.execute("memory_append", {
+          path: `episodes/${month}.md`,
+          entry,
+        }, { taskId: task.context.id, memoryDir });
+      }
+
+      // Observability event
+      await this.eventBus.emit(
+        createEvent(EventType.REFLECTION_COMPLETE, {
+          source: "cognitive.reflect",
+          taskId: task.taskId,
+          payload: {
+            factsWritten: reflection.facts.length,
+            hasEpisode: !!reflection.episode,
+            assessment: reflection.assessment,
+          },
+        }),
+      );
+
+      logger.info(
+        { taskId: task.taskId, facts: reflection.facts.length, episode: !!reflection.episode },
+        "post_reflection_complete",
+      );
+    } catch (err) {
+      logger.warn({ taskId: task.taskId, error: err }, "post_reflection_failed");
+      // Fire-and-forget: errors never affect task results
     }
-
-    await this.eventBus.emit(
-      createEvent(EventType.REFLECT_DONE, {
-        source: "cognitive.reflect",
-        taskId: task.taskId,
-        payload: { verdict: reflection.verdict, assessment: reflection.assessment },
-        parentEventId: trigger.id,
-      }),
-    );
   }
 
   // ═══════════════════════════════════════════════════

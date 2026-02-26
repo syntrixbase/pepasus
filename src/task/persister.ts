@@ -12,7 +12,7 @@ import path from "node:path";
 import { getLogger } from "../infra/logger.ts";
 import { EventType } from "../events/types.ts";
 import { createTaskContext } from "./context.ts";
-import type { TaskContext, Plan, Reflection } from "./context.ts";
+import type { TaskContext, Plan } from "./context.ts";
 import type { Message } from "../infra/llm-types.ts";
 import type { EventBus } from "../events/bus.ts";
 import type { TaskRegistry } from "./registry.ts";
@@ -152,7 +152,8 @@ export class TaskPersister {
           break;
 
         case "ACT_DONE":
-          // No-op, informational only
+        case "REFLECT_DONE":
+          // Legacy events — ignored (backward compat with pre-M4 JSONL files)
           break;
 
         case "TASK_SUSPENDED":
@@ -169,12 +170,6 @@ export class TaskPersister {
           }
           break;
 
-        case "REFLECT_DONE":
-          if (entry.data.reflection) {
-            ctx.reflections.push(entry.data.reflection as Reflection);
-          }
-          break;
-
         case "NEED_MORE_INFO":
           ctx.reasoning =
             (entry.data.reasoning as Record<string, unknown>) ?? null;
@@ -186,6 +181,10 @@ export class TaskPersister {
           if (Array.isArray(entry.data.newMessages)) {
             ctx.messages.push(...(entry.data.newMessages as Message[]));
           }
+          break;
+
+        case "REFLECTION_COMPLETE":
+          // Observability data — no state to reconstruct
           break;
 
         case "TASK_FAILED":
@@ -333,35 +332,6 @@ export class TaskPersister {
       });
     }
 
-    // ACT_DONE
-    this.bus.subscribe(EventType.ACT_DONE, async (event) => {
-      if (!event.taskId) return;
-      const task = this.registry.getOrNull(event.taskId);
-      if (!task) return;
-      try {
-        await this._append(event.taskId, task.createdAt, "ACT_DONE", {
-          actionsCount: task.context.actionsDone.length,
-        });
-      } catch (err) {
-        logger.warn({ taskId: event.taskId, error: err }, "persist_act_failed");
-      }
-    });
-
-    // REFLECT_DONE
-    this.bus.subscribe(EventType.REFLECT_DONE, async (event) => {
-      if (!event.taskId) return;
-      const task = this.registry.getOrNull(event.taskId);
-      if (!task) return;
-      try {
-        const lastReflection = task.context.reflections[task.context.reflections.length - 1];
-        await this._append(event.taskId, task.createdAt, "REFLECT_DONE", {
-          reflection: lastReflection,
-        });
-      } catch (err) {
-        logger.warn({ taskId: event.taskId, error: err }, "persist_reflect_failed");
-      }
-    });
-
     // NEED_MORE_INFO
     this.bus.subscribe(EventType.NEED_MORE_INFO, async (event) => {
       if (!event.taskId) return;
@@ -394,6 +364,22 @@ export class TaskPersister {
         });
       } catch (err) {
         logger.warn({ taskId: event.taskId, error: err }, "persist_suspended_failed");
+      }
+    });
+
+    // REFLECTION_COMPLETE (async post-task, observability only)
+    this.bus.subscribe(EventType.REFLECTION_COMPLETE, async (event) => {
+      if (!event.taskId) return;
+      const task = this.registry.getOrNull(event.taskId);
+      if (!task) return;
+      try {
+        await this._append(event.taskId, task.createdAt, "REFLECTION_COMPLETE", {
+          factsWritten: event.payload["factsWritten"],
+          hasEpisode: event.payload["hasEpisode"],
+          assessment: event.payload["assessment"],
+        });
+      } catch (err) {
+        logger.warn({ taskId: event.taskId, error: err }, "persist_reflection_failed");
       }
     });
 

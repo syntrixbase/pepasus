@@ -176,25 +176,6 @@ describe("TaskPersister", () => {
       expect(line.data.newMessages).toHaveLength(2);
     });
 
-    it("should persist ACT_DONE with actionsCount", async () => {
-      const task = new TaskFSM({ taskId: "act-task" });
-      (task as any).createdAt = new Date("2026-02-25T10:00:00Z").getTime();
-      task.context.actionsDone = [
-        { stepIndex: 0, actionType: "respond", actionInput: {}, success: true, startedAt: Date.now() },
-      ];
-      registry.register(task);
-
-      await bus.emit(createEvent(EventType.ACT_DONE, {
-        source: "cognitive.act", taskId: "act-task",
-      }));
-      await Bun.sleep(100);
-
-      const content = await Bun.file(`${testDir}/tasks/2026-02-25/act-task.jsonl`).text();
-      const line = JSON.parse(content.trim());
-      expect(line.event).toBe("ACT_DONE");
-      expect(line.data.actionsCount).toBe(1);
-    });
-
     it("should persist NEED_MORE_INFO with reasoning", async () => {
       const task = new TaskFSM({ taskId: "info-task" });
       (task as any).createdAt = new Date("2026-02-25T10:00:00Z").getTime();
@@ -238,6 +219,26 @@ describe("TaskPersister", () => {
       expect(line.data.reasoning).toBeDefined();
       expect(line.data.plan).toBeDefined();
       expect(line.data.newMessages).toHaveLength(2);
+    });
+
+    it("should persist REFLECTION_COMPLETE with facts/episode info", async () => {
+      const task = new TaskFSM({ taskId: "reflect-task" });
+      (task as any).createdAt = new Date("2026-02-25T10:00:00Z").getTime();
+      registry.register(task);
+
+      await bus.emit(createEvent(EventType.REFLECTION_COMPLETE, {
+        source: "cognitive.reflect",
+        taskId: "reflect-task",
+        payload: { factsWritten: 2, hasEpisode: true, assessment: "good task" },
+      }));
+      await Bun.sleep(100);
+
+      const content = await Bun.file(`${testDir}/tasks/2026-02-25/reflect-task.jsonl`).text();
+      const line = JSON.parse(content.trim());
+      expect(line.event).toBe("REFLECTION_COMPLETE");
+      expect(line.data.factsWritten).toBe(2);
+      expect(line.data.hasEpisode).toBe(true);
+      expect(line.data.assessment).toBe("good task");
     });
 
     it("should persist TASK_COMPLETED and remove from pending", async () => {
@@ -306,13 +307,6 @@ describe("TaskPersister", () => {
           { role: "assistant", content: "4" },
         ],
       });
-      await persister._appendForTest(taskId, createdAt, "REFLECT_DONE", {
-        reflection: {
-          verdict: "complete",
-          assessment: "answered",
-          lessons: [],
-        },
-      });
       await persister._appendForTest(taskId, createdAt, "TASK_COMPLETED", {
         finalResult: { response: "4" },
         iterations: 1,
@@ -332,8 +326,7 @@ describe("TaskPersister", () => {
       expect(ctx.reasoning!.response).toBe("4");
       expect(ctx.plan).toBeDefined();
       expect(ctx.plan!.goal).toBe("respond");
-      expect(ctx.reflections).toHaveLength(1);
-      expect(ctx.reflections[0]!.verdict).toBe("complete");
+      expect(ctx.reflections).toHaveLength(0);
       expect(ctx.finalResult).toEqual({ response: "4" });
       expect(ctx.iteration).toBe(1);
     });
@@ -383,13 +376,6 @@ describe("TaskPersister", () => {
           ],
         },
       );
-      await persister._appendForTest(taskId, createdAt, "REFLECT_DONE", {
-        reflection: {
-          verdict: "complete",
-          assessment: "found info",
-          lessons: ["searching works"],
-        },
-      });
       await persister._appendForTest(taskId, createdAt, "TASK_COMPLETED", {
         finalResult: { response: "Here is the info" },
         iterations: 1,
@@ -405,7 +391,7 @@ describe("TaskPersister", () => {
       // Messages: 2 from REASON_DONE + 1 from TOOL_CALL_COMPLETED + 1 from TASK_COMPLETED
       expect(ctx.messages).toHaveLength(4);
       expect(ctx.messages[2]!.role).toBe("tool");
-      expect(ctx.reflections).toHaveLength(1);
+      expect(ctx.reflections).toHaveLength(0);
       expect(ctx.finalResult).toEqual({ response: "Here is the info" });
     });
 
@@ -504,9 +490,6 @@ describe("TaskPersister", () => {
         reasoning: { response: "The current time is 2026-02-25T10:00:00Z.", approach: "direct" },
         plan: { goal: "respond", steps: [], reasoning: "have answer" },
         newMessages: [originalMessages[3]],
-      });
-      await persister._appendForTest(taskId, createdAt, "REFLECT_DONE", {
-        reflection: { verdict: "complete", assessment: "answered", lessons: [] },
       });
       await persister._appendForTest(taskId, createdAt, "TASK_COMPLETED", {
         finalResult: { response: "The current time is 2026-02-25T10:00:00Z." },
