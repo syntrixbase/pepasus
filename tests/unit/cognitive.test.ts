@@ -242,6 +242,69 @@ describe("Thinker", () => {
     expect(capturedMessages[0]!.content).toBe("Hello");
     expect(capturedMessages[0]!.content).not.toContain("[Available memory]");
   });
+
+  test("does not re-inject inputText when messages already contain conversation history", async () => {
+    // Simulates a resumed task: messages already contain the full history
+    // including the new input. inputText should NOT be appended again.
+    let capturedMessages: Message[] = [];
+    const model = createMockModelWithCapture((opts) => {
+      capturedMessages = opts.messages ?? [];
+    });
+    const thinker = new Thinker(model, testPersona);
+
+    const ctx = createTaskContext({ inputText: "new instructions after resume" });
+    ctx.messages = [
+      { role: "user", content: "original task input" },
+      { role: "assistant", content: "I completed the task.", toolCalls: [
+        { id: "c1", name: "memory_write", arguments: { path: "facts/user.md", content: "data" } },
+      ] },
+      { role: "tool", content: '{"path":"facts/user.md","size":128}', toolCallId: "c1" },
+      { role: "user", content: "new instructions after resume" },
+    ];
+
+    await thinker.run(ctx);
+
+    // The inputText should NOT be appended as a 5th message.
+    // messages[-1] matches inputText, so no duplication — OR
+    // the logic should simply not re-inject when messages exist.
+    const inputOccurrences = capturedMessages.filter(
+      (m) => m.content === "new instructions after resume",
+    );
+    expect(inputOccurrences).toHaveLength(1);
+  });
+
+  test("does not inject stale inputText after tool result in resume scenario", async () => {
+    // After resume, iteration > 1: messages end with a tool result.
+    // inputText should not be re-appended on every iteration.
+    let capturedMessages: Message[] = [];
+    const model = createMockModelWithCapture((opts) => {
+      capturedMessages = opts.messages ?? [];
+    });
+    const thinker = new Thinker(model, testPersona);
+
+    const ctx = createTaskContext({ inputText: "update user info" });
+    ctx.iteration = 2; // not first iteration
+    ctx.messages = [
+      { role: "user", content: "original task" },
+      { role: "assistant", content: "", toolCalls: [
+        { id: "c1", name: "memory_write", arguments: {} },
+      ] },
+      { role: "tool", content: '{"size":128}', toolCallId: "c1" },
+      { role: "user", content: "update user info" },
+      { role: "assistant", content: "", toolCalls: [
+        { id: "c2", name: "memory_write", arguments: {} },
+      ] },
+      { role: "tool", content: '{"size":335}', toolCallId: "c2" },
+    ];
+
+    await thinker.run(ctx);
+
+    // inputText ("update user info") should NOT be appended again after the tool result
+    const inputOccurrences = capturedMessages.filter(
+      (m) => m.content === "update user info",
+    );
+    expect(inputOccurrences).toHaveLength(1);
+  });
 });
 
 // ── Planner ─────────────────────────────────────────

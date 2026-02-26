@@ -47,8 +47,9 @@ export class Thinker {
       messages.unshift({ role: "user" as const, content: memoryContent });
     }
 
-    // Add the current input if not already in messages
-    if (messages.length === 0 || messages[messages.length - 1]?.content !== context.inputText) {
+    // Add the current input only when starting fresh (no conversation history yet).
+    // In resume scenarios, inputText is already in context.messages (pushed by prepareContextForResume).
+    if (context.messages.length === 0) {
       messages.push({ role: "user" as const, content: context.inputText });
     }
 

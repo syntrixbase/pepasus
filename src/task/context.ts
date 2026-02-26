@@ -143,4 +143,7 @@ export function prepareContextForResume(context: TaskContext, newInput: string):
 
   // Append new instruction as user message
   context.messages.push({ role: "user", content: newInput });
+
+  // Update inputText to reflect the new task input
+  context.inputText = newInput;
 }

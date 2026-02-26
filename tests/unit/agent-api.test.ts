@@ -142,3 +142,96 @@ describe("Agent.onNotify", () => {
     }
   }, 10_000);
 });
+
+describe("Agent.resume", () => {
+  afterAll(async () => {
+    await rm(testDataDir, { recursive: true, force: true }).catch(() => {});
+  });
+
+  test("resumed task completes with new instructions (not infinite loop)", async () => {
+    const agent = new Agent(testAgentDeps());
+    await agent.start();
+
+    try {
+      // 1. Submit and complete a task
+      const taskId = await agent.submit("original task");
+      const completedTask = await agent.waitForTask(taskId, 5000);
+      expect(completedTask.state).toBe(TaskState.COMPLETED);
+
+      // 2. Resume with new instructions
+      const resumedId = await agent.resume(taskId, "follow-up instructions");
+      expect(resumedId).toBe(taskId);
+
+      // 3. The resumed task should complete (not fail with max iterations)
+      const resumedTask = await agent.waitForTask(taskId, 5000);
+      expect(resumedTask.state).toBe(TaskState.COMPLETED);
+      expect(resumedTask.context.inputText).toBe("follow-up instructions");
+    } finally {
+      await agent.stop();
+    }
+  }, 10_000);
+
+  test("resumed task updates inputText in context", async () => {
+    const agent = new Agent(testAgentDeps());
+    await agent.start();
+
+    try {
+      const taskId = await agent.submit("first task");
+      await agent.waitForTask(taskId, 5000);
+
+      await agent.resume(taskId, "second task");
+      const task = await agent.waitForTask(taskId, 5000);
+
+      // inputText should reflect the new input, not the original
+      expect(task.context.inputText).toBe("second task");
+    } finally {
+      await agent.stop();
+    }
+  }, 10_000);
+
+  test("resumed task preserves conversation history", async () => {
+    const agent = new Agent(testAgentDeps());
+    await agent.start();
+
+    try {
+      const taskId = await agent.submit("first message");
+      await agent.waitForTask(taskId, 5000);
+
+      // After resume, messages should contain the new input
+      await agent.resume(taskId, "second message");
+      await agent.waitForTask(taskId, 5000);
+
+      const task = agent.taskRegistry.get(taskId);
+      // The new input should appear in messages
+      const hasNewInput = task.context.messages.some(
+        (m) => m.role === "user" && m.content === "second message",
+      );
+      expect(hasNewInput).toBe(true);
+    } finally {
+      await agent.stop();
+    }
+  }, 10_000);
+
+  test("resume rejects non-completed task", async () => {
+    const agent = new Agent(testAgentDeps());
+    await agent.start();
+
+    try {
+      const taskId = await agent.submit("hello");
+      // Don't wait — task might still be in progress
+      // But even if it completes quickly, let's test the error path
+      // by creating a task and forcing it to a non-completed state
+      const task = agent.taskRegistry.get(taskId);
+      await agent.waitForTask(taskId, 5000);
+
+      // Force to FAILED state for testing
+      task.state = TaskState.FAILED as any;
+
+      await expect(agent.resume(taskId, "try again")).rejects.toThrow(
+        /can only resume COMPLETED tasks/,
+      );
+    } finally {
+      await agent.stop();
+    }
+  }, 10_000);
+});
