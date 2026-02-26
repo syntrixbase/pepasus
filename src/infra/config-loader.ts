@@ -48,6 +48,9 @@ const DEFAULT_CONFIG = {
     allowedPaths: [],
     mcpServers: [],
   },
+  session: {
+    compactThreshold: 0.8,
+  },
   system: {
     logLevel: "info",
     logFormat: "json",
@@ -254,6 +257,7 @@ function configToSettings(config: any): Settings {
     agent: config.agent,
     identity: config.identity,
     tools: config.tools,
+    session: config.session,
     logLevel: config.system?.logLevel,
     dataDir: config.system?.dataDir,
     logFormat: config.system?.logFormat,

@@ -4,6 +4,7 @@
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { loadSettings } from "../../src/infra/config-loader.ts";
 import { resetSettings } from "../../src/infra/config.ts";
+import { SettingsSchema } from "../../src/infra/config-schema.ts";
 import { writeFileSync, mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -708,5 +709,22 @@ system:
 
       expect(settings.dataDir).toBe("/tmp/fallback");
     });
+  });
+
+  describe("SessionConfig", () => {
+    test("should parse session config with defaults", () => {
+      const settings = SettingsSchema.parse({
+        dataDir: "/tmp/test",
+      });
+      expect(settings.session.compactThreshold).toBe(0.8);
+    }, 5_000);
+
+    test("should allow overriding compactThreshold", () => {
+      const settings = SettingsSchema.parse({
+        dataDir: "/tmp/test",
+        session: { compactThreshold: 0.6 },
+      });
+      expect(settings.session.compactThreshold).toBe(0.6);
+    }, 5_000);
   });
 });
