@@ -13,7 +13,7 @@ import { shortId } from "../infra/id.ts";
 import { getLogger } from "../infra/logger.ts";
 import type { TaskContext } from "./context.ts";
 import { createTaskContext } from "./context.ts";
-import { TaskState, TERMINAL_STATES, SUSPENDABLE_STATES } from "./states.ts";
+import { TaskState, TERMINAL_STATES, RESUMABLE_STATES, SUSPENDABLE_STATES } from "./states.ts";
 
 const logger = getLogger("task_fsm");
 
@@ -50,6 +50,9 @@ const TRANSITION_TABLE = new Map<TransitionKey, TaskState | null>([
   // Suspended → Resume
   [`${TaskState.SUSPENDED}:${EventType.TASK_RESUMED}`, null],     // dynamic
   [`${TaskState.SUSPENDED}:${EventType.MESSAGE_RECEIVED}`, TaskState.REASONING],
+
+  // Completed → Resume (task continuation with new instructions)
+  [`${TaskState.COMPLETED}:${EventType.TASK_RESUMED}`, TaskState.REASONING],
 ]);
 
 // ── TaskFSM ─────────────────────────────────────────
@@ -95,11 +98,27 @@ export class TaskFSM {
     return task;
   }
 
+  /**
+   * Hydrate: reconstruct a TaskFSM from persisted state.
+   * Unlike fromEvent, does NOT log task_created — this is a restoration.
+   */
+  static hydrate(taskId: string, context: TaskContext, state: TaskState): TaskFSM {
+    const task = new TaskFSM({ taskId, context, state });
+    return task;
+  }
+
   /** Execute a state transition. Returns the new state. Throws on invalid. */
   transition(event: Event): TaskState {
     if (TERMINAL_STATES.has(this.state)) {
       throw new InvalidStateTransition(
         `Task ${this.taskId} is in terminal state ${this.state}, cannot process ${event.type}`,
+      );
+    }
+
+    // COMPLETED can only accept TASK_RESUMED
+    if (RESUMABLE_STATES.has(this.state) && event.type !== EventType.TASK_RESUMED) {
+      throw new InvalidStateTransition(
+        `Task ${this.taskId} is in state ${this.state}, only TASK_RESUMED is allowed`,
       );
     }
 
@@ -130,6 +149,8 @@ export class TaskFSM {
   /** Check if a transition is possible without executing it. */
   canTransition(eventType: EventType): boolean {
     if (TERMINAL_STATES.has(this.state)) return false;
+    // COMPLETED only accepts TASK_RESUMED
+    if (RESUMABLE_STATES.has(this.state)) return eventType === EventType.TASK_RESUMED;
     if (eventType === EventType.TASK_SUSPENDED) return SUSPENDABLE_STATES.has(this.state);
     if (eventType === EventType.TASK_FAILED) return true;
     const key: TransitionKey = `${this.state}:${eventType}`;
@@ -140,11 +161,17 @@ export class TaskFSM {
     return TERMINAL_STATES.has(this.state);
   }
 
+  /** True when task is not actively running (completed or failed). */
+  get isDone(): boolean {
+    return this.state === TaskState.COMPLETED || this.state === TaskState.FAILED;
+  }
+
   get isActive(): boolean {
     return (
       this.state !== TaskState.IDLE &&
       this.state !== TaskState.SUSPENDED &&
-      !TERMINAL_STATES.has(this.state)
+      !TERMINAL_STATES.has(this.state) &&
+      !RESUMABLE_STATES.has(this.state)
     );
   }
 

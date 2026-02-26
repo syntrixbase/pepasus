@@ -59,10 +59,10 @@ describe("TaskState", () => {
     expect(TaskState.FAILED).toBe("failed");
   });
 
-  test("TERMINAL_STATES contains only COMPLETED and FAILED", () => {
-    expect(TERMINAL_STATES.has(TaskState.COMPLETED)).toBe(true);
+  test("TERMINAL_STATES contains only FAILED", () => {
     expect(TERMINAL_STATES.has(TaskState.FAILED)).toBe(true);
-    expect(TERMINAL_STATES.size).toBe(2);
+    expect(TERMINAL_STATES.size).toBe(1);
+    expect(TERMINAL_STATES.has(TaskState.COMPLETED)).toBe(false);
     expect(TERMINAL_STATES.has(TaskState.IDLE)).toBe(false);
   });
 
@@ -242,7 +242,7 @@ describe("TaskFSM", () => {
     // ACTING → COMPLETED (respond step, all done)
     fsm.transition(makeEvent(EventType.STEP_COMPLETED));
     expect(fsm.state).toBe(TaskState.COMPLETED);
-    expect(fsm.isTerminal).toBe(true);
+    expect(fsm.isDone).toBe(true);
     expect(fsm.isActive).toBe(false);
 
     expect(fsm.history).toHaveLength(3);
@@ -416,7 +416,7 @@ describe("TaskFSM", () => {
 
   // ── Fail from any state ──
 
-  test("TASK_FAILED transitions to FAILED from any non-terminal state", () => {
+  test("TASK_FAILED transitions to FAILED from any non-terminal non-resumable state", () => {
     const nonTerminalStates: TaskState[] = [
       TaskState.IDLE,
       TaskState.REASONING,
@@ -440,15 +440,19 @@ describe("TaskFSM", () => {
     }).toThrow(InvalidStateTransition);
   });
 
-  test("throws InvalidStateTransition from terminal state", () => {
+  test("throws InvalidStateTransition from terminal state (FAILED)", () => {
     const fsm = new TaskFSM();
-    fsm.state = TaskState.COMPLETED;
+    fsm.state = TaskState.FAILED;
 
     expect(() => {
       fsm.transition(makeEvent(EventType.TASK_CREATED));
     }).toThrow(InvalidStateTransition);
+  });
 
-    fsm.state = TaskState.FAILED;
+  test("COMPLETED rejects non-TASK_RESUMED events", () => {
+    const fsm = new TaskFSM();
+    fsm.state = TaskState.COMPLETED;
+
     expect(() => {
       fsm.transition(makeEvent(EventType.TASK_CREATED));
     }).toThrow(InvalidStateTransition);
@@ -475,9 +479,19 @@ describe("TaskFSM", () => {
     expect(fsm.canTransition(EventType.STEP_COMPLETED)).toBe(false);
   });
 
-  test("canTransition returns false from terminal states", () => {
+  test("canTransition returns false from FAILED state", () => {
+    const fsm = new TaskFSM();
+    fsm.state = TaskState.FAILED;
+    expect(fsm.canTransition(EventType.TASK_CREATED)).toBe(false);
+    expect(fsm.canTransition(EventType.TASK_FAILED)).toBe(false);
+    expect(fsm.canTransition(EventType.TASK_SUSPENDED)).toBe(false);
+    expect(fsm.canTransition(EventType.TASK_RESUMED)).toBe(false);
+  });
+
+  test("canTransition from COMPLETED only allows TASK_RESUMED", () => {
     const fsm = new TaskFSM();
     fsm.state = TaskState.COMPLETED;
+    expect(fsm.canTransition(EventType.TASK_RESUMED)).toBe(true);
     expect(fsm.canTransition(EventType.TASK_CREATED)).toBe(false);
     expect(fsm.canTransition(EventType.TASK_FAILED)).toBe(false);
     expect(fsm.canTransition(EventType.TASK_SUSPENDED)).toBe(false);
@@ -494,14 +508,26 @@ describe("TaskFSM", () => {
 
   // ── isTerminal / isActive ──
 
-  test("isTerminal is true only for COMPLETED and FAILED", () => {
+  test("isTerminal is true only for FAILED", () => {
+    const fsm = new TaskFSM();
+    for (const state of Object.values(TaskState)) {
+      fsm.state = state;
+      if (state === TaskState.FAILED) {
+        expect(fsm.isTerminal).toBe(true);
+      } else {
+        expect(fsm.isTerminal).toBe(false);
+      }
+    }
+  });
+
+  test("isDone is true for COMPLETED and FAILED", () => {
     const fsm = new TaskFSM();
     for (const state of Object.values(TaskState)) {
       fsm.state = state;
       if (state === TaskState.COMPLETED || state === TaskState.FAILED) {
-        expect(fsm.isTerminal).toBe(true);
+        expect(fsm.isDone).toBe(true);
       } else {
-        expect(fsm.isTerminal).toBe(false);
+        expect(fsm.isDone).toBe(false);
       }
     }
   });
@@ -649,7 +675,7 @@ describe("TaskRegistry", () => {
     expect(registry.activeCount).toBe(2);
   });
 
-  test("cleanupTerminal removes and returns terminal tasks", () => {
+  test("cleanupTerminal removes only FAILED tasks (not COMPLETED)", () => {
     const registry = new TaskRegistry();
 
     const active = new TaskFSM();
@@ -666,10 +692,11 @@ describe("TaskRegistry", () => {
     expect(registry.totalCount).toBe(3);
 
     const cleaned = registry.cleanupTerminal();
-    expect(cleaned).toHaveLength(2);
-    expect(registry.totalCount).toBe(1);
+    expect(cleaned).toHaveLength(1);
+    expect(cleaned[0]!.state).toBe(TaskState.FAILED);
+    expect(registry.totalCount).toBe(2);
     expect(registry.getOrNull(active.taskId)).toBe(active);
-    expect(registry.getOrNull(completed.taskId)).toBeNull();
+    expect(registry.getOrNull(completed.taskId)).toBe(completed);
     expect(registry.getOrNull(failed.taskId)).toBeNull();
   });
 

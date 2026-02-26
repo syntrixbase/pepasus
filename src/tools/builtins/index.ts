@@ -67,6 +67,12 @@ const spawn_task = spawnTaskModule.spawn_task;
 
 export { spawn_task };
 
+// Resume task tool (for Main Agent)
+import * as resumeTaskModule from "./resume-task-tool.ts";
+const resume_task = resumeTaskModule.resume_task;
+
+export { resume_task };
+
 // Reply tool (for Main Agent inner monologue)
 import * as replyToolModule from "./reply-tool.ts";
 const reply = replyToolModule.reply;
@@ -141,7 +147,7 @@ export const allTaskTools: Tool[] = [
   ...taskTools,
 ];
 
-/** Tools for Main Agent (curated simple tools + spawn_task + reply). */
+/** Tools for Main Agent (curated simple tools + spawn_task + resume_task + reply). */
 export const mainAgentTools: Tool[] = [
   current_time,
   memory_list,
@@ -150,6 +156,7 @@ export const mainAgentTools: Tool[] = [
   task_replay,
   session_archive_read,
   spawn_task,
+  resume_task,
   reply,
 ];
 

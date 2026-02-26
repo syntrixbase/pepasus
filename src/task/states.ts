@@ -11,8 +11,11 @@ export const TaskState = {
 export type TaskState = (typeof TaskState)[keyof typeof TaskState];
 
 export const TERMINAL_STATES: ReadonlySet<TaskState> = new Set([
-  TaskState.COMPLETED,
   TaskState.FAILED,
+]);
+
+export const RESUMABLE_STATES: ReadonlySet<TaskState> = new Set([
+  TaskState.COMPLETED,
 ]);
 
 export const SUSPENDABLE_STATES: ReadonlySet<TaskState> = new Set([

@@ -183,6 +183,21 @@ export class TaskPersister {
           }
           break;
 
+        case "TASK_RESUMED":
+          // Reset cognitive state (mirrors prepareContextForResume)
+          ctx.plan = null;
+          ctx.reasoning = null;
+          ctx.finalResult = null;
+          ctx.error = null;
+          ctx.suspendedState = null;
+          ctx.suspendReason = null;
+          ctx.iteration = 0;
+          ctx.postReflection = null;
+          if (Array.isArray(entry.data.newMessages)) {
+            ctx.messages.push(...(entry.data.newMessages as Message[]));
+          }
+          break;
+
         case "REFLECTION_COMPLETE":
           // Observability data — no state to reconstruct
           break;
@@ -291,6 +306,26 @@ export class TaskPersister {
         await this._updatePending("add", event.taskId, task.createdAt);
       } catch (err) {
         logger.warn({ taskId: event.taskId, error: err }, "persist_created_failed");
+      }
+    });
+
+    // TASK_RESUMED (completed task resumed with new instructions)
+    this.bus.subscribe(EventType.TASK_RESUMED, async (event) => {
+      if (!event.taskId) return;
+      const task = this.registry.getOrNull(event.taskId);
+      if (!task) return;
+      try {
+        const lastIdx = this.messageIndex.get(event.taskId) ?? 0;
+        const newMessages = task.context.messages.slice(lastIdx);
+        this.messageIndex.set(event.taskId, task.context.messages.length);
+        await this._append(event.taskId, task.createdAt, "TASK_RESUMED", {
+          newInput: event.payload["newInput"],
+          previousState: "completed",
+          newMessages,
+        });
+        await this._updatePending("add", event.taskId, task.createdAt);
+      } catch (err) {
+        logger.warn({ taskId: event.taskId, error: err }, "persist_resumed_failed");
       }
     });
 
