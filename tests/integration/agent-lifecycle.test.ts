@@ -79,7 +79,7 @@ describe("Agent lifecycle", () => {
       expect(task.context.reasoning).not.toBeNull();
       expect(task.context.plan).not.toBeNull();
       expect(task.context.actionsDone.length).toBeGreaterThan(0);
-      expect(task.context.reflections.length).toBeGreaterThan(0);
+      expect(task.context.reflections).toHaveLength(0);
       expect(task.context.finalResult).not.toBeNull();
       expect(task.context.iteration).toBeGreaterThan(0);
     } finally {
@@ -136,7 +136,6 @@ describe("Agent lifecycle", () => {
       expect(types).toContain(EventType.TASK_CREATED);
       expect(types).toContain(EventType.REASON_DONE);
       expect(types).toContain(EventType.STEP_COMPLETED);
-      expect(types).toContain(EventType.REFLECT_DONE);
       expect(types).toContain(EventType.TASK_COMPLETED);
     } finally {
       await agent.stop();

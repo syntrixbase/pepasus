@@ -158,9 +158,9 @@ describe("buildSystemPrompt", () => {
     expect(prompt.toLowerCase()).toContain("respond");
   });
 
-  test("reflect stage adds evaluation instruction", () => {
+  test("reflect stage (removed) does not add instruction", () => {
     const prompt = buildSystemPrompt(persona, "reflect");
-    expect(prompt.toLowerCase()).toContain("evaluate");
+    expect(prompt).not.toContain("Your current task");
   });
 
   test("unknown stage does not add instruction", () => {

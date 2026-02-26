@@ -3,7 +3,6 @@ export const TaskState = {
   IDLE: "idle",
   REASONING: "reasoning",
   ACTING: "acting",
-  REFLECTING: "reflecting",
   SUSPENDED: "suspended",
   COMPLETED: "completed",
   FAILED: "failed",
@@ -19,5 +18,4 @@ export const TERMINAL_STATES: ReadonlySet<TaskState> = new Set([
 export const SUSPENDABLE_STATES: ReadonlySet<TaskState> = new Set([
   TaskState.REASONING,
   TaskState.ACTING,
-  TaskState.REFLECTING,
 ]);

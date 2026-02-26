@@ -54,7 +54,6 @@ describe("TaskState", () => {
     expect(TaskState.IDLE).toBe("idle");
     expect(TaskState.REASONING).toBe("reasoning");
     expect(TaskState.ACTING).toBe("acting");
-    expect(TaskState.REFLECTING).toBe("reflecting");
     expect(TaskState.SUSPENDED).toBe("suspended");
     expect(TaskState.COMPLETED).toBe("completed");
     expect(TaskState.FAILED).toBe("failed");
@@ -70,8 +69,7 @@ describe("TaskState", () => {
   test("SUSPENDABLE_STATES contains cognitive stages", () => {
     expect(SUSPENDABLE_STATES.has(TaskState.REASONING)).toBe(true);
     expect(SUSPENDABLE_STATES.has(TaskState.ACTING)).toBe(true);
-    expect(SUSPENDABLE_STATES.has(TaskState.REFLECTING)).toBe(true);
-    expect(SUSPENDABLE_STATES.size).toBe(3);
+    expect(SUSPENDABLE_STATES.size).toBe(2);
     expect(SUSPENDABLE_STATES.has(TaskState.IDLE)).toBe(false);
     expect(SUSPENDABLE_STATES.has(TaskState.SUSPENDED)).toBe(false);
   });
@@ -223,8 +221,14 @@ describe("TaskFSM", () => {
 
   // ── Happy path: full lifecycle ──
 
-  test("full lifecycle: IDLE → REASONING → ACTING → REFLECTING → COMPLETED", () => {
+  test("full lifecycle: IDLE → REASONING → ACTING → COMPLETED (respond steps)", () => {
     const fsm = new TaskFSM();
+    // Set a plan with respond step only (no tool_call)
+    fsm.context.plan = {
+      goal: "respond",
+      reasoning: "deliver response",
+      steps: [{ index: 0, description: "reply", actionType: "respond", actionParams: {}, completed: true }],
+    };
 
     // IDLE → REASONING
     fsm.transition(makeEvent(EventType.TASK_CREATED));
@@ -235,18 +239,13 @@ describe("TaskFSM", () => {
     fsm.transition(makeEvent(EventType.REASON_DONE));
     expect(fsm.state).toBe(TaskState.ACTING);
 
-    // ACTING → REFLECTING (via ACT_DONE)
-    fsm.transition(makeEvent(EventType.ACT_DONE));
-    expect(fsm.state).toBe(TaskState.REFLECTING);
-
-    // REFLECTING → COMPLETED (verdict: "complete")
-    fsm.transition(makeEvent(EventType.REFLECT_DONE, { payload: { verdict: "complete" } }));
+    // ACTING → COMPLETED (respond step, all done)
+    fsm.transition(makeEvent(EventType.STEP_COMPLETED));
     expect(fsm.state).toBe(TaskState.COMPLETED);
     expect(fsm.isTerminal).toBe(true);
     expect(fsm.isActive).toBe(false);
 
-    // History should record all transitions
-    expect(fsm.history).toHaveLength(4);
+    expect(fsm.history).toHaveLength(3);
   });
 
   // ── Transition history ──
@@ -278,26 +277,24 @@ describe("TaskFSM", () => {
     expect(fsm.state).toBe(TaskState.ACTING); // still acting, more steps
   });
 
-  test("ACTING + TOOL_CALL_COMPLETED → REFLECTING when no more steps", () => {
+  test("ACTING + TOOL_CALL_COMPLETED → REASONING when plan has tool_call steps and all done", () => {
     const fsm = new TaskFSM();
-    fsm.context.plan = makePlan(1);
+    fsm.context.plan = makePlan(1);  // makePlan creates tool_call steps
     markStepDone(fsm.context.plan, 0);
-
     fsm.state = TaskState.ACTING;
 
     fsm.transition(makeEvent(EventType.TOOL_CALL_COMPLETED));
-    expect(fsm.state as TaskState).toBe(TaskState.REFLECTING);
+    expect(fsm.state as TaskState).toBe(TaskState.REASONING);
   });
 
-  test("ACTING + TOOL_CALL_FAILED → REFLECTING when no more steps", () => {
+  test("ACTING + TOOL_CALL_FAILED → REASONING when plan has tool_call steps and all done", () => {
     const fsm = new TaskFSM();
     fsm.context.plan = makePlan(1);
     markStepDone(fsm.context.plan, 0);
-
     fsm.state = TaskState.ACTING;
 
     fsm.transition(makeEvent(EventType.TOOL_CALL_FAILED));
-    expect(fsm.state as TaskState).toBe(TaskState.REFLECTING);
+    expect(fsm.state as TaskState).toBe(TaskState.REASONING);
   });
 
   test("ACTING + TOOL_CALL_FAILED → ACTING when plan has more steps", () => {
@@ -321,38 +318,45 @@ describe("TaskFSM", () => {
     expect(fsm.state).toBe(TaskState.ACTING);
   });
 
-  test("ACTING + STEP_COMPLETED → REFLECTING when all steps completed", () => {
+  test("ACTING + STEP_COMPLETED → COMPLETED when plan has only respond steps and all done", () => {
     const fsm = new TaskFSM();
-    fsm.context.plan = makePlan(1);
-    markStepDone(fsm.context.plan, 0);
+    fsm.context.plan = {
+      goal: "respond",
+      reasoning: "deliver",
+      steps: [{ index: 0, description: "reply", actionType: "respond", actionParams: {}, completed: true }],
+    };
     fsm.state = TaskState.ACTING;
 
     fsm.transition(makeEvent(EventType.STEP_COMPLETED));
-    expect(fsm.state as TaskState).toBe(TaskState.REFLECTING);
+    expect(fsm.state as TaskState).toBe(TaskState.COMPLETED);
   });
 
-  test("REFLECTING + REFLECT_DONE verdict=continue → REASONING", () => {
+  test("multi-turn lifecycle: tool_call → REASONING → respond → COMPLETED", () => {
     const fsm = new TaskFSM();
-    fsm.state = TaskState.REFLECTING;
 
-    fsm.transition(makeEvent(EventType.REFLECT_DONE, { payload: { verdict: "continue" } }));
-    expect(fsm.state as TaskState).toBe(TaskState.REASONING);
-  });
+    // Round 1: Reason → Act with tool_call
+    fsm.transition(makeEvent(EventType.TASK_CREATED));
+    expect(fsm.state).toBe(TaskState.REASONING);
 
-  test("REFLECTING + REFLECT_DONE verdict=replan → REASONING", () => {
-    const fsm = new TaskFSM();
-    fsm.state = TaskState.REFLECTING;
+    fsm.context.plan = makePlan(1);  // tool_call step
+    fsm.transition(makeEvent(EventType.REASON_DONE));
+    expect(fsm.state).toBe(TaskState.ACTING);
 
-    fsm.transition(makeEvent(EventType.REFLECT_DONE, { payload: { verdict: "replan" } }));
-    expect(fsm.state as TaskState).toBe(TaskState.REASONING);
-  });
+    markStepDone(fsm.context.plan!, 0);
+    fsm.transition(makeEvent(EventType.TOOL_CALL_COMPLETED));
+    expect(fsm.state as TaskState).toBe(TaskState.REASONING);  // back to reason
 
-  test("REFLECTING + REFLECT_DONE no verdict → defaults to REASONING", () => {
-    const fsm = new TaskFSM();
-    fsm.state = TaskState.REFLECTING;
+    // Round 2: Reason → Act with respond
+    fsm.context.plan = {
+      goal: "respond",
+      reasoning: "have answer",
+      steps: [{ index: 0, description: "reply", actionType: "respond", actionParams: {}, completed: true }],
+    };
+    fsm.transition(makeEvent(EventType.REASON_DONE));
+    expect(fsm.state).toBe(TaskState.ACTING);
 
-    fsm.transition(makeEvent(EventType.REFLECT_DONE));
-    expect(fsm.state as TaskState).toBe(TaskState.REASONING);
+    fsm.transition(makeEvent(EventType.STEP_COMPLETED));
+    expect(fsm.state as TaskState).toBe(TaskState.COMPLETED);
   });
 
   // ── Suspend / Resume ──
@@ -417,7 +421,6 @@ describe("TaskFSM", () => {
       TaskState.IDLE,
       TaskState.REASONING,
       TaskState.ACTING,
-      TaskState.REFLECTING,
       TaskState.SUSPENDED,
     ];
     for (const state of nonTerminalStates) {
@@ -433,7 +436,7 @@ describe("TaskFSM", () => {
   test("throws InvalidStateTransition for undefined transition", () => {
     const fsm = new TaskFSM();
     expect(() => {
-      fsm.transition(makeEvent(EventType.ACT_DONE)); // IDLE + ACT_DONE is invalid
+      fsm.transition(makeEvent(EventType.STEP_COMPLETED)); // IDLE + STEP_COMPLETED is invalid
     }).toThrow(InvalidStateTransition);
   });
 
@@ -469,7 +472,7 @@ describe("TaskFSM", () => {
 
   test("canTransition returns false for invalid transitions", () => {
     const fsm = new TaskFSM();
-    expect(fsm.canTransition(EventType.ACT_DONE)).toBe(false);
+    expect(fsm.canTransition(EventType.STEP_COMPLETED)).toBe(false);
   });
 
   test("canTransition returns false from terminal states", () => {
@@ -508,7 +511,6 @@ describe("TaskFSM", () => {
     const activeStates = [
       TaskState.REASONING,
       TaskState.ACTING,
-      TaskState.REFLECTING,
     ];
     const inactiveStates = [
       TaskState.IDLE,

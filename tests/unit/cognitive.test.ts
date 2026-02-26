@@ -2,11 +2,11 @@ import { describe, expect, test } from "bun:test";
 import type { LanguageModel, Message } from "@pegasus/infra/llm-types.ts";
 import type { Persona } from "@pegasus/identity/persona.ts";
 import { createTaskContext } from "@pegasus/task/context.ts";
-import type { PlanStep, ActionResult } from "@pegasus/task/context.ts";
+import type { PlanStep } from "@pegasus/task/context.ts";
 import { Thinker } from "@pegasus/cognitive/think.ts";
 import { Planner } from "@pegasus/cognitive/plan.ts";
 import { Actor } from "@pegasus/cognitive/act.ts";
-import { Reflector } from "@pegasus/cognitive/reflect.ts";
+
 import { ToolRegistry } from "@pegasus/tools/registry.ts";
 import { z } from "zod";
 import type { ToolCall } from "@pegasus/models/tool.ts";
@@ -51,19 +51,6 @@ function createToolCallMockModel(toolCalls: ToolCall[]): LanguageModel & { lastO
     },
   };
   return model;
-}
-
-function makeActionResult(overrides: Partial<ActionResult> = {}): ActionResult {
-  return {
-    stepIndex: 0,
-    actionType: "respond",
-    actionInput: {},
-    result: "done",
-    success: true,
-    startedAt: Date.now(),
-    completedAt: Date.now(),
-    ...overrides,
-  };
 }
 
 function makePlanStep(overrides: Partial<PlanStep> = {}): PlanStep {
@@ -464,96 +451,3 @@ describe("Actor", () => {
   });
 });
 
-// ── Reflector ───────────────────────────────────────
-
-describe("Reflector", () => {
-  test("returns 'complete' verdict for conversation task (default)", async () => {
-    const model = createMockModel("");
-    const reflector = new Reflector(model, testPersona);
-
-    const ctx = createTaskContext({ inputText: "Hello" });
-    ctx.actionsDone = [makeActionResult({ success: true })];
-
-    const reflection = await reflector.run(ctx);
-
-    expect(reflection.verdict).toBe("complete");
-    expect(reflection.assessment).toContain("Conversation response delivered");
-    expect(reflection.lessons).toEqual([]);
-  });
-
-  test("returns 'complete' for conversation even when actions failed", async () => {
-    const model = createMockModel("");
-    const reflector = new Reflector(model, testPersona);
-
-    const ctx = createTaskContext({ inputText: "Hello" });
-    ctx.actionsDone = [makeActionResult({ success: false })];
-
-    const reflection = await reflector.run(ctx);
-
-    // Conversation tasks always return "complete" regardless of action success
-    expect(reflection.verdict).toBe("complete");
-  });
-
-  test("defaults to conversation when no perception", async () => {
-    const model = createMockModel("");
-    const reflector = new Reflector(model, testPersona);
-
-    const ctx = createTaskContext({ inputText: "Hello" });
-
-    const reflection = await reflector.run(ctx);
-
-    expect(reflection.verdict).toBe("complete");
-  });
-
-  test("returns 'continue' when current plan has tool_call steps and all succeeded", async () => {
-    const model = createMockModel("");
-    const reflector = new Reflector(model, testPersona);
-
-    const ctx = createTaskContext({ inputText: "What time?" });
-    ctx.plan = {
-      goal: "Execute tool calls",
-      reasoning: "1 tool call",
-      steps: [{ index: 0, description: "Call current_time", actionType: "tool_call", actionParams: {}, completed: true }],
-    };
-    ctx.actionsDone = [makeActionResult({ actionType: "tool_call", success: true })];
-
-    const reflection = await reflector.run(ctx);
-    expect(reflection.verdict).toBe("continue");
-  });
-
-  test("returns 'complete' on round 2 when plan has respond steps (no tool_calls)", async () => {
-    const model = createMockModel("");
-    const reflector = new Reflector(model, testPersona);
-
-    const ctx = createTaskContext({ inputText: "What time?" });
-    ctx.plan = {
-      goal: "Respond",
-      reasoning: "deliver response",
-      steps: [{ index: 0, description: "Deliver response", actionType: "respond", actionParams: {}, completed: true }],
-    };
-    ctx.actionsDone = [
-      makeActionResult({ actionType: "tool_call", success: true }),
-      makeActionResult({ stepIndex: 1, actionType: "respond", success: true }),
-    ];
-    ctx.reflections = [{ verdict: "continue", assessment: "tool calls executed", lessons: [] }];
-
-    const reflection = await reflector.run(ctx);
-    expect(reflection.verdict).toBe("complete");
-  });
-
-  test("returns 'complete' when tool_call step failed", async () => {
-    const model = createMockModel("");
-    const reflector = new Reflector(model, testPersona);
-
-    const ctx = createTaskContext({ inputText: "Read file" });
-    ctx.plan = {
-      goal: "Execute tool calls",
-      reasoning: "1 tool call",
-      steps: [{ index: 0, description: "Call read_file", actionType: "tool_call", actionParams: {}, completed: true }],
-    };
-    ctx.actionsDone = [makeActionResult({ actionType: "tool_call", success: false })];
-
-    const reflection = await reflector.run(ctx);
-    expect(reflection.verdict).toBe("complete");
-  });
-});

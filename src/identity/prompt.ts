@@ -54,8 +54,6 @@ export function buildSystemPrompt(
     const stageInstructions: Record<string, string> = {
       reason:
         "Your current task is to reason about what to do and compose a helpful response to the user. Respond naturally in the persona described above.",
-      reflect:
-        "Your current task is to evaluate the results. Respond in JSON with fields: verdict (complete|continue|replan), assessment, lessons (array).",
     };
     const instruction = stageInstructions[stage];
     if (instruction) {

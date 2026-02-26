@@ -193,8 +193,7 @@ describe("task tools", () => {
         [
           '{"ts":1,"event":"TASK_CREATED","taskId":"r2","data":{"inputText":"test","source":"user"}}',
           '{"ts":2,"event":"REASON_DONE","taskId":"r2","data":{"reasoning":{"response":"secret"},"plan":{"goal":"do stuff","steps":[],"reasoning":"internal"},"newMessages":[{"role":"user","content":"test"}]}}',
-          '{"ts":3,"event":"REFLECT_DONE","taskId":"r2","data":{"reflection":{"verdict":"complete","assessment":"good","lessons":[]}}}',
-          '{"ts":4,"event":"TASK_COMPLETED","taskId":"r2","data":{"finalResult":{"response":"done"},"iterations":1,"newMessages":[{"role":"assistant","content":"done"}]}}',
+          '{"ts":3,"event":"TASK_COMPLETED","taskId":"r2","data":{"finalResult":{"response":"done"},"iterations":1,"newMessages":[{"role":"assistant","content":"done"}]}}',
         ].join("\n") + "\n";
       await appendFile(`${testDir}/tasks/2026-02-25/r2.jsonl`, lines);
 

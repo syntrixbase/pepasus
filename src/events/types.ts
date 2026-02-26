@@ -29,9 +29,8 @@ export const EventType = {
 
   // Cognitive stages (300-399)
   REASON_DONE: 300,
-  ACT_DONE: 330,
   STEP_COMPLETED: 335,
-  REFLECT_DONE: 340,
+  REFLECTION_COMPLETE: 345,
   NEED_MORE_INFO: 350,
 
   // Tools (400-499)

@@ -330,47 +330,60 @@ describe("MainAgent", () => {
   }, 10_000);
 
   it("should handle spawn_task tool call and task completion", async () => {
-    let callCount = 0;
+    let mainCallCount = 0;
     const model: LanguageModel = {
       provider: "test",
       modelId: "test-model",
-      async generate(): Promise<GenerateTextResult> {
-        callCount++;
-        if (callCount === 1) {
-          // First call: LLM requests spawn_task
+      async generate(options: {
+        system?: string;
+        messages?: Message[];
+      }): Promise<GenerateTextResult> {
+        // Distinguish MainAgent calls (inner monologue) from Task Agent calls
+        const isMainAgent = options.system?.includes("INNER MONOLOGUE") ?? false;
+
+        if (isMainAgent) {
+          mainCallCount++;
+          if (mainCallCount === 1) {
+            // First MainAgent call: LLM requests spawn_task
+            return {
+              text: "I need to spawn a task for this.",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "tc-spawn",
+                  name: "spawn_task",
+                  arguments: {
+                    description: "Do a complex search",
+                    input: "search for weather",
+                  },
+                },
+              ],
+              usage: { promptTokens: 10, completionTokens: 10 },
+            };
+          }
+          // Subsequent MainAgent calls: reply to the user
           return {
-            text: "I need to spawn a task for this.",
+            text: `Thinking about response ${mainCallCount}...`,
             finishReason: "tool_calls",
             toolCalls: [
               {
-                id: "tc-spawn",
-                name: "spawn_task",
+                id: `tc-reply-${mainCallCount}`,
+                name: "reply",
                 arguments: {
-                  description: "Do a complex search",
-                  input: "search for weather",
+                  text: `Response ${mainCallCount}`,
+                  channelId: "test",
                 },
               },
             ],
-            usage: { promptTokens: 10, completionTokens: 10 },
+            usage: { promptTokens: 20, completionTokens: 10 },
           };
         }
-        // Subsequent calls (triggered by task completion): reply to the user.
-        // spawn_task does NOT trigger follow-up thinking, so the next _think
-        // only happens when the task result arrives via _handleTaskResult.
+
+        // Task Agent calls: return plain text (completes via respond step)
         return {
-          text: `Thinking about response ${callCount}...`,
-          finishReason: "tool_calls",
-          toolCalls: [
-            {
-              id: `tc-reply-${callCount}`,
-              name: "reply",
-              arguments: {
-                text: `Response ${callCount}`,
-                channelId: "test",
-              },
-            },
-          ],
-          usage: { promptTokens: 20, completionTokens: 10 },
+          text: "Task completed: found weather data.",
+          finishReason: "stop",
+          usage: { promptTokens: 10, completionTokens: 10 },
         };
       },
     };

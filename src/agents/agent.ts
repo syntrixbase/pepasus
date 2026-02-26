@@ -13,7 +13,6 @@ import { EventBus } from "../events/bus.ts";
 import { Thinker } from "../cognitive/think.ts";
 import { Planner } from "../cognitive/plan.ts";
 import { Actor } from "../cognitive/act.ts";
-import { Reflector } from "../cognitive/reflect.ts";
 import { getLogger } from "../infra/logger.ts";
 import { InvalidStateTransition, TaskNotFoundError } from "../infra/errors.ts";
 import type { Settings } from "../infra/config.ts";
@@ -108,7 +107,6 @@ export class Agent {
   private thinker: Thinker;
   private planner: Planner;
   private actor: Actor;
-  private reflector: Reflector;
 
   // Tool infrastructure
   private toolExecutor: ToolExecutor;
@@ -148,7 +146,6 @@ export class Agent {
     this.thinker = new Thinker(deps.model, deps.persona, toolRegistry);
     this.planner = new Planner(deps.model, deps.persona);
     this.actor = new Actor(deps.model, deps.persona);
-    this.reflector = new Reflector(deps.model, deps.persona);
   }
 
   // ═══════════════════════════════════════════════════
@@ -221,11 +218,9 @@ export class Agent {
 
     // Cognitive stage completions
     bus.subscribe(EventType.REASON_DONE, this._onTaskEvent);
-    bus.subscribe(EventType.ACT_DONE, this._onTaskEvent);
     bus.subscribe(EventType.STEP_COMPLETED, this._onTaskEvent);
     bus.subscribe(EventType.TOOL_CALL_COMPLETED, this._onTaskEvent);
     bus.subscribe(EventType.TOOL_CALL_FAILED, this._onTaskEvent);
-    bus.subscribe(EventType.REFLECT_DONE, this._onTaskEvent);
     bus.subscribe(EventType.NEED_MORE_INFO, this._onTaskEvent);
   }
 
@@ -297,15 +292,12 @@ export class Agent {
         this._spawn(this._runAct(task, trigger));
         break;
 
-      case TaskState.REFLECTING:
-        this._spawn(this._runReflect(task, trigger));
-        break;
-
       case TaskState.SUSPENDED:
         logger.info({ taskId: task.taskId }, "task_suspended");
         break;
 
       case TaskState.COMPLETED:
+        task.context.finalResult = this._compileResult(task);
         logger.info({ taskId: task.taskId, iterations: task.context.iteration }, "task_completed");
         await this.eventBus.emit(
           createEvent(EventType.TASK_COMPLETED, {
@@ -423,15 +415,7 @@ export class Agent {
 
     const step = currentStep(task.context.plan);
     if (!step) {
-      // No pending steps — signal act phase is done
-      await this.eventBus.emit(
-        createEvent(EventType.ACT_DONE, {
-          source: "cognitive.act",
-          taskId: task.taskId,
-          payload: { actionsCount: task.context.actionsDone.length },
-          parentEventId: trigger.id,
-        }),
-      );
+      // No pending steps — transition already handled by last STEP_COMPLETED/TOOL_CALL_COMPLETED
       return;
     }
 
@@ -498,25 +482,6 @@ export class Agent {
         source: "cognitive.act",
         taskId: task.taskId,
         payload: { stepIndex: step.index, actionsCount: task.context.actionsDone.length },
-        parentEventId: trigger.id,
-      }),
-    );
-  }
-
-  private async _runReflect(task: TaskFSM, trigger: Event): Promise<void> {
-    // Reflector is pure logic — no LLM call, no semaphore needed
-    const reflection = await this.reflector.run(task.context);
-    task.context.reflections.push(reflection);
-
-    if (reflection.verdict === "complete") {
-      task.context.finalResult = this._compileResult(task);
-    }
-
-    await this.eventBus.emit(
-      createEvent(EventType.REFLECT_DONE, {
-        source: "cognitive.reflect",
-        taskId: task.taskId,
-        payload: { verdict: reflection.verdict, assessment: reflection.assessment },
         parentEventId: trigger.id,
       }),
     );
