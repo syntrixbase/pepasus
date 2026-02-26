@@ -52,6 +52,24 @@ Before ANY change:
 ## Preference
 
 - Uses `bun` for frontend package scripts.
-- `README.md` is the doc entry.
+- `README.md` is the project entry point.
 - `docs/` — persistent system design docs (no implementation details).
 - `docs/plans/` — disposable working documents (plans, design drafts, reviews). Local only, gitignored. Throw away after use.
+
+## Documentation Map
+
+| Document | Content |
+|----------|---------|
+| `docs/architecture.md` | Layered architecture, core abstractions, system diagrams |
+| `docs/main-agent.md` | Main Agent: inner monologue, reply tool, Channel Adapter, Session, System Prompt |
+| `docs/cognitive.md` | Cognitive pipeline: Reason → Act → Reflect |
+| `docs/task-fsm.md` | TaskFSM: states, transitions, suspend/resume |
+| `docs/events.md` | EventType, EventBus, priority queue |
+| `docs/agent.md` | Agent (Task System): event processing, cognitive dispatch |
+| `docs/tools.md` | Tool registration, execution, timeout, LLM function calling |
+| `docs/memory-system.md` | Long-term memory: facts + episodes |
+| `docs/task-persistence.md` | JSONL event logs, replay, index, pending |
+| `docs/configuration.md` | YAML config + env var interpolation |
+| `docs/logging.md` | Log format, output, rotation |
+| `docs/running.md` | Setup and usage guide |
+| `docs/progress.md` | Milestones, test coverage, tech stack |
