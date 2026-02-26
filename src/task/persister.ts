@@ -183,6 +183,10 @@ export class TaskPersister {
           }
           break;
 
+        case "REFLECTION_COMPLETE":
+          // Observability data — no state to reconstruct
+          break;
+
         case "TASK_FAILED":
           ctx.error = (entry.data.error as string) ?? null;
           break;
@@ -360,6 +364,22 @@ export class TaskPersister {
         });
       } catch (err) {
         logger.warn({ taskId: event.taskId, error: err }, "persist_suspended_failed");
+      }
+    });
+
+    // REFLECTION_COMPLETE (async post-task, observability only)
+    this.bus.subscribe(EventType.REFLECTION_COMPLETE, async (event) => {
+      if (!event.taskId) return;
+      const task = this.registry.getOrNull(event.taskId);
+      if (!task) return;
+      try {
+        await this._append(event.taskId, task.createdAt, "REFLECTION_COMPLETE", {
+          factsWritten: event.payload["factsWritten"],
+          hasEpisode: event.payload["hasEpisode"],
+          assessment: event.payload["assessment"],
+        });
+      } catch (err) {
+        logger.warn({ taskId: event.taskId, error: err }, "persist_reflection_failed");
       }
     });
 

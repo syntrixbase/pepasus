@@ -221,6 +221,26 @@ describe("TaskPersister", () => {
       expect(line.data.newMessages).toHaveLength(2);
     });
 
+    it("should persist REFLECTION_COMPLETE with facts/episode info", async () => {
+      const task = new TaskFSM({ taskId: "reflect-task" });
+      (task as any).createdAt = new Date("2026-02-25T10:00:00Z").getTime();
+      registry.register(task);
+
+      await bus.emit(createEvent(EventType.REFLECTION_COMPLETE, {
+        source: "cognitive.reflect",
+        taskId: "reflect-task",
+        payload: { factsWritten: 2, hasEpisode: true, assessment: "good task" },
+      }));
+      await Bun.sleep(100);
+
+      const content = await Bun.file(`${testDir}/tasks/2026-02-25/reflect-task.jsonl`).text();
+      const line = JSON.parse(content.trim());
+      expect(line.event).toBe("REFLECTION_COMPLETE");
+      expect(line.data.factsWritten).toBe(2);
+      expect(line.data.hasEpisode).toBe(true);
+      expect(line.data.assessment).toBe("good task");
+    });
+
     it("should persist TASK_COMPLETED and remove from pending", async () => {
       const task = new TaskFSM({ taskId: "done-task" });
       (task as any).createdAt = new Date("2026-02-25T10:00:00Z").getTime();
