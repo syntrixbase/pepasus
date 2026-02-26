@@ -50,6 +50,53 @@ describe("getContextWindowSize", () => {
     expect(getContextWindowSize("llama-3.1-70b")).toBe(128_000);
   }, 5_000);
 
+  // Chinese models — 智谱 GLM
+  test("returns known size for glm-4-long (1M context)", () => {
+    expect(getContextWindowSize("glm-4-long")).toBe(1_000_000);
+  }, 5_000);
+
+  test("returns known size for glm-4-plus", () => {
+    expect(getContextWindowSize("glm-4-plus")).toBe(128_000);
+  }, 5_000);
+
+  // Chinese models — 月之暗面 Moonshot/Kimi
+  test("returns known size for moonshot-v1-128k", () => {
+    expect(getContextWindowSize("moonshot-v1-128k")).toBe(128_000);
+  }, 5_000);
+
+  test("returns known size for moonshot-v1-8k", () => {
+    expect(getContextWindowSize("moonshot-v1-8k")).toBe(8_000);
+  }, 5_000);
+
+  // Chinese models — 通义千问 Qwen
+  test("returns known size for qwen-long (10M context)", () => {
+    expect(getContextWindowSize("qwen-long")).toBe(10_000_000);
+  }, 5_000);
+
+  test("returns known size for qwen3-max", () => {
+    expect(getContextWindowSize("qwen3-max")).toBe(262_144);
+  }, 5_000);
+
+  // Chinese models — MiniMax
+  test("returns known size for abab7-chat-preview", () => {
+    expect(getContextWindowSize("abab7-chat-preview")).toBe(245_760);
+  }, 5_000);
+
+  // Chinese models — 百川 Baichuan
+  test("returns known size for Baichuan4", () => {
+    expect(getContextWindowSize("Baichuan4")).toBe(128_000);
+  }, 5_000);
+
+  // Chinese models — 零一万物 Yi
+  test("returns known size for yi-medium-200k", () => {
+    expect(getContextWindowSize("yi-medium-200k")).toBe(200_000);
+  }, 5_000);
+
+  // Chinese models — 豆包 Doubao
+  test("returns known size for doubao-pro-256k", () => {
+    expect(getContextWindowSize("doubao-pro-256k")).toBe(256_000);
+  }, 5_000);
+
   // Fallback
   test("returns fallback for unknown model", () => {
     expect(getContextWindowSize("unknown-model-xyz")).toBe(128_000);

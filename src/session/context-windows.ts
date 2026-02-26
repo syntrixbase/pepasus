@@ -121,6 +121,67 @@ const CONTEXT_WINDOWS: Record<string, number> = {
   // ── DeepSeek ──
   "deepseek-chat": 128_000,
   "deepseek-reasoner": 128_000,
+
+  // ── 智谱 GLM (Zhipu) ──
+  "glm-4-plus": 128_000,
+  "glm-4-long": 1_000_000,
+  "glm-4-flash": 128_000,
+  "glm-4": 128_000,
+  "glm-4-air": 128_000,
+  "glm-4-airx": 8_192,
+  "glm-4-flashx": 128_000,
+  "glm-3-turbo": 128_000,
+
+  // ── 月之暗面 Kimi (Moonshot) ──
+  "moonshot-v1-8k": 8_000,
+  "moonshot-v1-32k": 32_000,
+  "moonshot-v1-128k": 128_000,
+  "kimi-latest": 128_000,
+
+  // ── 阿里 通义千问 (Qwen) ──
+  "qwen3-max": 262_144,
+  "qwen3-plus": 131_072,
+  "qwen3-turbo": 131_072,
+  "qwen-max": 32_768,
+  "qwen-max-latest": 131_072,
+  "qwen-plus": 131_072,
+  "qwen-plus-latest": 1_000_000,
+  "qwen-turbo": 131_072,
+  "qwen-turbo-latest": 1_000_000,
+  "qwen-long": 10_000_000,
+  "qwen2.5-72b-instruct": 131_072,
+  "qwen2.5-32b-instruct": 131_072,
+  "qwen2.5-14b-instruct": 131_072,
+  "qwen2.5-7b-instruct": 131_072,
+
+  // ── MiniMax ──
+  "abab7-chat-preview": 245_760,
+  "abab6.5s-chat": 245_760,
+  "abab6.5-chat": 8_192,
+  "abab5.5-chat": 16_384,
+
+  // ── 百川 (Baichuan) ──
+  "Baichuan4": 128_000,
+  "Baichuan3-Turbo": 32_000,
+  "Baichuan3-Turbo-128k": 128_000,
+  "Baichuan2-Turbo": 32_000,
+
+  // ── 零一万物 Yi (01.AI) ──
+  "yi-lightning": 16_384,
+  "yi-large": 32_768,
+  "yi-large-turbo": 16_384,
+  "yi-medium": 16_384,
+  "yi-medium-200k": 200_000,
+  "yi-spark": 16_384,
+
+  // ── 字节跳动 豆包 (Doubao / Volcengine) ──
+  "doubao-pro-256k": 256_000,
+  "doubao-pro-128k": 128_000,
+  "doubao-pro-32k": 32_000,
+  "doubao-pro-4k": 4_000,
+  "doubao-lite-128k": 128_000,
+  "doubao-lite-32k": 32_000,
+  "doubao-lite-4k": 4_000,
 };
 
 const DEFAULT_CONTEXT_WINDOW = 128_000;
