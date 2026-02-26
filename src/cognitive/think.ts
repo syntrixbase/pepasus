@@ -9,7 +9,7 @@ import type { LanguageModel, Message } from "../infra/llm-types.ts";
 import { generateText } from "../infra/llm-utils.ts";
 import { getLogger } from "../infra/logger.ts";
 import type { Persona } from "../identity/persona.ts";
-import { buildSystemPrompt } from "../identity/prompt.ts";
+import { buildSystemPrompt, formatSize } from "../identity/prompt.ts";
 import type { MemoryIndexEntry } from "../identity/prompt.ts";
 import type { TaskContext } from "../task/context.ts";
 import type { ToolRegistry } from "../tools/registry.ts";
@@ -26,7 +26,7 @@ export class Thinker {
   async run(context: TaskContext, memoryIndex?: MemoryIndexEntry[]): Promise<Record<string, unknown>> {
     logger.info({ iteration: context.iteration }, "think_start");
 
-    const system = buildSystemPrompt(this.persona, "reason", memoryIndex);
+    const system = buildSystemPrompt(this.persona, "reason");
 
     // Build conversation history for multi-turn support
     const messages: Message[] = context.messages.map((m) => ({
@@ -35,6 +35,17 @@ export class Thinker {
       toolCallId: m.toolCallId,
       toolCalls: m.toolCalls,
     }));
+
+    // Inject memory index as first user message (only when provided, i.e., iteration=1)
+    if (memoryIndex && memoryIndex.length > 0) {
+      const memoryContent = [
+        "[Available memory]",
+        ...memoryIndex.map((e) => `- ${e.path} (${formatSize(e.size)}): ${e.summary}`),
+        "",
+        "Use memory_read to load relevant files before responding.",
+      ].join("\n");
+      messages.unshift({ role: "user" as const, content: memoryContent });
+    }
 
     // Add the current input if not already in messages
     if (messages.length === 0 || messages[messages.length - 1]?.content !== context.inputText) {

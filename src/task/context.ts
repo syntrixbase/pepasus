@@ -61,14 +61,8 @@ export interface Reflection {
 
 /** Output of async post-task reflection (M4). */
 export interface PostTaskReflection {
-  facts: Array<{ path: string; content: string }>;
-  episode: {
-    title: string;
-    summary: string;
-    details: string;
-    lesson: string;
-  } | null;
   assessment: string;
+  toolCallsCount: number;
 }
 
 // ── TaskContext ───────────────────────────────────────

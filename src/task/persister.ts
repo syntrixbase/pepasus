@@ -374,8 +374,7 @@ export class TaskPersister {
       if (!task) return;
       try {
         await this._append(event.taskId, task.createdAt, "REFLECTION_COMPLETE", {
-          factsWritten: event.payload["factsWritten"],
-          hasEpisode: event.payload["hasEpisode"],
+          toolCallsCount: event.payload["toolCallsCount"],
           assessment: event.payload["assessment"],
         });
       } catch (err) {

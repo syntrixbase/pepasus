@@ -49,9 +49,10 @@ import * as memoryToolsModule from "./memory-tools.ts";
 const memory_list = memoryToolsModule.memory_list;
 const memory_read = memoryToolsModule.memory_read;
 const memory_write = memoryToolsModule.memory_write;
+const memory_patch = memoryToolsModule.memory_patch;
 const memory_append = memoryToolsModule.memory_append;
 
-export { memory_list, memory_read, memory_write, memory_append };
+export { memory_list, memory_read, memory_write, memory_patch, memory_append };
 
 // Task tools
 import * as taskToolsModule from "./task-tools.ts";
@@ -121,6 +122,7 @@ export const memoryTools: Tool[] = [
   memory_list,
   memory_read,
   memory_write,
+  memory_patch,
   memory_append,
 ];
 
@@ -150,6 +152,9 @@ export const mainAgentTools: Tool[] = [
   spawn_task,
   reply,
 ];
+
+/** Memory tools available to PostTaskReflector (no memory_list — info is pre-loaded). */
+export const reflectionTools: Tool[] = [memory_read, memory_write, memory_patch, memory_append];
 
 /** @deprecated Use allTaskTools or mainAgentTools instead. */
 export const allBuiltInTools = allTaskTools;

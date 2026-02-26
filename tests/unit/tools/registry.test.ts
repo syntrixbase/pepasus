@@ -157,10 +157,11 @@ describe("ToolRegistry", () => {
 
   it("allBuiltInTools should include memory tools", () => {
     const memoryTools = allBuiltInTools.filter((t) => t.category === "memory");
-    expect(memoryTools).toHaveLength(4);
+    expect(memoryTools).toHaveLength(5);
     expect(memoryTools.map((t) => t.name).sort()).toEqual([
       "memory_append",
       "memory_list",
+      "memory_patch",
       "memory_read",
       "memory_write",
     ]);

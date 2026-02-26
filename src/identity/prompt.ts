@@ -11,7 +11,7 @@ export interface MemoryIndexEntry {
 }
 
 /** Format bytes as human-readable size. */
-function formatSize(bytes: number): string {
+export function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes}B`;
   return `${(bytes / 1024).toFixed(1)}KB`;
 }
@@ -22,12 +22,10 @@ function formatSize(bytes: number): string {
  * The prompt establishes the agent's identity so every LLM response
  * stays in-character.  An optional `stage` hint can append
  * stage-specific instructions for the cognitive pipeline.
- * An optional `memoryIndex` injects available memory files.
  */
 export function buildSystemPrompt(
   persona: Persona,
   stage?: string,
-  memoryIndex?: MemoryIndexEntry[],
 ): string {
   const lines: string[] = [
     `You are ${persona.name}, a ${persona.role}.`,
@@ -39,15 +37,6 @@ export function buildSystemPrompt(
 
   if (persona.background) {
     lines.push("", `Background: ${persona.background}`);
-  }
-
-  // Inject memory index if available
-  if (memoryIndex && memoryIndex.length > 0) {
-    lines.push("", "Available memory:");
-    for (const entry of memoryIndex) {
-      lines.push(`- ${entry.path} (${formatSize(entry.size)}): ${entry.summary}`);
-    }
-    lines.push("", "Use memory_read to load relevant files before responding.");
   }
 
   if (stage) {

@@ -63,7 +63,7 @@ Before ANY change:
 |----------|---------|
 | `docs/architecture.md` | Layered architecture, core abstractions, system diagrams |
 | `docs/main-agent.md` | Main Agent: inner monologue, reply tool, Channel Adapter, Session, System Prompt |
-| `docs/cognitive.md` | Cognitive pipeline: Reason → Act → Reflect |
+| `docs/cognitive.md` | Cognitive pipeline: Reason → Act (2-stage) + async PostTaskReflector |
 | `docs/task-fsm.md` | TaskFSM: states, transitions, suspend/resume |
 | `docs/events.md` | EventType, EventBus, priority queue |
 | `docs/agent.md` | Agent (Task System): event processing, cognitive dispatch |
