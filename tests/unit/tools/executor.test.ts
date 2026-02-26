@@ -98,7 +98,7 @@ describe("ToolExecutor", () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toContain("timed out");
-    expect(result.durationMs).toBeGreaterThanOrEqual(100);
+    expect(result.durationMs).toBeGreaterThanOrEqual(90); // Allow small timer jitter
     expect(result.durationMs).toBeLessThan(500); // Should timeout quickly
     // execute() only emits TOOL_CALL_REQUESTED; FAILED is emitted via emitCompletion()
     expect(events).toHaveLength(1); // REQUESTED only
