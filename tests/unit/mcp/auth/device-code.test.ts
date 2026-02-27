@@ -506,4 +506,205 @@ describe("executeDeviceCodeFlow", () => {
     // Should complete quickly since server interval is 50ms, not 10s
     expect(elapsed).toBeLessThan(5000);
   }, { timeout: 10_000 });
+
+  // ── verification_uri_complete display ──
+
+  it("should display verification_uri_complete when provided", async () => {
+    const config = makeConfig();
+    const deviceResp = makeDeviceAuthResponse({
+      verification_uri_complete: "https://auth.example.com/verify?user_code=ABCD-1234",
+    });
+
+    globalThis.fetch = asFetch(mock(async (input: string | URL | Request) => {
+      const url = extractUrl(input);
+
+      if (url === config.deviceAuthorizationUrl) {
+        return jsonResponse(deviceResp);
+      }
+      if (url === config.tokenUrl) {
+        return jsonResponse(makeTokenSuccessBody());
+      }
+
+      throw new Error(`Unexpected fetch to ${url}`);
+    }));
+
+    await executeDeviceCodeFlow("test-server", config);
+
+    const allOutput = consoleLogCalls.map((args) => args.join(" ")).join("\n");
+    expect(allOutput).toContain("Direct:");
+    expect(allOutput).toContain("https://auth.example.com/verify?user_code=ABCD-1234");
+  }, { timeout: 10_000 });
+
+  // ── Network error on device auth request (fetch throws) ──
+
+  it("should throw DeviceCodeAuthError with code 'network' when fetch throws on device auth", async () => {
+    globalThis.fetch = asFetch(mock(async () => {
+      throw new TypeError("fetch failed: ECONNREFUSED");
+    }));
+
+    const config = makeConfig();
+
+    try {
+      await executeDeviceCodeFlow("test-server", config);
+      expect(true).toBe(false);
+    } catch (err) {
+      expect(err).toBeInstanceOf(DeviceCodeAuthError);
+      expect((err as DeviceCodeAuthError).code).toBe("network");
+      expect((err as DeviceCodeAuthError).message).toContain("ECONNREFUSED");
+    }
+  }, { timeout: 10_000 });
+
+  // ── Token response with scope ──
+
+  it("should include scope in StoredToken when provider returns one", async () => {
+    const config = makeConfig();
+    const deviceResp = makeDeviceAuthResponse();
+
+    globalThis.fetch = asFetch(mock(async (input: string | URL | Request) => {
+      const url = extractUrl(input);
+
+      if (url === config.deviceAuthorizationUrl) {
+        return jsonResponse(deviceResp);
+      }
+      if (url === config.tokenUrl) {
+        return jsonResponse(makeTokenSuccessBody({ scope: "read write" }));
+      }
+
+      throw new Error(`Unexpected fetch to ${url}`);
+    }));
+
+    const token = await executeDeviceCodeFlow("test-server", config);
+    expect(token.scope).toBe("read write");
+  }, { timeout: 10_000 });
+
+  // ── Token response without expires_in ──
+
+  it("should omit expiresAt when token response lacks expires_in", async () => {
+    const config = makeConfig();
+    const deviceResp = makeDeviceAuthResponse();
+
+    globalThis.fetch = asFetch(mock(async (input: string | URL | Request) => {
+      const url = extractUrl(input);
+
+      if (url === config.deviceAuthorizationUrl) {
+        return jsonResponse(deviceResp);
+      }
+      if (url === config.tokenUrl) {
+        return jsonResponse({ access_token: "tok", token_type: "Bearer" });
+      }
+
+      throw new Error(`Unexpected fetch to ${url}`);
+    }));
+
+    const token = await executeDeviceCodeFlow("test-server", config);
+    expect(token.expiresAt).toBeUndefined();
+  }, { timeout: 10_000 });
+
+  // ── Token response without token_type (fallback to "Bearer") ──
+
+  it("should default tokenType to Bearer when not provided in response", async () => {
+    const config = makeConfig();
+    const deviceResp = makeDeviceAuthResponse();
+
+    globalThis.fetch = asFetch(mock(async (input: string | URL | Request) => {
+      const url = extractUrl(input);
+
+      if (url === config.deviceAuthorizationUrl) {
+        return jsonResponse(deviceResp);
+      }
+      if (url === config.tokenUrl) {
+        // No token_type in response
+        return jsonResponse({ access_token: "tok", expires_in: 3600 });
+      }
+
+      throw new Error(`Unexpected fetch to ${url}`);
+    }));
+
+    const token = await executeDeviceCodeFlow("test-server", config);
+    expect(token.tokenType).toBe("Bearer");
+  }, { timeout: 10_000 });
+
+  // ── Token response without scope or refresh_token ──
+
+  it("should omit optional fields when not in response", async () => {
+    const config = makeConfig();
+    const deviceResp = makeDeviceAuthResponse();
+
+    globalThis.fetch = asFetch(mock(async (input: string | URL | Request) => {
+      const url = extractUrl(input);
+
+      if (url === config.deviceAuthorizationUrl) {
+        return jsonResponse(deviceResp);
+      }
+      if (url === config.tokenUrl) {
+        return jsonResponse({ access_token: "tok", token_type: "Bearer", expires_in: 3600 });
+      }
+
+      throw new Error(`Unexpected fetch to ${url}`);
+    }));
+
+    const token = await executeDeviceCodeFlow("test-server", config);
+    expect(token.refreshToken).toBeUndefined();
+    expect(token.scope).toBeUndefined();
+  }, { timeout: 10_000 });
+
+  // ── Uses config pollIntervalSeconds when server provides no interval ──
+
+  it("should use config pollIntervalSeconds when server omits interval", async () => {
+    const config = makeConfig({ pollIntervalSeconds: 0.05 });
+    // deviceAuth response has no interval field
+    const deviceResp = makeDeviceAuthResponse();
+    delete (deviceResp as unknown as Record<string, unknown>).interval;
+    let tokenCallCount = 0;
+
+    globalThis.fetch = asFetch(mock(async (input: string | URL | Request) => {
+      const url = extractUrl(input);
+
+      if (url === config.deviceAuthorizationUrl) {
+        return jsonResponse(deviceResp);
+      }
+      if (url === config.tokenUrl) {
+        tokenCallCount++;
+        if (tokenCallCount <= 1) {
+          return jsonResponse(makeTokenErrorBody("authorization_pending"), 400);
+        }
+        return jsonResponse(makeTokenSuccessBody());
+      }
+
+      throw new Error(`Unexpected fetch to ${url}`);
+    }));
+
+    const token = await executeDeviceCodeFlow("test-server", config);
+    expect(token.accessToken).toBe("access_tok_xyz");
+    expect(tokenCallCount).toBe(2);
+  }, { timeout: 10_000 });
+
+  // ── JSON parse error in token response ──
+
+  it("should continue polling when token response is not valid JSON", async () => {
+    const config = makeConfig();
+    const deviceResp = makeDeviceAuthResponse();
+    let tokenCallCount = 0;
+
+    globalThis.fetch = asFetch(mock(async (input: string | URL | Request) => {
+      const url = extractUrl(input);
+
+      if (url === config.deviceAuthorizationUrl) {
+        return jsonResponse(deviceResp);
+      }
+      if (url === config.tokenUrl) {
+        tokenCallCount++;
+        if (tokenCallCount === 1) {
+          return new Response("not json at all {{{{", { status: 200 });
+        }
+        return jsonResponse(makeTokenSuccessBody());
+      }
+
+      throw new Error(`Unexpected fetch to ${url}`);
+    }));
+
+    const token = await executeDeviceCodeFlow("test-server", config);
+    expect(token.accessToken).toBe("access_tok_xyz");
+    expect(tokenCallCount).toBe(2);
+  }, { timeout: 10_000 });
 });

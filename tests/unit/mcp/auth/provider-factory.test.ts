@@ -464,3 +464,181 @@ describe("refreshToken", () => {
     expect(params.has("client_secret")).toBe(false);
   }, { timeout: 5_000 });
 });
+
+// ── Additional branch coverage ──
+
+describe("resolveTransportAuth — additional branches", () => {
+  let tmpDir: string;
+  let tokenStore: TokenStore;
+  let originalFetch: typeof globalThis.fetch;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pf-branch-test-"));
+    tokenStore = new TokenStore(tmpDir);
+    originalFetch = globalThis.fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("should handle direct client_credentials when response includes scope", async () => {
+    globalThis.fetch = (async () => {
+      return jsonResponse({
+        access_token: "scoped-tok",
+        token_type: "Bearer",
+        expires_in: 3600,
+        scope: "mcp:tools admin",
+      });
+    }) as unknown as typeof globalThis.fetch;
+
+    const config: ClientCredentialsAuthConfig = {
+      type: "client_credentials",
+      clientId: "id",
+      clientSecret: "secret",
+      tokenUrl: "https://auth.example.com/token",
+    };
+
+    const result = await resolveTransportAuth("srv", config, tokenStore);
+    expect(result.mode).toBe("requestInit");
+
+    const saved = tokenStore.load("srv");
+    expect(saved?.scope).toBe("mcp:tools admin");
+  }, { timeout: 10_000 });
+
+  it("should handle direct client_credentials when response lacks expires_in", async () => {
+    globalThis.fetch = (async () => {
+      return jsonResponse({
+        access_token: "no-expiry-tok",
+        token_type: "Bearer",
+      });
+    }) as unknown as typeof globalThis.fetch;
+
+    const config: ClientCredentialsAuthConfig = {
+      type: "client_credentials",
+      clientId: "id",
+      clientSecret: "secret",
+      tokenUrl: "https://auth.example.com/token",
+    };
+
+    const result = await resolveTransportAuth("srv", config, tokenStore);
+    expect(result.mode).toBe("requestInit");
+
+    const saved = tokenStore.load("srv");
+    expect(saved?.expiresAt).toBeUndefined();
+  }, { timeout: 10_000 });
+
+  it("should retry direct client_credentials on network error (fetch throws)", async () => {
+    let callCount = 0;
+    globalThis.fetch = (async () => {
+      callCount++;
+      if (callCount === 1) {
+        throw new TypeError("fetch failed: ECONNREFUSED");
+      }
+      return jsonResponse({
+        access_token: "retry-tok",
+        token_type: "Bearer",
+        expires_in: 3600,
+      });
+    }) as unknown as typeof globalThis.fetch;
+
+    const config: ClientCredentialsAuthConfig = {
+      type: "client_credentials",
+      clientId: "id",
+      clientSecret: "secret",
+      tokenUrl: "https://auth.example.com/token",
+    };
+
+    const result = await resolveTransportAuth("srv", config, tokenStore);
+    expect(result.mode).toBe("requestInit");
+    expect(callCount).toBe(2);
+  }, { timeout: 15_000 });
+
+  it("should throw after exhausting retries on network error for client_credentials", async () => {
+    globalThis.fetch = (async () => {
+      throw new TypeError("fetch failed: ECONNREFUSED");
+    }) as unknown as typeof globalThis.fetch;
+
+    const config: ClientCredentialsAuthConfig = {
+      type: "client_credentials",
+      clientId: "id",
+      clientSecret: "secret",
+      tokenUrl: "https://auth.example.com/token",
+    };
+
+    await expect(
+      resolveTransportAuth("srv", config, tokenStore),
+    ).rejects.toThrow("ECONNREFUSED");
+  }, { timeout: 15_000 });
+
+  it("should throw when refreshToken is called without tokenUrl", async () => {
+    const config: ClientCredentialsAuthConfig = {
+      type: "client_credentials",
+      clientId: "id",
+      clientSecret: "secret",
+      // no tokenUrl
+    };
+
+    await expect(
+      refreshToken("srv", config, "some-refresh-token"),
+    ).rejects.toThrow("no tokenUrl configured");
+  }, { timeout: 5_000 });
+
+  it("should fall through to full device code flow when refresh fails", async () => {
+    // Expired token with refresh_token that will fail
+    const expiredToken = makeExpiredToken({
+      refreshToken: "bad-refresh",
+    });
+    tokenStore.save("dc-fallback", expiredToken);
+
+    let callCount = 0;
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      callCount++;
+
+      // First call: refresh attempt → fail
+      if (callCount === 1) {
+        return jsonResponse({ error: "invalid_grant" }, 400);
+      }
+
+      // Device code flow: device auth request
+      if (url.includes("/device")) {
+        return jsonResponse({
+          device_code: "dev",
+          user_code: "CODE",
+          verification_uri: "https://example.com/verify",
+          expires_in: 300,
+          interval: 0.05,
+        });
+      }
+
+      // Token poll → success
+      return jsonResponse({
+        access_token: "fallback-tok",
+        token_type: "Bearer",
+        expires_in: 3600,
+      });
+    }) as unknown as typeof globalThis.fetch;
+
+    const config: DeviceCodeAuthConfig = {
+      type: "device_code",
+      clientId: "id",
+      deviceAuthorizationUrl: "https://example.com/device",
+      tokenUrl: "https://example.com/token",
+      pollIntervalSeconds: 0.05,
+      timeoutSeconds: 5,
+    };
+
+    const result = await resolveTransportAuth("dc-fallback", config, tokenStore);
+    expect(result.mode).toBe("requestInit");
+    if (result.mode === "requestInit") {
+      const auth = (result.requestInit.headers as Record<string, string>).Authorization;
+      expect(auth).toBe("Bearer fallback-tok");
+    }
+
+    // Verify token was persisted
+    const saved = tokenStore.load("dc-fallback");
+    expect(saved?.accessToken).toBe("fallback-tok");
+  }, { timeout: 15_000 });
+});
