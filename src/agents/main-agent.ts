@@ -243,8 +243,9 @@ export class MainAgent {
       if (handled) return;
     }
 
-    // Normal message: add to session and think
-    const userMsg: Message = { role: "user", content: message.text };
+    // Normal message: add to session with channel metadata for LLM visibility
+    const channelMeta = `[channel: ${message.channel.type} | id: ${message.channel.channelId}${message.channel.replyTo ? ` | thread: ${message.channel.replyTo}` : ""}]`;
+    const userMsg: Message = { role: "user", content: `${channelMeta}\n${message.text}` };
     this.sessionMessages.push(userMsg);
     await this.sessionStore.append(userMsg, { channel: message.channel });
 
@@ -335,7 +336,12 @@ export class MainAgent {
 
       for (const tc of result.toolCalls) {
         if (tc.name === "reply") {
-          const { text, channelId, replyTo } = tc.arguments as { text: string; channelId: string; replyTo?: string };
+          const { text, channelType, channelId, replyTo } = tc.arguments as {
+            text: string;
+            channelType?: string;
+            channelId: string;
+            replyTo?: string;
+          };
           const toolMsg: Message = {
             role: "tool",
             content: JSON.stringify({ delivered: true }),
@@ -346,7 +352,7 @@ export class MainAgent {
           if (this.replyCallback) {
             this.replyCallback({
               text,
-              channel: { type: channel.type, channelId, replyTo },
+              channel: { type: channelType ?? channel.type, channelId, replyTo },
             });
           }
         } else if (tc.name === "spawn_task") {
@@ -684,24 +690,29 @@ export class MainAgent {
 
     // Channel-specific reply guidelines
     lines.push("", [
-      "## Reply Style by Channel",
+      "## Channels and reply()",
       "",
-      "When calling reply(), adapt your style based on the channel the user is on.",
-      "The channel type is visible in the user message metadata.",
+      "Each user message starts with a metadata line showing its source channel:",
+      "  [channel: <type> | id: <channelId> | thread: <replyTo>]",
       "",
-      "reply() parameters:",
-      "- text: the message content to deliver",
-      "- channelId: the channel instance to reply to (e.g. 'main' for CLI)",
-      "- replyTo: (optional) thread or conversation ID within the channel",
+      "Fields:",
+      "- type: the channel type (cli, telegram, slack, sms, web)",
+      "- id: the unique channel instance identifier",
+      "- thread: (optional) thread or conversation ID within the channel",
+      "",
+      "When calling reply(), pass these values back:",
+      "- channelType: the channel type from the metadata",
+      "- channelId: the channel id from the metadata",
+      "- replyTo: the thread id from the metadata (if present)",
       "",
       "Style guidelines per channel type:",
-      "- cli: Terminal session. Detailed responses are welcome, use code blocks freely. No character limit.",
-      "- telegram: Markdown formatting. Keep messages concise but informative. Split very long messages.",
+      "- cli: Terminal session. Detailed responses, code blocks welcome. No character limit.",
+      "- telegram: Markdown formatting. Concise but informative. Split very long messages.",
       "- sms: Extremely concise. Keep under 160 characters.",
       "- slack: Markdown formatting. Use threads for long discussions.",
-      "- web: Rich formatting and links are supported.",
+      "- web: Rich formatting and links supported.",
       "",
-      "If the channel type is unknown, adapt your response style to be clear and readable.",
+      "If the channel type is unknown, keep your response clear and readable.",
     ].join("\n"));
 
     // Session history / compact info

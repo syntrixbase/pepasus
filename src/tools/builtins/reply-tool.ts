@@ -17,18 +17,22 @@ export const reply: Tool = {
   category: ToolCategory.SYSTEM,
   parameters: z.object({
     text: z.string().describe("What to say to the user"),
+    channelType: z
+      .string()
+      .describe("Channel type to reply to — use the value from the user message metadata (e.g. 'cli', 'telegram', 'slack')"),
     channelId: z
       .string()
-      .describe("Which channel to send to (e.g. 'main' for CLI)"),
+      .describe("Channel instance ID — use the value from the user message metadata (e.g. 'main', 'C123')"),
     replyTo: z
       .string()
       .optional()
-      .describe("Thread/conversation ID within the channel"),
+      .describe("Thread or conversation ID — use the value from the user message metadata if present"),
   }),
   async execute(params: unknown, _context: ToolContext): Promise<ToolResult> {
     const startedAt = Date.now();
-    const { text, channelId, replyTo } = params as {
+    const { text, channelType, channelId, replyTo } = params as {
       text: string;
+      channelType: string;
       channelId: string;
       replyTo?: string;
     };
@@ -37,7 +41,7 @@ export const reply: Tool = {
     // The MainAgent intercepts this tool result and routes to the channel.
     return {
       success: true,
-      result: { action: "reply", text, channelId, replyTo },
+      result: { action: "reply", text, channelType, channelId, replyTo },
       startedAt,
       completedAt: Date.now(),
       durationMs: Date.now() - startedAt,
