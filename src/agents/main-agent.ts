@@ -62,6 +62,7 @@ export class MainAgent {
   private lastPromptTokens = 0;
   private tokenCounter = new EstimateCounter();
   private skillRegistry: SkillRegistry;
+  private systemPrompt: string = "";
 
   constructor(deps: MainAgentDeps) {
     this.models = deps.models;
@@ -143,6 +144,9 @@ export class MainAgent {
     const userSkillDir = path.join(this.settings.dataDir, "skills");
     this.skillRegistry.registerMany(loadAllSkills(builtinSkillDir, userSkillDir));
     logger.info({ skillCount: this.skillRegistry.listAll().length }, "skills_loaded");
+
+    // Build system prompt once (stable for LLM prefix caching)
+    this.systemPrompt = this._buildSystemPrompt();
 
     logger.info(
       { sessionMessages: this.sessionMessages.length },
@@ -302,12 +306,11 @@ export class MainAgent {
     // Check if compact is needed before LLM call
     await this._checkAndCompact();
 
-    const system = this._buildSystemPrompt({ text: "", channel });
     const tools = this.toolRegistry.toLLMTools();
 
     const result = await generateText({
       model: this.models.get("default"),
-      system,
+      system: this.systemPrompt,
       messages: this.sessionMessages,
       tools: tools.length ? tools : undefined,
       toolChoice: tools.length ? "auto" : undefined,
@@ -601,7 +604,12 @@ export class MainAgent {
 
   // ── Helpers ──
 
-  private _buildSystemPrompt(message: InboundMessage): string {
+  /**
+   * Build system prompt once. The prompt is stable across all LLM calls
+   * to enable prefix caching. Channel-specific behavior is described as
+   * reply() guidelines, not as "you are currently in X channel".
+   */
+  private _buildSystemPrompt(): string {
     const lines: string[] = [
       `You are ${this.persona.name}, ${this.persona.role}.`,
       "",
@@ -674,17 +682,27 @@ export class MainAgent {
       "- Never just think about the result without calling reply()",
     ].join("\n"));
 
-    // Channel-specific style
-    const channelType = message.channel.type;
-    const styleGuides: Record<string, string> = {
-      cli: "You are in a terminal session. Use detailed responses, code blocks are welcome. No character limit.",
-      telegram: "You are in a Telegram chat. Use Markdown formatting. Keep messages concise but informative. Avoid very long messages \u2014 split into multiple if needed.",
-      sms: "You are communicating via SMS. Keep replies under 160 characters. Be extremely concise.",
-      slack: "You are in a Slack workspace. Use markdown formatting. Use threads for long discussions.",
-      web: "You are on a web interface. You can use rich formatting and links.",
-    };
-    const style = styleGuides[channelType] ?? "Adapt your response style to the channel.";
-    lines.push("", `## Response Style\n\n${style}`);
+    // Channel-specific reply guidelines
+    lines.push("", [
+      "## Reply Style by Channel",
+      "",
+      "When calling reply(), adapt your style based on the channel the user is on.",
+      "The channel type is visible in the user message metadata.",
+      "",
+      "reply() parameters:",
+      "- text: the message content to deliver",
+      "- channelId: the channel instance to reply to (e.g. 'main' for CLI)",
+      "- replyTo: (optional) thread or conversation ID within the channel",
+      "",
+      "Style guidelines per channel type:",
+      "- cli: Terminal session. Detailed responses are welcome, use code blocks freely. No character limit.",
+      "- telegram: Markdown formatting. Keep messages concise but informative. Split very long messages.",
+      "- sms: Extremely concise. Keep under 160 characters.",
+      "- slack: Markdown formatting. Use threads for long discussions.",
+      "- web: Rich formatting and links are supported.",
+      "",
+      "If the channel type is unknown, adapt your response style to be clear and readable.",
+    ].join("\n"));
 
     // Session history / compact info
     lines.push("", [

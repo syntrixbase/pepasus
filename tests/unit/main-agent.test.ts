@@ -512,7 +512,7 @@ describe("MainAgent", () => {
     await Bun.sleep(300);
 
     expect(capturedSystem).toContain("Built in a secret lab");
-    expect(capturedSystem).toContain("Slack");
+    expect(capturedSystem).toContain("slack");
 
     await agent.stop();
   }, 10_000);
