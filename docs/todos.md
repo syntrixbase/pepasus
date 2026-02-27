@@ -18,6 +18,11 @@ Tracked features, improvements, and ideas that are planned but not yet started.
 - [ ] `spawn_task` type parameter: MainAgent specifies task type when spawning
 - [ ] Skill `agent` field maps to task type
 
+### Task Progress Notification
+- [ ] `notify` tool for Task Agent: report interim progress to MainAgent during execution
+- [ ] MainAgent receives progress as `task_notify` events (same channel as completion)
+- [ ] Design doc says "Task can notify multiple times (not just on completion)" — not yet implemented
+
 ## Planned
 
 ### MainAgent Reflection

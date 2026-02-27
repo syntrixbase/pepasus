@@ -152,10 +152,11 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("empathy");
   });
 
-  test("reason stage adds response instruction", () => {
+  test("reason stage adds task worker instruction", () => {
     const prompt = buildSystemPrompt(persona, "reason");
-    expect(prompt.toLowerCase()).toContain("reason");
-    expect(prompt.toLowerCase()).toContain("respond");
+    expect(prompt).toContain("background task worker");
+    expect(prompt).toContain("FOCUS");
+    expect(prompt).toContain("CONCISE RESULT");
   });
 
   test("reflect stage (removed) does not add instruction", () => {

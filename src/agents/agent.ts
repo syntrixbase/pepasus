@@ -618,7 +618,9 @@ export class Agent {
   }
 
   private _compileResult(task: TaskFSM): Record<string, unknown> {
-    // For conversation tasks, extract the response text from the last "respond" action
+    // Extract the LLM's final summary text from the last "respond" action.
+    // Only the summary is returned to MainAgent — raw tool results are NOT included
+    // to avoid bloating MainAgent's context window.
     const respondAction = task.context.actionsDone.findLast((a) => a.actionType === "respond");
     const responseText = respondAction?.result as string | undefined;
 
@@ -626,8 +628,6 @@ export class Agent {
       taskId: task.taskId,
       input: task.context.inputText,
       response: responseText ?? null,
-      actions: task.context.actionsDone,
-      reflections: task.context.reflections,
       iterations: task.context.iteration,
     };
   }
