@@ -12,6 +12,9 @@ import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Tool as McpTool, CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { getLogger } from "../infra/logger.ts";
+import type { MCPAuthConfig } from "./auth/types.ts";
+import { TokenStore } from "./auth/token-store.ts";
+import { resolveTransportAuth } from "./auth/provider-factory.ts";
 
 const logger = getLogger("mcp.manager");
 
@@ -24,10 +27,16 @@ export interface MCPServerConfig {
   cwd?: string;
   url?: string;
   enabled: boolean;
+  auth?: MCPAuthConfig;
 }
 
 export class MCPManager {
   private clients = new Map<string, Client>();
+  private tokenStore: TokenStore;
+
+  constructor(dataDir: string) {
+    this.tokenStore = new TokenStore(dataDir);
+  }
 
   /**
    * Connect to all enabled MCP servers.
@@ -35,16 +44,28 @@ export class MCPManager {
    */
   async connectAll(configs: MCPServerConfig[]): Promise<void> {
     const enabled = configs.filter((c) => c.enabled);
-    for (const config of enabled) {
-      try {
+
+    // Validate server name uniqueness after sanitization
+    const names = enabled.map((c) => c.name);
+    const collisions = TokenStore.checkNameCollisions(names);
+    if (collisions.length > 0) {
+      throw new Error(`MCP server name collisions: ${collisions.join("; ")}`);
+    }
+
+    const results = await Promise.allSettled(
+      enabled.map(async (config) => {
         await this.connect(config);
         logger.info({ server: config.name, transport: config.transport }, "mcp_server_connected");
-      } catch (err) {
+      }),
+    );
+
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i]!;
+      if (result.status === "rejected") {
         logger.warn(
-          { server: config.name, error: err instanceof Error ? err.message : String(err) },
+          { server: enabled[i]!.name, error: result.reason instanceof Error ? result.reason.message : String(result.reason) },
           "mcp_server_connect_failed",
         );
-        // Graceful degradation — continue without this server
       }
     }
   }
@@ -57,6 +78,9 @@ export class MCPManager {
 
     let transport;
     if (config.transport === "stdio") {
+      if (config.auth) {
+        logger.warn({ server: config.name }, "auth_ignored_for_stdio_transport");
+      }
       if (!config.command) {
         throw new Error(`MCP server "${config.name}": stdio transport requires 'command'`);
       }
@@ -71,15 +95,22 @@ export class MCPManager {
       if (!config.url) {
         throw new Error(`MCP server "${config.name}": sse transport requires 'url'`);
       }
+
+      // Resolve auth options for remote transports
+      const authOpts = await resolveTransportAuth(config.name, config.auth, this.tokenStore);
+      const transportOpts: Record<string, unknown> = {};
+      if (authOpts.mode === "authProvider") transportOpts.authProvider = authOpts.authProvider;
+      if (authOpts.mode === "requestInit") transportOpts.requestInit = authOpts.requestInit;
+
       try {
-        transport = new StreamableHTTPClientTransport(new URL(config.url));
+        transport = new StreamableHTTPClientTransport(new URL(config.url), transportOpts);
         await client.connect(transport);
         this.clients.set(config.name, client);
         return;
       } catch {
         // StreamableHTTP failed, fall back to SSE
         logger.debug({ server: config.name }, "streamable_http_failed_falling_back_to_sse");
-        transport = new SSEClientTransport(new URL(config.url));
+        transport = new SSEClientTransport(new URL(config.url), transportOpts);
       }
     }
 
@@ -152,5 +183,12 @@ export class MCPManager {
    */
   getConnectedServers(): string[] {
     return Array.from(this.clients.keys());
+  }
+
+  /**
+   * Get the TokenStore instance (for auth refresh monitors, etc.).
+   */
+  getTokenStore(): TokenStore {
+    return this.tokenStore;
   }
 }

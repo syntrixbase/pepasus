@@ -112,7 +112,7 @@ export class MainAgent {
     // Connect to MCP servers and register tools in both Agent and MainAgent
     const mcpConfigs = (this.settings.tools?.mcpServers ?? []) as MCPServerConfig[];
     if (mcpConfigs.length > 0) {
-      this.mcpManager = new MCPManager();
+      this.mcpManager = new MCPManager(this.settings.dataDir);
       await this.mcpManager.connectAll(mcpConfigs);
 
       // Register in Agent's tool registry (for task execution)
