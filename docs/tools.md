@@ -229,7 +229,9 @@ Different subsystems receive different tool subsets via pre-built arrays:
 
 | Collection | Contents | Used By |
 |------------|----------|---------|
-| `allTaskTools` | systemTools + fileTools + networkTools + dataTools + memoryTools + taskTools + `notify` | Task System (Agent) |
+| `allTaskTools` | systemTools + fileTools + networkTools + dataTools + memoryTools + taskTools + `notify` | Task System — `general` type (default) |
+| `exploreTools` | Read-only subset: `current_time`, `get_env`, `read_file`, `list_files`, `get_file_info`, `grep_files`, `http_get`, `web_search`, `json_parse`, `base64_decode`, `memory_list`, `memory_read`, `task_list`, `task_replay`, `notify` | Task System — `explore` type |
+| `planTools` | exploreTools + `memory_write`, `memory_append` | Task System — `plan` type |
 | `mainAgentTools` | `current_time`, `memory_list`, `memory_read`, `task_list`, `task_replay`, `session_archive_read`, `spawn_task`, `resume_task`, `reply`, `use_skill` | Main Agent |
 | `reflectionTools` | `memory_read`, `memory_write`, `memory_patch`, `memory_append` | PostTaskReflector |
 | `sessionTools` | `session_archive_read` | Session layer |
@@ -237,6 +239,9 @@ Different subsystems receive different tool subsets via pre-built arrays:
 **Key design decisions:**
 
 - **`allTaskTools`** does **not** include `spawn_task`, `reply`, or `use_skill` — those are Main Agent–only. It **does** include `notify` for task → main agent communication.
+- **`exploreTools`** is a strict read-only subset — no file write, no HTTP POST, no memory write. Designed for safe research tasks.
+- **`planTools`** extends explore with memory write access so plans can be persisted, but still cannot modify code files.
+- **`getToolsForType(taskType)`** returns the correct tool array for a given task type (`"general"` → `allTaskTools`, `"explore"` → `exploreTools`, `"plan"` → `planTools`).
 - **`mainAgentTools`** gives the orchestrator read-only access to memory and task history, plus the ability to spawn tasks, invoke skills, and reply.
 - **`reflectionTools`** provides full memory write access but omits `memory_list` because the memory index is pre-loaded and injected into the reflection prompt.
 

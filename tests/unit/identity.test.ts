@@ -152,12 +152,32 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("empathy");
   });
 
-  test("reason stage adds task worker instruction", () => {
-    const prompt = buildSystemPrompt(persona, "reason");
+  test("general task type adds task worker instruction", () => {
+    const prompt = buildSystemPrompt(persona, "general");
     expect(prompt).toContain("background task worker");
     expect(prompt).toContain("FOCUS");
     expect(prompt).toContain("CONCISE RESULT");
     expect(prompt).toContain("notify()");
+  });
+
+  test("explore task type adds research assistant instruction", () => {
+    const prompt = buildSystemPrompt(persona, "explore");
+    expect(prompt).toContain("research assistant");
+    expect(prompt).toContain("READ ONLY");
+    expect(prompt).toContain("FOCUS");
+    expect(prompt).toContain("CONCISE RESULT");
+    expect(prompt).toContain("notify()");
+    expect(prompt).not.toContain("background task worker");
+  });
+
+  test("plan task type adds planning assistant instruction", () => {
+    const prompt = buildSystemPrompt(persona, "plan");
+    expect(prompt).toContain("planning assistant");
+    expect(prompt).toContain("STRUCTURED OUTPUT");
+    expect(prompt).toContain("ANALYSIS FIRST");
+    expect(prompt).toContain("memory_write");
+    expect(prompt).toContain("READ ONLY (mostly)");
+    expect(prompt).not.toContain("background task worker");
   });
 
   test("reflect stage (removed) does not add instruction", () => {
@@ -193,13 +213,13 @@ describe("buildSystemPrompt", () => {
   });
 
   test("should NOT include memory index in system prompt (moved to user message)", () => {
-    const prompt = buildSystemPrompt(persona, "reason");
+    const prompt = buildSystemPrompt(persona, "general");
     expect(prompt).not.toContain("Available memory");
     expect(prompt).not.toContain("memory_read");
   });
 
   test("should not include memory section in system prompt", () => {
-    const prompt = buildSystemPrompt(persona, "reason");
+    const prompt = buildSystemPrompt(persona, "general");
     expect(prompt).not.toContain("Available memory");
   });
 

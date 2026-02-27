@@ -49,4 +49,31 @@ describe("spawn_task tool", () => {
   it("should use SYSTEM category", () => {
     expect(spawn_task.category).toBe(ToolCategory.SYSTEM);
   });
+
+  it("should default type to general when not specified", async () => {
+    const result = await spawn_task.execute(
+      { description: "test", input: "test" },
+      { taskId: "test" },
+    );
+    const data = result.result as { type: string };
+    expect(data.type).toBe("general");
+  });
+
+  it("should pass through explicit type", async () => {
+    const result = await spawn_task.execute(
+      { description: "research", input: "find papers", type: "explore" },
+      { taskId: "test" },
+    );
+    const data = result.result as { type: string };
+    expect(data.type).toBe("explore");
+  });
+
+  it("should accept plan type", async () => {
+    const result = await spawn_task.execute(
+      { description: "plan", input: "analyze codebase", type: "plan" },
+      { taskId: "test" },
+    );
+    const data = result.result as { type: string };
+    expect(data.type).toBe("plan");
+  });
 });

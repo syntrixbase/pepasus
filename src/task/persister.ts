@@ -133,6 +133,7 @@ export class TaskPersister {
           ctx.source = (entry.data.source as string) ?? "";
           ctx.inputMetadata =
             (entry.data.inputMetadata as Record<string, unknown>) ?? {};
+          ctx.taskType = (entry.data.taskType as string) ?? "general";
           break;
 
         case "REASON_DONE":
@@ -302,6 +303,7 @@ export class TaskPersister {
           inputText: task.context.inputText,
           source: task.context.source,
           inputMetadata: task.context.inputMetadata,
+          taskType: task.context.taskType,
         });
         await this._appendIndex(event.taskId, date);
         await this._updatePending("add", event.taskId, task.createdAt);

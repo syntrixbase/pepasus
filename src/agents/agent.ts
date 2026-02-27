@@ -27,7 +27,8 @@ import type { TaskContext } from "../task/context.ts";
 import { ToolRegistry } from "../tools/registry.ts";
 import { ToolExecutor } from "../tools/executor.ts";
 import type { ToolResult } from "../tools/types.ts";
-import { allBuiltInTools, reflectionTools } from "../tools/builtins/index.ts";
+import { allBuiltInTools, reflectionTools, getToolsForType } from "../tools/builtins/index.ts";
+import { TaskType } from "../task/task-type.ts";
 import type { MemoryIndexEntry } from "../identity/prompt.ts";
 import { TaskPersister } from "../task/persister.ts";
 import { getContextWindowSize } from "../session/context-windows.ts";
@@ -118,6 +119,7 @@ export class Agent {
   // Tool infrastructure
   private toolExecutor: ToolExecutor;
   private toolRegistry: ToolRegistry;
+  private typeToolRegistries: Map<string, ToolRegistry>;
 
   // Concurrency control
   private llmSemaphore: Semaphore;
@@ -136,9 +138,17 @@ export class Agent {
     this.llmSemaphore = new Semaphore(this.settings.llm.maxConcurrentCalls);
     this.toolSemaphore = new Semaphore(this.settings.agent.maxConcurrentTools);
 
-    // Create tool infrastructure
+    // Create tool infrastructure — global registry for ToolExecutor (can execute any tool)
     this.toolRegistry = new ToolRegistry();
     this.toolRegistry.registerMany(allBuiltInTools);
+
+    // Per-type registries for LLM tool visibility + execution validation
+    this.typeToolRegistries = new Map();
+    for (const type of Object.values(TaskType)) {
+      const registry = new ToolRegistry();
+      registry.registerMany(getToolsForType(type));
+      this.typeToolRegistries.set(type, registry);
+    }
 
     const toolExecutor = new ToolExecutor(
       this.toolRegistry,
@@ -406,8 +416,11 @@ export class Agent {
       }
     }
 
+    // Select per-type tool registry for LLM visibility
+    const typeRegistry = this.typeToolRegistries.get(task.context.taskType);
+
     const reasoning = await this.llmSemaphore.use(() =>
-      this.thinker.run(task.context, memoryIndex),
+      this.thinker.run(task.context, memoryIndex, typeRegistry),
     );
     task.context.reasoning = reasoning;
 
@@ -459,6 +472,39 @@ export class Agent {
           toolName: string;
           toolParams: Record<string, unknown>;
         };
+
+        // Validate tool against per-type allowed list (safety net for prompt injection)
+        const typeRegistry = this.typeToolRegistries.get(task.context.taskType);
+        if (typeRegistry && !typeRegistry.has(toolName)) {
+          logger.warn(
+            { taskId: task.taskId, toolName, taskType: task.context.taskType },
+            "tool_blocked_by_task_type",
+          );
+          const blockedResult: ToolResult = {
+            success: false,
+            error: `Tool "${toolName}" is not available for task type "${task.context.taskType}"`,
+            startedAt: Date.now(),
+            completedAt: Date.now(),
+            durationMs: 0,
+          };
+          context_pushToolResult(task.context, toolCallId, blockedResult);
+          const finalResult = {
+            ...actorResult,
+            result: undefined,
+            success: false,
+            error: blockedResult.error,
+            completedAt: Date.now(),
+            durationMs: 0,
+          };
+          task.context.actionsDone.push(finalResult);
+          markStepDone(task.context.plan!, step.index);
+          this.toolExecutor.emitCompletion(
+            toolName,
+            blockedResult,
+            { taskId: task.taskId },
+          );
+          return;
+        }
 
         const toolResult = await this.toolExecutor.execute(
           toolName,
@@ -688,10 +734,10 @@ export class Agent {
   }
 
   /** Submit a task. Returns the taskId. */
-  async submit(text: string, source: string = "user"): Promise<string> {
+  async submit(text: string, source: string = "user", taskType?: string): Promise<string> {
     const event = createEvent(EventType.MESSAGE_RECEIVED, {
       source,
-      payload: { text },
+      payload: { text, taskType: taskType ?? "general" },
     });
     await this.eventBus.emit(event);
 

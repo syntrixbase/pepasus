@@ -12,11 +12,14 @@ Tracked features, improvements, and ideas that are planned but not yet started.
 - [ ] LLM-created skills: PostTaskReflector can create new skills from repeated patterns
 
 ### Task Types (Subagent Specialization)
-- [ ] Task type system: explore, plan, general, deepresearch, etc.
-- [ ] Per-type tool sets: explore (read-only), plan (read-only + write plans), general (all tools)
-- [ ] Per-type system prompts: specialized instructions for each type
-- [ ] `spawn_task` type parameter: MainAgent specifies task type when spawning
-- [ ] Skill `agent` field maps to task type
+- [x] Task type system: explore, plan, general
+- [x] Per-type tool sets: explore (read-only), plan (read-only + write plans), general (all tools)
+- [x] Per-type system prompts: specialized instructions for each type
+- [x] `spawn_task` type parameter: MainAgent specifies task type when spawning
+- [x] Skill `agent` field maps to task type
+- [x] Two-layer tool restriction: LLM visibility + execution validation
+- [x] Persistence backward compatibility (old JSONL defaults to "general")
+- [ ] Additional types: deepresearch, code (future)
 
 ### Task Progress Notification
 - [x] `notify` tool for Task Agent: send messages to MainAgent during execution

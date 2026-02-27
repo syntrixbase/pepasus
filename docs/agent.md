@@ -25,7 +25,9 @@ class Agent {
     postReflector: PostTaskReflector    // async post-task reflection (memory learning)
 
     // Tool infrastructure
-    toolExecutor: ToolExecutor          // tool executor
+    toolExecutor: ToolExecutor          // tool executor (uses global registry)
+    toolRegistry: ToolRegistry          // global registry (all tools, for ToolExecutor)
+    typeToolRegistries: Map<string, ToolRegistry>  // per-type registries (for LLM visibility + validation)
     reflectionToolRegistry: ToolRegistry // memory tools for PostTaskReflector (read/write/patch/append, no list)
 
     // Concurrency control
@@ -210,6 +212,9 @@ They do not block each other, naturally scheduled by the EventBus.
 // Submit a task, returns taskId
 const taskId = await agent.submit("Search for papers")
 
+// Submit with a specific task type
+const taskId = await agent.submit("Search for papers", "user", "explore")
+
 // Wait for task to complete (for testing)
 const task = await agent.waitForTask(taskId, 5000)
 
@@ -220,7 +225,7 @@ agent.onNotify((notification) => {
 })
 ```
 
-`submit` is the primary way CLI/API calls the Agent. Internally it emits a `MESSAGE_RECEIVED` event and waits for a `TASK_CREATED` event to return the taskId.
+`submit` is the primary way CLI/API calls the Agent. Internally it emits a `MESSAGE_RECEIVED` event and waits for a `TASK_CREATED` event to return the taskId. The optional `taskType` parameter (`"general"`, `"explore"`, or `"plan"`) determines which tool set and system prompt the task uses (see `docs/task-types.md`).
 
 `onNotify` handles three notification types:
 - `completed` — task finished with a result

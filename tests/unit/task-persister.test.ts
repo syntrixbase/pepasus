@@ -613,4 +613,55 @@ describe("TaskPersister", () => {
       expect(recovered).toEqual([]);
     });
   });
+
+  describe("taskType persistence", () => {
+    it("should persist taskType in TASK_CREATED event", async () => {
+      const bus2 = new EventBus();
+      const registry2 = new TaskRegistry();
+      // Side-effect: subscribes to EventBus events
+      void new TaskPersister(bus2, registry2, testDir);
+      await bus2.start();
+
+      const task = new TaskFSM({ taskId: "typed-task" });
+      task.context.inputText = "explore something";
+      task.context.source = "user";
+      task.context.taskType = "explore";
+      registry2.register(task);
+      (task as any).createdAt = new Date("2026-02-25T10:00:00Z").getTime();
+
+      await bus2.emit(createEvent(EventType.TASK_CREATED, {
+        source: "agent", taskId: "typed-task",
+      }));
+      await Bun.sleep(100);
+
+      const content = await Bun.file(`${testDir}/tasks/2026-02-25/typed-task.jsonl`).text();
+      const line = JSON.parse(content.trim());
+      expect(line.data.taskType).toBe("explore");
+
+      await bus2.stop();
+    });
+
+    it("should replay taskType from TASK_CREATED event", async () => {
+      const createdAt = new Date("2026-02-25T10:00:00Z").getTime();
+      await persister._appendForTest("type-replay", createdAt, "TASK_CREATED", {
+        inputText: "plan something", source: "user", inputMetadata: {}, taskType: "plan",
+      });
+
+      const filePath = `${testDir}/tasks/2026-02-25/type-replay.jsonl`;
+      const ctx = await TaskPersister.replay(filePath);
+      expect(ctx.taskType).toBe("plan");
+    });
+
+    it("should default taskType to general for old JSONL without taskType", async () => {
+      const createdAt = new Date("2026-02-25T10:00:00Z").getTime();
+      // Old format — no taskType field
+      await persister._appendForTest("old-task", createdAt, "TASK_CREATED", {
+        inputText: "old task", source: "user", inputMetadata: {},
+      });
+
+      const filePath = `${testDir}/tasks/2026-02-25/old-task.jsonl`;
+      const ctx = await TaskPersister.replay(filePath);
+      expect(ctx.taskType).toBe("general");
+    });
+  });
 });

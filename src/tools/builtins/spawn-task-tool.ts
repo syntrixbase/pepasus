@@ -19,12 +19,19 @@ export const spawn_task: Tool = {
     input: z
       .string()
       .describe("The user's original request or detailed instructions"),
+    type: z
+      .enum(["general", "explore", "plan"])
+      .default("general")
+      .describe(
+        "Task type: 'explore' for research (read-only), 'plan' for analysis/planning, 'general' for full capabilities",
+      ),
   }),
   async execute(params: unknown, context: ToolContext): Promise<ToolResult> {
     const startedAt = Date.now();
-    const { description, input } = params as {
+    const { description, input, type = "general" } = params as {
       description: string;
       input: string;
+      type?: string;
     };
 
     // spawn_task doesn't execute the task — it signals intent.
@@ -35,6 +42,7 @@ export const spawn_task: Tool = {
         action: "spawn_task",
         description,
         input,
+        type,
         taskId: context.taskId, // placeholder, MainAgent replaces with real taskId
       },
       startedAt,
