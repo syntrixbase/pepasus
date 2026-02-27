@@ -23,10 +23,22 @@ export class Thinker {
     private toolRegistry?: ToolRegistry,
   ) {}
 
-  async run(context: TaskContext, memoryIndex?: MemoryIndexEntry[]): Promise<Record<string, unknown>> {
-    logger.info({ iteration: context.iteration }, "think_start");
+  /**
+   * Run a reasoning step.
+   *
+   * @param context - The task context with conversation history
+   * @param memoryIndex - Optional memory index (injected on first iteration)
+   * @param overrideToolRegistry - Optional per-task-type tool registry (overrides instance default)
+   */
+  async run(
+    context: TaskContext,
+    memoryIndex?: MemoryIndexEntry[],
+    overrideToolRegistry?: ToolRegistry,
+  ): Promise<Record<string, unknown>> {
+    logger.info({ iteration: context.iteration, taskType: context.taskType }, "think_start");
 
-    const system = buildSystemPrompt(this.persona, "reason");
+    // Use task type for system prompt (defaults to "general")
+    const system = buildSystemPrompt(this.persona, context.taskType || "general");
 
     // Build conversation history for multi-turn support
     const messages: Message[] = context.messages.map((m) => ({
@@ -53,8 +65,9 @@ export class Thinker {
       messages.push({ role: "user" as const, content: context.inputText });
     }
 
-    // Pass tools to LLM if registry is available
-    const tools = this.toolRegistry?.toLLMTools();
+    // Use override registry if provided, otherwise fall back to instance default
+    const activeRegistry = overrideToolRegistry ?? this.toolRegistry;
+    const tools = activeRegistry?.toLLMTools();
 
     const { text, toolCalls } = await generateText({
       model: this.model,

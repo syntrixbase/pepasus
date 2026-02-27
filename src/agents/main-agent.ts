@@ -268,7 +268,8 @@ export class MainAgent {
 
     if (skill.context === "fork") {
       // Spawn task with skill content
-      const taskId = await this.agent.submit(body, "skill:" + name);
+      const taskType = skill.agent || "general";
+      const taskId = await this.agent.submit(body, "skill:" + name, taskType);
       const systemMsg: Message = {
         role: "user",
         content: `[Skill "${name}" spawned as task ${taskId}]`,
@@ -366,7 +367,8 @@ export class MainAgent {
             needsFollowUp = true;
           } else if (skill.context === "fork") {
             const body = this.skillRegistry.loadBody(skillName, skillArgs);
-            const taskId = await this.agent.submit(body ?? "", "skill:" + skillName);
+            const taskType = skill.agent || "general";
+            const taskId = await this.agent.submit(body ?? "", "skill:" + skillName, taskType);
             const toolMsg: Message = {
               role: "tool",
               content: JSON.stringify({ taskId, status: "spawned", skill: skillName }),
@@ -431,19 +433,20 @@ export class MainAgent {
   // ── Task spawning ──
 
   private async _handleSpawnTask(tc: ToolCall): Promise<void> {
-    const { input } = tc.arguments as { description: string; input: string };
-    const taskId = await this.agent.submit(input, "main-agent");
+    const { input, type } = tc.arguments as { description: string; input: string; type?: string };
+    const taskType = type ?? "general";
+    const taskId = await this.agent.submit(input, "main-agent", taskType);
 
     const toolMsg: Message = {
       role: "tool",
-      content: JSON.stringify({ taskId, status: "spawned" }),
+      content: JSON.stringify({ taskId, status: "spawned", type: taskType }),
       toolCallId: tc.id,
     };
     this.sessionMessages.push(toolMsg);
     await this.sessionStore.append(toolMsg);
 
     // No per-task callback — Agent calls onNotify automatically
-    logger.info({ taskId, input }, "task_spawned");
+    logger.info({ taskId, input, taskType }, "task_spawned");
   }
 
   // ── Task resuming ──
@@ -626,6 +629,9 @@ export class MainAgent {
       "Available tool calls:",
       "- reply(): the ONLY way the user hears you — ALWAYS call this when you have something to say",
       "- spawn_task(): delegate complex work to a background worker that has FULL tool access",
+      "  - type: 'explore' — read-only research, web search, information gathering",
+      "  - type: 'plan' — analyze a problem and produce a structured plan",
+      "  - type: 'general' — full capabilities (file I/O, code changes, multi-step work)",
       "- Other tools: gather information for your thinking",
     ].join("\n"));
 
@@ -642,6 +648,11 @@ export class MainAgent {
       "- You need file I/O, shell commands, or web requests",
       "- The work requires multiple steps",
       "- You're unsure — err on the side of spawning",
+      "",
+      "Choose the right task type:",
+      "- 'explore' for research, searches, reading files, gathering information (read-only, safest)",
+      "- 'plan' for analyzing problems and producing structured plans (read + memory write)",
+      "- 'general' for tasks requiring file modifications, code changes, or full tool access",
       "",
       "The spawned task worker has powerful tools you don't have directly:",
       "- Web search and HTTP requests (web_search, http_get, http_post)",

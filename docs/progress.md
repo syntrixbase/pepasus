@@ -19,6 +19,7 @@
 | **Session compact** | ✅ Done | Auto-compact with context window awareness |
 | **Memory redesign** | ✅ Done | Cache-friendly index, tool-use reflector, memory_patch |
 | **Skill system** | ✅ Done | SKILL.md format, SkillLoader/Registry, use_skill tool, / commands |
+| **Task types** | ✅ Done | Subagent specialization: general, explore, plan — per-type tools and prompts |
 | **M5: Multi-channel** | 📋 Planned | Slack / SMS / Web channel adapters |
 
 ## Test Coverage

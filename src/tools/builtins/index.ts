@@ -160,6 +160,59 @@ export const allTaskTools: Tool[] = [
   notify,
 ];
 
+/** Explore tools — read-only subset for research and information gathering. */
+export const exploreTools: Tool[] = [
+  current_time,
+  get_env,
+  read_file,
+  list_files,
+  get_file_info,
+  grep_files,
+  http_get,
+  web_search,
+  json_parse,
+  base64_decode,
+  memory_list,
+  memory_read,
+  task_list,
+  task_replay,
+  notify,
+];
+
+/** Plan tools — read-only + memory write for structured planning. */
+export const planTools: Tool[] = [
+  current_time,
+  get_env,
+  read_file,
+  list_files,
+  get_file_info,
+  grep_files,
+  http_get,
+  web_search,
+  json_parse,
+  base64_decode,
+  memory_list,
+  memory_read,
+  memory_write,
+  memory_append,
+  task_list,
+  task_replay,
+  notify,
+];
+
+/** Get the tool array for a given task type. */
+export function getToolsForType(taskType: string): Tool[] {
+  switch (taskType) {
+    case "explore":
+      return exploreTools;
+    case "plan":
+      return planTools;
+    case "general":
+    default:
+      return allTaskTools;
+  }
+}
+
 /** Tools for Main Agent (curated simple tools + spawn_task + resume_task + reply). */
 export const mainAgentTools: Tool[] = [
   current_time,

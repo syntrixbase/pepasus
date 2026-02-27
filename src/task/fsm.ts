@@ -91,10 +91,11 @@ export class TaskFSM {
         inputText: (event.payload["text"] as string) ?? "",
         inputMetadata: (event.payload["metadata"] as Record<string, unknown>) ?? {},
         source: event.source,
+        taskType: (event.payload["taskType"] as string) ?? "general",
       }),
       priority: event.priority ?? event.type,
     });
-    logger.info({ taskId: task.taskId, source: event.source }, "task_created");
+    logger.info({ taskId: task.taskId, source: event.source, taskType: task.context.taskType }, "task_created");
     return task;
   }
 

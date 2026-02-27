@@ -76,6 +76,9 @@ export interface TaskContext {
   inputMetadata: Record<string, unknown>;
   source: string;
 
+  // Task type (subagent specialization)
+  taskType: string;
+
   // Cognitive stage outputs
   reasoning: Record<string, unknown> | null;
   plan: Plan | null;
@@ -104,6 +107,7 @@ export function createTaskContext(
     inputText?: string;
     inputMetadata?: Record<string, unknown>;
     source?: string;
+    taskType?: string;
   } = {},
 ): TaskContext {
   return {
@@ -111,6 +115,7 @@ export function createTaskContext(
     inputText: opts.inputText ?? "",
     inputMetadata: opts.inputMetadata ?? {},
     source: opts.source ?? "",
+    taskType: opts.taskType ?? "general",
     reasoning: null,
     plan: null,
     actionsDone: [],
