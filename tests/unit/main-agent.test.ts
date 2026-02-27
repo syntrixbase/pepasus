@@ -8,7 +8,7 @@ import type {
 import type { Persona } from "@pegasus/identity/persona.ts";
 import { SettingsSchema } from "@pegasus/infra/config.ts";
 import type { OutboundMessage } from "@pegasus/channels/types.ts";
-import { rm } from "node:fs/promises";
+import { mkdir, rm } from "node:fs/promises";
 import { ModelRegistry } from "@pegasus/infra/model-registry.ts";
 import type { LLMConfig } from "@pegasus/infra/config-schema.ts";
 
@@ -998,4 +998,254 @@ describe("MainAgent", () => {
 
     await agent.stop();
   }, 15_000);
+
+  // ── Skill system tests ──
+
+  it("should include skill metadata in system prompt when skills exist", async () => {
+    const tmpDir = "/tmp/pegasus-test-main-agent-skills";
+    const skillDir = `${tmpDir}/skills/test-skill`;
+    await mkdir(skillDir, { recursive: true });
+    await Bun.write(`${skillDir}/SKILL.md`, [
+      "---",
+      "name: test-skill",
+      "description: A test skill for unit tests",
+      "---",
+      "",
+      "Do the test thing.",
+    ].join("\n"));
+
+    let capturedSystem = "";
+    const model: LanguageModel = {
+      provider: "test",
+      modelId: "test-model",
+      async generate(options: { system?: string }): Promise<GenerateTextResult> {
+        capturedSystem = options.system ?? "";
+        return {
+          text: "",
+          finishReason: "tool_calls",
+          toolCalls: [{ id: "tc-reply", name: "reply", arguments: { text: "hi", channelId: "test" } }],
+          usage: { promptTokens: 10, completionTokens: 10 },
+        };
+      },
+    };
+
+    const settings = SettingsSchema.parse({
+      dataDir: tmpDir,
+      logLevel: "warn",
+    });
+
+    const agent = new MainAgent({ models: createMockModelRegistry(model), persona: testPersona, settings });
+    await agent.start();
+    agent.onReply(() => {});
+
+    agent.send({ text: "hello", channel: { type: "cli", channelId: "test" } });
+    await Bun.sleep(300);
+
+    expect(capturedSystem).toContain("Available skills");
+    expect(capturedSystem).toContain("test-skill");
+    expect(capturedSystem).toContain("A test skill for unit tests");
+
+    await agent.stop();
+    await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+  }, 10_000);
+
+  it("should handle /skill-name command for inline skill", async () => {
+    const tmpDir = "/tmp/pegasus-test-main-agent-skill-cmd";
+    const skillDir = `${tmpDir}/skills/greet`;
+    await mkdir(skillDir, { recursive: true });
+    await Bun.write(`${skillDir}/SKILL.md`, [
+      "---",
+      "name: greet",
+      "description: Greet the user",
+      "---",
+      "",
+      "Always reply with a warm greeting.",
+    ].join("\n"));
+
+    let capturedMessages: Message[] = [];
+    const model: LanguageModel = {
+      provider: "test",
+      modelId: "test-model",
+      async generate(options: { messages?: Message[] }): Promise<GenerateTextResult> {
+        capturedMessages = options.messages ?? [];
+        return {
+          text: "",
+          finishReason: "tool_calls",
+          toolCalls: [{ id: "tc-reply", name: "reply", arguments: { text: "Hello!", channelId: "test" } }],
+          usage: { promptTokens: 10, completionTokens: 10 },
+        };
+      },
+    };
+
+    const settings = SettingsSchema.parse({ dataDir: tmpDir, logLevel: "warn" });
+    const agent = new MainAgent({ models: createMockModelRegistry(model), persona: testPersona, settings });
+    await agent.start();
+
+    const replies: OutboundMessage[] = [];
+    agent.onReply((msg) => replies.push(msg));
+
+    agent.send({ text: "/greet", channel: { type: "cli", channelId: "test" } });
+    await Bun.sleep(300);
+
+    // Skill content should be in messages as user message
+    const skillMsg = capturedMessages.find((m) => m.content?.includes("[Skill: greet invoked]"));
+    expect(skillMsg).toBeDefined();
+    expect(skillMsg!.content).toContain("Always reply with a warm greeting");
+
+    await agent.stop();
+    await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+  }, 10_000);
+
+  it("should treat /unknown-command as normal message", async () => {
+    const model = createReplyModel("I don't know that command");
+
+    const tmpDir = "/tmp/pegasus-test-main-agent-unknown-cmd";
+    const settings = SettingsSchema.parse({ dataDir: tmpDir, logLevel: "warn" });
+    const agent = new MainAgent({ models: createMockModelRegistry(model), persona: testPersona, settings });
+    await agent.start();
+
+    const replies: OutboundMessage[] = [];
+    agent.onReply((msg) => replies.push(msg));
+
+    agent.send({ text: "/nonexistent-skill", channel: { type: "cli", channelId: "test" } });
+    await Bun.sleep(300);
+
+    // Should have been treated as normal text (no skill found)
+    expect(replies.length).toBeGreaterThanOrEqual(1);
+
+    await agent.stop();
+    await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+  }, 10_000);
+
+  it("should handle use_skill tool call for inline skill", async () => {
+    const tmpDir = "/tmp/pegasus-test-main-agent-use-skill";
+    const skillDir = `${tmpDir}/skills/helper`;
+    await mkdir(skillDir, { recursive: true });
+    await Bun.write(`${skillDir}/SKILL.md`, [
+      "---",
+      "name: helper",
+      "description: A helper skill",
+      "---",
+      "",
+      "You are a helpful assistant. Follow these instructions.",
+    ].join("\n"));
+
+    let callCount = 0;
+    let capturedMessages: Message[] = [];
+    const model: LanguageModel = {
+      provider: "test",
+      modelId: "test-model",
+      async generate(options: { messages?: Message[] }): Promise<GenerateTextResult> {
+        callCount++;
+        capturedMessages = options.messages ?? [];
+        if (callCount === 1) {
+          // First call: LLM calls use_skill
+          return {
+            text: "I should use the helper skill.",
+            finishReason: "tool_calls",
+            toolCalls: [{
+              id: "tc-use-skill",
+              name: "use_skill",
+              arguments: { skill: "helper" },
+            }],
+            usage: { promptTokens: 10, completionTokens: 10 },
+          };
+        }
+        if (callCount === 2) {
+          // Second call: LLM sees skill body in tool result, replies
+          return {
+            text: "",
+            finishReason: "tool_calls",
+            toolCalls: [{ id: "tc-reply", name: "reply", arguments: { text: "Following skill!", channelId: "test" } }],
+            usage: { promptTokens: 20, completionTokens: 10 },
+          };
+        }
+        return { text: "", finishReason: "stop", usage: { promptTokens: 5, completionTokens: 0 } };
+      },
+    };
+
+    const settings = SettingsSchema.parse({ dataDir: tmpDir, logLevel: "warn" });
+    const agent = new MainAgent({ models: createMockModelRegistry(model), persona: testPersona, settings });
+    await agent.start();
+
+    const replies: OutboundMessage[] = [];
+    agent.onReply((msg) => replies.push(msg));
+
+    agent.send({ text: "help me", channel: { type: "cli", channelId: "test" } });
+    await Bun.sleep(500);
+
+    // The tool result message should contain the skill body
+    const toolResults = capturedMessages.filter((m) => m.role === "tool");
+    const skillToolResult = toolResults.find((m) => m.content?.includes("helpful assistant"));
+    expect(skillToolResult).toBeDefined();
+
+    expect(replies.length).toBeGreaterThanOrEqual(1);
+    expect(replies[0]!.text).toBe("Following skill!");
+
+    await agent.stop();
+    await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+  }, 10_000);
+
+  it("should handle use_skill for non-existent skill", async () => {
+    let callCount = 0;
+    const model: LanguageModel = {
+      provider: "test",
+      modelId: "test-model",
+      async generate(): Promise<GenerateTextResult> {
+        callCount++;
+        if (callCount === 1) {
+          return {
+            text: "Let me use a skill.",
+            finishReason: "tool_calls",
+            toolCalls: [{
+              id: "tc-use-skill",
+              name: "use_skill",
+              arguments: { skill: "nonexistent" },
+            }],
+            usage: { promptTokens: 10, completionTokens: 10 },
+          };
+        }
+        // After error, reply
+        return {
+          text: "",
+          finishReason: "tool_calls",
+          toolCalls: [{ id: "tc-reply", name: "reply", arguments: { text: "Skill not found", channelId: "test" } }],
+          usage: { promptTokens: 15, completionTokens: 10 },
+        };
+      },
+    };
+
+    const agent = new MainAgent({
+      models: createMockModelRegistry(model),
+      persona: testPersona,
+      settings: testSettings(),
+    });
+    await agent.start();
+
+    const replies: OutboundMessage[] = [];
+    agent.onReply((msg) => replies.push(msg));
+
+    agent.send({ text: "use skill", channel: { type: "cli", channelId: "test" } });
+    await Bun.sleep(500);
+
+    expect(replies.length).toBeGreaterThanOrEqual(1);
+
+    await agent.stop();
+  }, 10_000);
+
+  it("should expose skills getter", async () => {
+    const model = createReplyModel("ok");
+    const agent = new MainAgent({
+      models: createMockModelRegistry(model),
+      persona: testPersona,
+      settings: testSettings(),
+    });
+
+    await agent.start();
+
+    expect(agent.skills).toBeDefined();
+    expect(agent.skills.listAll()).toBeInstanceOf(Array);
+
+    await agent.stop();
+  }, 10_000);
 });
