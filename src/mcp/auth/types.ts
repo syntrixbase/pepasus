@@ -28,8 +28,8 @@ export const DeviceCodeAuthSchema = z.object({
   tokenUrl: z.string().url(),
   clientSecret: z.string().optional(),
   scope: z.string().optional(),
-  pollIntervalSeconds: z.number().default(5),
-  timeoutSeconds: z.number().default(300),
+  pollIntervalSeconds: z.coerce.number().positive().default(5),
+  timeoutSeconds: z.coerce.number().positive().default(300),
 });
 
 export const MCPAuthConfigSchema = z.discriminatedUnion("type", [
