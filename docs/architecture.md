@@ -45,7 +45,7 @@ Pegasus is not a request-response service. It is a **continuously running autono
 ├─────────────────────────────────────────────────────┤
 │        Main Agent (Global LLM Persona / Conv. Brain) │
 │   Session Mgmt │ Conversation Decisions │ Simple     │
-│   Tools │ Task Dispatch via spawn_task                │
+│   Tools │ Task Dispatch via spawn_subagent                │
 │       ↓ Spawns task when needed ↓                    │
 ├─────────────────────────────────────────────────────┤
 │             EventBus (Nervous System)                │
@@ -94,7 +94,7 @@ Pegasus is not a request-response service. It is a **continuously running autono
                      │  Main Agent  │──── Session History (data/main/)
                      │  (LLM brain) │
                      └──────┬───────┘
-                            │ spawn_task (when needed)
+                            │ spawn_subagent (when needed)
                             ▼
                      ┌──────────────┐
   Tool results ──────▶│              │

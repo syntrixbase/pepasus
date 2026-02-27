@@ -70,7 +70,7 @@ pegasus/
 │   │       ├── memory-tools.ts     # memory_list, memory_read, memory_write, memory_patch, memory_append
 │   │       ├── task-tools.ts       # task_list, task_replay
 │   │       ├── reply-tool.ts       # reply (Main Agent only)
-│   │       └── spawn-task-tool.ts  # spawn_task (Main Agent only)
+│   │       └── spawn-subagent-tool.ts  # spawn_subagent (Main Agent only)
 │   │
 │   ├── identity/                   # Identity layer
 │   │   ├── persona.ts              # Persona type + validation

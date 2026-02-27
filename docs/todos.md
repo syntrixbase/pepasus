@@ -8,14 +8,14 @@ Tracked features, improvements, and ideas that are planned but not yet started.
 - [x] Skill framework: SkillLoader, SkillRegistry, SKILL.md format (YAML frontmatter + markdown body)
 - [x] Skill storage: `skills/` (builtin, git tracked) + `data/skills/` (user/LLM created, runtime)
 - [x] Skill triggering: LLM-driven (description in context) + user `/` command
-- [x] Skill injection: inline (MainAgent/TaskAgent context) + fork (spawn_task)
+- [x] Skill injection: inline (MainAgent/TaskAgent context) + fork (spawn_subagent)
 - [ ] LLM-created skills: PostTaskReflector can create new skills from repeated patterns
 
 ### Task Types (Subagent Specialization)
 - [x] Task type system: explore, plan, general
 - [x] Per-type tool sets: explore (read-only), plan (read-only + write plans), general (all tools)
 - [x] Per-type system prompts: specialized instructions for each type
-- [x] `spawn_task` type parameter: MainAgent specifies task type when spawning
+- [x] `spawn_subagent` type parameter: MainAgent specifies task type when spawning
 - [x] Skill `agent` field maps to task type
 - [x] Two-layer tool restriction: LLM visibility + execution validation
 - [x] Persistence backward compatibility (old JSONL defaults to "general")

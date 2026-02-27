@@ -36,7 +36,7 @@ llm:
   # ── Role → provider/model ──
   roles:
     default: anthropic/claude-sonnet-4      # MainAgent conversation
-    subAgent: openai/gpt-4o-mini            # spawn_task child agents
+    subAgent: openai/gpt-4o-mini            # spawn_subagent child agents
     compact: openai/gpt-4o-mini             # session summarization
     reflection: openai/gpt-4o-mini          # post-task memory extraction
 

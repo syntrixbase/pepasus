@@ -105,21 +105,21 @@ Your results will be returned to a main agent. You do NOT interact with the user
 
 ## Design Decisions
 
-### 1. `spawn_task` gets a `type` parameter
+### 1. `spawn_subagent` gets a `type` parameter
 
-MainAgent's LLM uses `spawn_task(type, description, input)` to specify the task type. The type defaults to `"general"` for backward compatibility.
+MainAgent's LLM uses `spawn_subagent(type, description, input)` to specify the task type. The type defaults to `"general"` for backward compatibility.
 
 The MainAgent system prompt explains when to use each type:
 ```
-- spawn_task(type: "explore"): research, web search, code reading, information gathering (read-only)
-- spawn_task(type: "plan"): analyze a problem, produce a structured plan (read + write plans)
-- spawn_task(type: "general"): full capabilities — file I/O, code changes, multi-step work
+- spawn_subagent(type: "explore"): research, web search, code reading, information gathering (read-only)
+- spawn_subagent(type: "plan"): analyze a problem, produce a structured plan (read + write plans)
+- spawn_subagent(type: "general"): full capabilities — file I/O, code changes, multi-step work
 ```
 
 ### 2. Type stored in TaskContext, flows through events
 
 `TaskContext` gets a `taskType` field. The type flows:
-- `spawn_task(type)` → `Agent.submit(text, source, type)` → `MESSAGE_RECEIVED` event payload → `TaskFSM.fromEvent()` → `context.taskType`
+- `spawn_subagent(type)` → `Agent.submit(text, source, type)` → `MESSAGE_RECEIVED` event payload → `TaskFSM.fromEvent()` → `context.taskType`
 - Agent reads `context.taskType` to select tools and system prompt at each cognitive iteration
 
 On resume, `taskType` is preserved (not cleared by `prepareContextForResume`).
@@ -153,7 +153,7 @@ Thinker's `run()` method accepts an optional `toolRegistry` parameter that overr
 ```
 User: "search for the latest AI papers"
   ↓
-MainAgent LLM decides: spawn_task(type="explore", input="...")
+MainAgent LLM decides: spawn_subagent(type="explore", input="...")
   ↓
 MainAgent extracts type, calls agent.submit(input, source, type="explore")
   ↓
