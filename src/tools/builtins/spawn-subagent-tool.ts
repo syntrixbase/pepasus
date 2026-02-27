@@ -1,7 +1,7 @@
 /**
- * spawn_task tool — signals intent to launch a background task.
+ * spawn_subagent tool — signals intent to launch a background subagent.
  *
- * The MainAgent intercepts the result and spawns the actual task
+ * The MainAgent intercepts the result and spawns the actual subagent
  * via the existing Task System (Agent).
  */
 
@@ -9,13 +9,13 @@ import { z } from "zod";
 import { ToolCategory } from "../types.ts";
 import type { Tool, ToolResult, ToolContext } from "../types.ts";
 
-export const spawn_task: Tool = {
-  name: "spawn_task",
+export const spawn_subagent: Tool = {
+  name: "spawn_subagent",
   description:
-    "Launch a background task for complex operations requiring file I/O, shell commands, web search, or multi-step work",
+    "Launch a background subagent for complex operations requiring file I/O, shell commands, web search, or multi-step work",
   category: ToolCategory.SYSTEM,
   parameters: z.object({
-    description: z.string().describe("What the task should accomplish"),
+    description: z.string().describe("What the subagent should accomplish"),
     input: z
       .string()
       .describe("The user's original request or detailed instructions"),
@@ -23,7 +23,7 @@ export const spawn_task: Tool = {
       .enum(["general", "explore", "plan"])
       .default("general")
       .describe(
-        "Task type: 'explore' for research (read-only), 'plan' for analysis/planning, 'general' for full capabilities",
+        "Subagent type: 'explore' for research (read-only), 'plan' for analysis/planning, 'general' for full capabilities",
       ),
   }),
   async execute(params: unknown, context: ToolContext): Promise<ToolResult> {
@@ -34,12 +34,12 @@ export const spawn_task: Tool = {
       type?: string;
     };
 
-    // spawn_task doesn't execute the task — it signals intent.
-    // The MainAgent intercepts this tool result and spawns the actual task.
+    // spawn_subagent doesn't execute — it signals intent.
+    // The MainAgent intercepts this tool result and spawns the actual subagent.
     return {
       success: true,
       result: {
-        action: "spawn_task",
+        action: "spawn_subagent",
         description,
         input,
         type,

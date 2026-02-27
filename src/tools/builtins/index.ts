@@ -61,11 +61,11 @@ const task_replay = taskToolsModule.task_replay;
 
 export { task_list, task_replay };
 
-// Spawn task tool (for Main Agent)
-import * as spawnTaskModule from "./spawn-task-tool.ts";
-const spawn_task = spawnTaskModule.spawn_task;
+// Spawn subagent tool (for Main Agent)
+import * as spawnSubagentModule from "./spawn-subagent-tool.ts";
+const spawn_subagent = spawnSubagentModule.spawn_subagent;
 
-export { spawn_task };
+export { spawn_subagent };
 
 // Resume task tool (for Main Agent)
 import * as resumeTaskModule from "./resume-task-tool.ts";
@@ -224,7 +224,7 @@ export const mainAgentTools: Tool[] = [
   task_list,
   task_replay,
   session_archive_read,
-  spawn_task,
+  spawn_subagent,
   resume_task,
   reply,
   use_skill,

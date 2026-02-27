@@ -4,7 +4,7 @@
  * Sits between channel adapters and the Task System. Receives messages via
  * send(), processes them through an internal queue with LLM calls, and
  * replies via onReply() callback. Has curated simple tools and delegates
- * complex work to the existing Task System via spawn_task.
+ * complex work to the existing Task System via spawn_subagent.
  */
 
 import type { Message } from "../infra/llm-types.ts";
@@ -383,8 +383,8 @@ export class MainAgent {
               channel: { type: channelType ?? channel.type, channelId, replyTo },
             });
           }
-        } else if (tc.name === "spawn_task") {
-          await this._handleSpawnTask(tc);
+        } else if (tc.name === "spawn_subagent") {
+          await this._handleSpawnSubagent(tc);
         } else if (tc.name === "resume_task") {
           const resumeNeedsFollowUp = await this._handleResumeTask(tc);
           if (resumeNeedsFollowUp) needsFollowUp = true;
@@ -451,7 +451,7 @@ export class MainAgent {
       }
 
       // Only queue another think if there are tool results the LLM needs to process.
-      // reply() and spawn_task() are terminal actions — their results don't need follow-up.
+      // reply() and spawn_subagent() are terminal actions — their results don't need follow-up.
       if (needsFollowUp) {
         this.queue.push({ kind: "think", channel });
       }
@@ -469,7 +469,7 @@ export class MainAgent {
 
   // ── Task spawning ──
 
-  private async _handleSpawnTask(tc: ToolCall): Promise<void> {
+  private async _handleSpawnSubagent(tc: ToolCall): Promise<void> {
     const { input, type } = tc.arguments as { description: string; input: string; type?: string };
     const taskType = type ?? "general";
     const taskId = await this.agent.submit(input, "main-agent", taskType);
@@ -483,7 +483,7 @@ export class MainAgent {
     await this.sessionStore.append(toolMsg);
 
     // No per-task callback — Agent calls onNotify automatically
-    logger.info({ taskId, input, taskType }, "task_spawned");
+    logger.info({ taskId, input, taskType }, "subagent_spawned");
   }
 
   // ── Task resuming ──
@@ -670,7 +670,7 @@ export class MainAgent {
       "",
       "Available tool calls:",
       "- reply(): the ONLY way the user hears you — ALWAYS call this when you have something to say",
-      "- spawn_task(): delegate complex work to a background worker that has FULL tool access",
+      "- spawn_subagent(): delegate complex work to a background worker that has FULL tool access",
       "  - type: 'explore' — read-only research, web search, information gathering",
       "  - type: 'plan' — analyze a problem and produce a structured plan",
       "  - type: 'general' — full capabilities (file I/O, code changes, multi-step work)",
@@ -704,9 +704,9 @@ export class MainAgent {
       "- System tools (sleep, get_env, set_env)",
       "",
       "So if the user asks to search the web, check weather, read/write files, etc.,",
-      "ALWAYS spawn a task. Do NOT say you cannot do it — you CAN via spawn_task.",
+      "ALWAYS spawn a task. Do NOT say you cannot do it — you CAN via spawn_subagent.",
       "",
-      "After calling spawn_task, the task runs in the background.",
+      "After calling spawn_subagent, the task runs in the background.",
       "You will receive the result automatically when it completes.",
       "Do NOT poll with task_replay — just wait for the result to arrive.",
       "",
