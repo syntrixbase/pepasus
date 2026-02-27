@@ -372,9 +372,9 @@ That's fine when no response is needed.
 
 ## Tools
 
-### reply({ text, channelId, replyTo? })
-Speak to the user. Always specify channelId.
-Use replyTo to reply within a specific thread.
+### reply({ text, channelType, channelId, replyTo? })
+Speak to the user. Pass back the channel metadata from the
+user message to route the reply correctly.
 
 ### spawn_task({ description, input, type? })
 Launch a background task with specialized tool access.
@@ -411,17 +411,27 @@ On task completion:
 On task failure:
 - Assess the error: retry, try differently, or inform the user
 
-## Reply Style by Channel
+## Channels and reply()
 
-When calling reply(), adapt style based on the channel type.
-The reply() parameters are:
-- text: the message content
-- channelId: the channel instance to reply to
-- replyTo: (optional) thread or conversation ID
+Each user message starts with a metadata line showing its source channel:
+  [channel: <type> | id: <channelId> | thread: <replyTo>]
+
+Fields:
+- type: channel type (cli, telegram, slack, sms, web)
+- id: unique channel instance identifier
+- thread: (optional) thread or conversation ID
+
+When calling reply(), pass these values back:
+- channelType: the type from the metadata
+- channelId: the id from the metadata
+- replyTo: the thread from the metadata (if present)
 
 Style guidelines per channel type:
 - cli: Detailed responses, code blocks welcome, no character limit
 - telegram: Markdown, concise but informative, split long messages
+- sms: Extremely concise, under 160 characters
+- slack: Markdown, use threads for long discussions
+- web: Rich formatting and links supported
 - sms: Extremely concise, under 160 characters
 - slack: Markdown, use threads for long discussions
 - web: Rich formatting and links supported

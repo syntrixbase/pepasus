@@ -53,6 +53,7 @@ function createMockModelRegistry(model: LanguageModel): ModelRegistry {
 function createReplyModel(
   replyText: string,
   channelId = "test",
+  channelType = "cli",
 ): LanguageModel {
   let replied = false;
   return {
@@ -68,7 +69,7 @@ function createReplyModel(
             {
               id: "tc_reply",
               name: "reply",
-              arguments: { text: replyText, channelId },
+              arguments: { text: replyText, channelType, channelId },
             },
           ],
           usage: { promptTokens: 10, completionTokens: 10 },
@@ -220,7 +221,7 @@ describe("MainAgent", () => {
             {
               id: `tc_${callCount}`,
               name: "reply",
-              arguments: { text: `Response ${callCount}`, channelId: "test" },
+              arguments: { text: `Response ${callCount}`, channelType: "cli", channelId: "test" },
             },
           ],
           usage: { promptTokens: 10, completionTokens: 10 },
@@ -554,7 +555,7 @@ describe("MainAgent", () => {
   }, 10_000);
 
   it("should route reply tool to correct channelId", async () => {
-    const model = createReplyModel("Hey Slack!", "C-slack-123");
+    const model = createReplyModel("Hey Slack!", "C-slack-123", "slack");
 
     const agent = new MainAgent({
       models: createMockModelRegistry(model),
@@ -683,7 +684,7 @@ describe("MainAgent", () => {
                 {
                   id: "tc-reply-2",
                   name: "reply",
-                  arguments: { text: "Task done", channelId: "test" },
+                  arguments: { text: "Task done", channelType: "cli", channelId: "test" },
                 },
               ],
               usage: { promptTokens: 20, completionTokens: 10 },
@@ -697,7 +698,7 @@ describe("MainAgent", () => {
               {
                 id: `tc-reply-${mainCallCount}`,
                 name: "reply",
-                arguments: { text: `Response ${mainCallCount}`, channelId: "test" },
+                arguments: { text: `Response ${mainCallCount}`, channelType: "cli", channelId: "test" },
               },
             ],
             usage: { promptTokens: 20, completionTokens: 10 },
@@ -768,7 +769,7 @@ describe("MainAgent", () => {
             {
               id: "tc-reply",
               name: "reply",
-              arguments: { text: "Sorry, task not found", channelId: "test" },
+              arguments: { text: "Sorry, task not found", channelType: "cli", channelId: "test" },
             },
           ],
           usage: { promptTokens: 15, completionTokens: 10 },
@@ -856,7 +857,7 @@ describe("MainAgent", () => {
               {
                 id: "tc-reply-1",
                 name: "reply",
-                arguments: { text: "Got it!", channelId: "test" },
+                arguments: { text: "Got it!", channelType: "cli", channelId: "test" },
               },
             ],
             usage: { promptTokens: 80_000, completionTokens: 10 },
@@ -878,7 +879,7 @@ describe("MainAgent", () => {
             {
               id: `tc-reply-${callCount}`,
               name: "reply",
-              arguments: { text: "After compact!", channelId: "test" },
+              arguments: { text: "After compact!", channelType: "cli", channelId: "test" },
             },
           ],
           usage: { promptTokens: 100, completionTokens: 10 },
@@ -937,7 +938,7 @@ describe("MainAgent", () => {
               {
                 id: "tc-reply-1",
                 name: "reply",
-                arguments: { text: "Got it!", channelId: "test" },
+                arguments: { text: "Got it!", channelType: "cli", channelId: "test" },
               },
             ],
             usage: { promptTokens: 110_000, completionTokens: 10 },
@@ -959,7 +960,7 @@ describe("MainAgent", () => {
             {
               id: `tc-reply-${callCount}`,
               name: "reply",
-              arguments: { text: "After compact!", channelId: "test" },
+              arguments: { text: "After compact!", channelType: "cli", channelId: "test" },
             },
           ],
           usage: { promptTokens: 100, completionTokens: 10 },
@@ -1023,7 +1024,7 @@ describe("MainAgent", () => {
         return {
           text: "",
           finishReason: "tool_calls",
-          toolCalls: [{ id: "tc-reply", name: "reply", arguments: { text: "hi", channelId: "test" } }],
+          toolCalls: [{ id: "tc-reply", name: "reply", arguments: { text: "hi", channelType: "cli", channelId: "test" } }],
           usage: { promptTokens: 10, completionTokens: 10 },
         };
       },
@@ -1071,7 +1072,7 @@ describe("MainAgent", () => {
         return {
           text: "",
           finishReason: "tool_calls",
-          toolCalls: [{ id: "tc-reply", name: "reply", arguments: { text: "Hello!", channelId: "test" } }],
+          toolCalls: [{ id: "tc-reply", name: "reply", arguments: { text: "Hello!", channelType: "cli", channelId: "test" } }],
           usage: { promptTokens: 10, completionTokens: 10 },
         };
       },
@@ -1156,7 +1157,7 @@ describe("MainAgent", () => {
           return {
             text: "",
             finishReason: "tool_calls",
-            toolCalls: [{ id: "tc-reply", name: "reply", arguments: { text: "Following skill!", channelId: "test" } }],
+            toolCalls: [{ id: "tc-reply", name: "reply", arguments: { text: "Following skill!", channelType: "cli", channelId: "test" } }],
             usage: { promptTokens: 20, completionTokens: 10 },
           };
         }
@@ -1209,7 +1210,7 @@ describe("MainAgent", () => {
         return {
           text: "",
           finishReason: "tool_calls",
-          toolCalls: [{ id: "tc-reply", name: "reply", arguments: { text: "Skill not found", channelId: "test" } }],
+          toolCalls: [{ id: "tc-reply", name: "reply", arguments: { text: "Skill not found", channelType: "cli", channelId: "test" } }],
           usage: { promptTokens: 15, completionTokens: 10 },
         };
       },
