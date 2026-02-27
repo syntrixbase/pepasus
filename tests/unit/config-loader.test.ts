@@ -5,6 +5,7 @@ import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { loadSettings } from "../../src/infra/config-loader.ts";
 import { resetSettings } from "../../src/infra/config.ts";
 import { SettingsSchema } from "../../src/infra/config-schema.ts";
+import { ChannelsConfigSchema, TelegramConfigSchema } from "../../src/infra/config-schema.ts";
 import { writeFileSync, mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -783,6 +784,98 @@ system:
 
       const settings = loadSettings();
       expect(settings.llm.contextWindow).toBeUndefined();
+    }, 5_000);
+  });
+
+  describe("ChannelsConfig", () => {
+    test("defaults to telegram disabled", () => {
+      const settings = SettingsSchema.parse({
+        dataDir: "/tmp/test",
+      });
+      expect(settings.channels.telegram.enabled).toBe(false);
+      expect(settings.channels.telegram.token).toBeUndefined();
+    }, 5_000);
+
+    test("TelegramConfigSchema defaults enabled to false", () => {
+      const result = TelegramConfigSchema.parse({});
+      expect(result.enabled).toBe(false);
+    }, 5_000);
+
+    test("TelegramConfigSchema accepts enabled with token", () => {
+      const result = TelegramConfigSchema.parse({
+        enabled: true,
+        token: "123456:ABC-DEF",
+      });
+      expect(result.enabled).toBe(true);
+      expect(result.token).toBe("123456:ABC-DEF");
+    }, 5_000);
+
+    test("TelegramConfigSchema rejects enabled without token", () => {
+      expect(() =>
+        TelegramConfigSchema.parse({
+          enabled: true,
+        }),
+      ).toThrow(/token/i);
+    }, 5_000);
+
+    test("TelegramConfigSchema allows disabled without token", () => {
+      const result = TelegramConfigSchema.parse({
+        enabled: false,
+      });
+      expect(result.enabled).toBe(false);
+      expect(result.token).toBeUndefined();
+    }, 5_000);
+
+    test("ChannelsConfigSchema defaults to empty telegram", () => {
+      const result = ChannelsConfigSchema.parse({});
+      expect(result.telegram.enabled).toBe(false);
+    }, 5_000);
+
+    test("channels config loads from YAML file", () => {
+      resetSettings();
+
+      const config = `
+llm:
+  roles:
+    default: openai/gpt-4o-mini
+channels:
+  telegram:
+    enabled: true
+    token: test-bot-token
+system:
+  dataDir: /tmp/test
+`;
+      writeFileSync("config.yml", config);
+
+      const settings = loadSettings();
+      expect(settings.channels.telegram.enabled).toBe(true);
+      expect(settings.channels.telegram.token).toBe("test-bot-token");
+    }, 5_000);
+
+    test("channels config with env var interpolation", () => {
+      resetSettings();
+      process.env.TELEGRAM_ENABLED = "true";
+      process.env.TELEGRAM_BOT_TOKEN = "env-bot-token";
+
+      const config = `
+llm:
+  roles:
+    default: openai/gpt-4o-mini
+channels:
+  telegram:
+    enabled: \${TELEGRAM_ENABLED:-false}
+    token: \${TELEGRAM_BOT_TOKEN:-}
+system:
+  dataDir: /tmp/test
+`;
+      writeFileSync("config.yml", config);
+
+      const settings = loadSettings();
+      expect(settings.channels.telegram.enabled).toBe(true);
+      expect(settings.channels.telegram.token).toBe("env-bot-token");
+
+      delete process.env.TELEGRAM_ENABLED;
+      delete process.env.TELEGRAM_BOT_TOKEN;
     }, 5_000);
   });
 });

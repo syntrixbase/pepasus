@@ -15,7 +15,7 @@ import { getSettings } from "../infra/config.ts";
 import { getLogger } from "../infra/logger.ts";
 import { ToolRegistry } from "../tools/registry.ts";
 import { ToolExecutor } from "../tools/executor.ts";
-import type { InboundMessage, OutboundMessage } from "../channels/types.ts";
+import type { InboundMessage, OutboundMessage, ChannelAdapter, ChannelInfo } from "../channels/types.ts";
 import { SessionStore } from "../session/store.ts";
 import { Agent } from "./agent.ts";
 import type { TaskNotification } from "./agent.ts";
@@ -55,6 +55,8 @@ export class MainAgent {
   private toolExecutor: ToolExecutor;
   private sessionMessages: Message[] = [];
   private replyCallback: ((msg: OutboundMessage) => void) | null = null;
+  private adapters: ChannelAdapter[] = [];
+  private lastChannel: ChannelInfo = { type: "cli", channelId: "main" };
   private queue: QueueItem[] = [];
   private processing = false;
   private lastPromptTokens = 0;
@@ -165,6 +167,25 @@ export class MainAgent {
     this.replyCallback = callback;
   }
 
+  /** Register a channel adapter for multi-channel routing. */
+  registerAdapter(adapter: ChannelAdapter): void {
+    this.adapters.push(adapter);
+    // Set unified reply routing — routes outbound messages to the correct adapter
+    this.replyCallback = (msg: OutboundMessage) => {
+      const target = this.adapters.find((a) => a.type === msg.channel.type);
+      if (target) {
+        target.deliver(msg).catch((err) =>
+          logger.error(
+            { channel: msg.channel.type, error: err instanceof Error ? err.message : String(err) },
+            "deliver_failed",
+          ),
+        );
+      } else {
+        logger.warn({ channel: msg.channel.type }, "no_adapter_for_channel");
+      }
+    };
+  }
+
   /** Send a message to Main Agent (fire-and-forget, queued). */
   send(message: InboundMessage): void {
     this.queue.push({ kind: "message", message });
@@ -207,6 +228,9 @@ export class MainAgent {
   // ── Message handling ──
 
   private async _handleMessage(message: InboundMessage): Promise<void> {
+    // Track last channel for task notification routing
+    this.lastChannel = message.channel;
+
     const text = message.text.trim();
 
     // Check for /skill command
@@ -628,6 +652,7 @@ export class MainAgent {
     const channelType = message.channel.type;
     const styleGuides: Record<string, string> = {
       cli: "You are in a terminal session. Use detailed responses, code blocks are welcome. No character limit.",
+      telegram: "You are in a Telegram chat. Use Markdown formatting. Keep messages concise but informative. Avoid very long messages \u2014 split into multiple if needed.",
       sms: "You are communicating via SMS. Keep replies under 160 characters. Be extremely concise.",
       slack: "You are in a Slack workspace. Use markdown formatting. Use threads for long discussions.",
       web: "You are on a web interface. You can use rich formatting and links.",
@@ -660,10 +685,7 @@ export class MainAgent {
   }
 
   private _getLastChannel() {
-    // Walk backwards through session to find the last channel info
-    // (stored as metadata on user messages)
-    // For now, return a default CLI channel
-    return { type: "cli", channelId: "main" };
+    return this.lastChannel;
   }
 
   /** Expose agent for testing. */

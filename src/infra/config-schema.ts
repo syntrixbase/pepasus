@@ -108,7 +108,30 @@ export const SessionConfigSchema = z.object({
   compactThreshold: z.coerce.number().min(0.1).max(1.0).default(0.8),
 });
 
+export const TelegramConfigSchema = z.object({
+  enabled: z.preprocess(
+    (val) => {
+      if (typeof val === "string") {
+        if (val === "true") return true;
+        if (val === "false" || val === "") return false;
+      }
+      return val;
+    },
+    z.boolean().default(false),
+  ),
+  token: z.string().optional(),
+}).refine(
+  (c) => !c.enabled || !!c.token,
+  { message: "Telegram requires 'token' when enabled" },
+);
+
+export const ChannelsConfigSchema = z.object({
+  telegram: TelegramConfigSchema.default({}),
+});
+
 export type SessionConfig = z.infer<typeof SessionConfigSchema>;
+export type TelegramConfig = z.infer<typeof TelegramConfigSchema>;
+export type ChannelsConfig = z.infer<typeof ChannelsConfigSchema>;
 
 export const SettingsSchema = z.object({
   llm: LLMConfigSchema.default({}),
@@ -117,6 +140,7 @@ export const SettingsSchema = z.object({
   identity: IdentityConfigSchema.default({}),
   tools: ToolsConfigSchema.default({}),
   session: SessionConfigSchema.default({}),
+  channels: ChannelsConfigSchema.default({}),
   logLevel: z.string().default("info"),
   dataDir: z.string({ required_error: "dataDir is required — set system.dataDir in config.yml or PEGASUS_DATA_DIR env var" }),
   // Log output destination
