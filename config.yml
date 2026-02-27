@@ -88,7 +88,25 @@ tools:
     apiKey: ${WEB_SEARCH_API_KEY}
     maxResults: 10
 
-  # MCP server configurations (optional, for future use)
+  # MCP (Model Context Protocol) server configurations
+  # Supports two transports: stdio (local subprocess) and sse (HTTP SSE/StreamableHTTP)
+  #
+  # stdio example:
+  #   mcpServers:
+  #     - name: filesystem
+  #       transport: stdio
+  #       command: npx
+  #       args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+  #       env: {}
+  #       cwd: .
+  #       enabled: true
+  #
+  # sse example:
+  #   mcpServers:
+  #     - name: remote-tools
+  #       transport: sse
+  #       url: http://localhost:3000/sse
+  #       enabled: true
   mcpServers: ${TOOLS_MCP_SERVERS:-[]}
 
 session:

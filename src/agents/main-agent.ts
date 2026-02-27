@@ -26,6 +26,8 @@ import type { ModelRegistry } from "../infra/model-registry.ts";
 
 // Main Agent's curated tool set
 import { mainAgentTools } from "../tools/builtins/index.ts";
+import { MCPManager, wrapMCPTools } from "../mcp/index.ts";
+import type { MCPServerConfig } from "../mcp/index.ts";
 
 const logger = getLogger("main_agent");
 
@@ -45,6 +47,7 @@ export class MainAgent {
   private persona: Persona;
   private settings: Settings;
   private agent: Agent; // Task execution engine
+  private mcpManager: MCPManager | null = null;
   private sessionStore: SessionStore;
   private toolRegistry: ToolRegistry;
   private toolExecutor: ToolExecutor;
@@ -97,6 +100,36 @@ export class MainAgent {
     // Start task execution engine
     await this.agent.start();
 
+    // Connect to MCP servers and register tools in both Agent and MainAgent
+    const mcpConfigs = (this.settings.tools?.mcpServers ?? []) as MCPServerConfig[];
+    if (mcpConfigs.length > 0) {
+      this.mcpManager = new MCPManager();
+      await this.mcpManager.connectAll(mcpConfigs);
+
+      // Register in Agent's tool registry (for task execution)
+      await this.agent.loadMCPTools(this.mcpManager, mcpConfigs);
+
+      // Register in MainAgent's own tool registry (for conversation)
+      for (const config of mcpConfigs.filter((c) => c.enabled)) {
+        try {
+          const mcpTools = await this.mcpManager.listTools(config.name);
+          const wrapped = wrapMCPTools(config.name, mcpTools, this.mcpManager);
+          for (const tool of wrapped) {
+            this.toolRegistry.register(tool);
+          }
+        } catch (err) {
+          logger.warn(
+            { server: config.name, error: err instanceof Error ? err.message : String(err) },
+            "main_agent_mcp_tools_register_failed",
+          );
+        }
+      }
+      logger.info(
+        { servers: mcpConfigs.filter((c) => c.enabled).length },
+        "mcp_connected",
+      );
+    }
+
     logger.info(
       { sessionMessages: this.sessionMessages.length },
       "main_agent_started",
@@ -105,6 +138,12 @@ export class MainAgent {
 
   /** Stop the Main Agent. */
   async stop(): Promise<void> {
+    // Disconnect MCP servers first (before agent stops)
+    if (this.mcpManager) {
+      await this.mcpManager.disconnectAll();
+      this.mcpManager = null;
+    }
+
     await this.agent.stop();
     logger.info("main_agent_stopped");
   }

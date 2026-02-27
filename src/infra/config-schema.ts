@@ -80,9 +80,26 @@ export const ToolsConfigSchema = z.object({
     z.array(
       z.object({
         name: z.string(),
-        url: z.string().url(),
+        transport: z.enum(["stdio", "sse"]).default("stdio"),
+        // stdio transport fields
+        command: z.string().optional(),
+        args: z.array(z.string()).optional(),
+        env: z.record(z.string(), z.string()).optional(),
+        cwd: z.string().optional(),
+        // sse/http transport fields
+        url: z.string().url().optional(),
+        // common
         enabled: z.boolean().default(true),
-      })
+      }).refine(
+        (s) => {
+          if (s.transport === "stdio") return !!s.command;
+          if (s.transport === "sse") return !!s.url;
+          return true;
+        },
+        {
+          message: "stdio transport requires 'command'; sse transport requires 'url'",
+        },
+      )
     ).default([]),
   ),
 });

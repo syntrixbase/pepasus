@@ -410,35 +410,75 @@ interface Reflection {
 
 ## MCP Integration
 
-MCP (Model Context Protocol) tools integrate as external tools through the standard `Tool` interface:
+MCP (Model Context Protocol) tools integrate as external tools through the standard `Tool` interface. Pegasus connects to MCP servers, discovers their tools, and registers them alongside built-in tools — making them indistinguishable at runtime.
 
-```typescript
-interface MCPTool {
-  name: string;
-  description: string;
-  inputSchema: JSONSchema;  // JSON Schema format
-}
+### Architecture
 
-class MCPClient {
-  async connect(serverUrl: string): Promise<void>;
-  async listTools(): Promise<MCPTool[]>;
-  async callTool(name: string, args: unknown): Promise<unknown>;
-  async disconnect(): Promise<void>;
-}
-
-// MCP tools are wrapped to conform to the standard Tool interface
-function wrapMCPTool(mcpTool: MCPTool, client: MCPClient): Tool {
-  return {
-    name: mcpTool.name,
-    description: mcpTool.description,
-    category: ToolCategory.MCP,
-    parameters: jsonSchemaToZod(mcpTool.inputSchema),
-    execute: async (params) => {
-      return await client.callTool(mcpTool.name, params);
-    },
-  };
-}
 ```
+┌─────────────────────────────────────────────────────┐
+│  MainAgent                                          │
+│  ├── MCPManager (owns lifecycle)                    │
+│  │   ├── Client("filesystem") ── StdioTransport     │
+│  │   └── Client("remote")     ── SSE/HTTPTransport  │
+│  ├── ToolRegistry (MCP + built-in tools)            │
+│  └── Agent                                          │
+│      └── ToolRegistry (MCP + built-in tools)        │
+└─────────────────────────────────────────────────────┘
+```
+
+### Components
+
+**`MCPManager`** (`src/mcp/manager.ts`) — Connection lifecycle for MCP servers.
+
+- `connectAll(configs)` — Connect to all enabled servers (graceful degradation on failure)
+- `disconnectAll()` — Clean up all connections
+- `listTools(serverName)` — Discover tools from a connected server
+- `callTool(serverName, toolName, args)` — Execute a tool on a connected server
+- Supports **stdio** (local subprocess via `StdioClientTransport`) and **SSE/StreamableHTTP** (remote server with automatic fallback)
+
+**`wrapMCPTools()`** (`src/mcp/wrap.ts`) — Converts MCP tools to Pegasus `Tool` objects.
+
+- **Naming**: `{serverName}__{toolName}` (double underscore avoids collisions across servers)
+- **Description**: `[{serverName}] {original description}` (prefix helps LLM identify source)
+- **Category**: `ToolCategory.MCP`
+- **Parameters**: `z.any()` (MCP server handles validation, not Pegasus)
+- **parametersJsonSchema**: Raw JSON Schema from MCP `inputSchema` — used directly in `toLLMTools()` to bypass Zod→JSON Schema conversion
+- **execute()**: Delegates to `MCPManager.callTool()`, converts `CallToolResult` → `ToolResult`
+
+### Configuration
+
+```yaml
+tools:
+  mcpServers:
+    # stdio transport (local subprocess)
+    - name: filesystem
+      transport: stdio
+      command: npx
+      args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+      env: {}
+      cwd: .
+      enabled: true
+
+    # SSE/HTTP transport (remote server)
+    - name: remote-tools
+      transport: sse
+      url: http://localhost:3000/sse
+      enabled: true
+```
+
+### Lifecycle
+
+1. **MainAgent.start()** creates `MCPManager`, calls `connectAll()`
+2. `loadMCPTools()` registers wrapped MCP tools in Agent's `ToolRegistry`
+3. MainAgent also registers MCP tools in its own `ToolRegistry`
+4. MCP tools participate in LLM function calling like built-in tools
+5. **MainAgent.stop()** calls `MCPManager.disconnectAll()` before stopping Agent
+
+### Error Handling
+
+- **Connection failure**: Logged as warning, server skipped (graceful degradation)
+- **Tool call failure**: Returns `ToolResult { success: false, error: ... }` (same as built-in tool errors)
+- **Transport fallback**: SSE transport tries StreamableHTTP first, falls back to SSE on failure
 
 ---
 
@@ -512,11 +552,17 @@ tools:
     maxResults: 10
 
   mcpServers:
+    # stdio transport — runs a local MCP server as a subprocess
     - name: "filesystem"
-      url: "http://localhost:3000"
+      transport: stdio
+      command: npx
+      args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
       enabled: true
-    - name: "database"
-      url: "http://localhost:3001"
+
+    # sse transport — connects to a remote MCP server via SSE/StreamableHTTP
+    - name: "remote"
+      transport: sse
+      url: "http://localhost:3000/sse"
       enabled: false
 ```
 

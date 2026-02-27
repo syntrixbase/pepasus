@@ -31,6 +31,8 @@ import { allBuiltInTools, reflectionTools } from "../tools/builtins/index.ts";
 import type { MemoryIndexEntry } from "../identity/prompt.ts";
 import { TaskPersister } from "../task/persister.ts";
 import { getContextWindowSize } from "../session/context-windows.ts";
+import type { MCPManager, MCPServerConfig } from "../mcp/index.ts";
+import { wrapMCPTools } from "../mcp/index.ts";
 import path from "node:path";
 
 const logger = getLogger("agent");
@@ -114,6 +116,7 @@ export class Agent {
 
   // Tool infrastructure
   private toolExecutor: ToolExecutor;
+  private toolRegistry: ToolRegistry;
 
   // Concurrency control
   private llmSemaphore: Semaphore;
@@ -133,11 +136,11 @@ export class Agent {
     this.toolSemaphore = new Semaphore(this.settings.agent.maxConcurrentTools);
 
     // Create tool infrastructure
-    const toolRegistry = new ToolRegistry();
-    toolRegistry.registerMany(allBuiltInTools);
+    this.toolRegistry = new ToolRegistry();
+    this.toolRegistry.registerMany(allBuiltInTools);
 
     const toolExecutor = new ToolExecutor(
-      toolRegistry,
+      this.toolRegistry,
       this.eventBus,
       (this.settings.tools?.timeout ?? 30) * 1000,
     );
@@ -147,7 +150,7 @@ export class Agent {
     new TaskPersister(this.eventBus, this.taskRegistry, this.settings.dataDir);
 
     // Initialize cognitive processors with model + persona
-    this.thinker = new Thinker(deps.model, deps.persona, toolRegistry);
+    this.thinker = new Thinker(deps.model, deps.persona, this.toolRegistry);
     this.planner = new Planner(deps.model, deps.persona);
     this.actor = new Actor(deps.model, deps.persona);
     // Create reflection tool registry (memory tools only, no memory_list)
@@ -606,6 +609,32 @@ export class Agent {
       reflections: task.context.reflections,
       iterations: task.context.iteration,
     };
+  }
+
+  // ═══════════════════════════════════════════════════
+  // MCP integration
+  // ═══════════════════════════════════════════════════
+
+  /**
+   * Register MCP tools from connected servers into the tool registry.
+   * Called by MainAgent after MCPManager.connectAll().
+   */
+  async loadMCPTools(manager: MCPManager, configs: MCPServerConfig[]): Promise<void> {
+    for (const config of configs.filter((c) => c.enabled)) {
+      try {
+        const mcpTools = await manager.listTools(config.name);
+        const wrapped = wrapMCPTools(config.name, mcpTools, manager);
+        for (const tool of wrapped) {
+          this.toolRegistry.register(tool);
+        }
+        logger.info({ server: config.name, tools: mcpTools.length }, "mcp_tools_registered");
+      } catch (err) {
+        logger.warn(
+          { server: config.name, error: err instanceof Error ? err.message : String(err) },
+          "mcp_tools_register_failed",
+        );
+      }
+    }
   }
 
   // ═══════════════════════════════════════════════════
