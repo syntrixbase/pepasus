@@ -16,6 +16,7 @@
 - 🔁 **Startup recovery** — session repair + pending task auto-recovery
 - 🧠 **Multi-model support** — per-role model configuration (default, subAgent, compact, reflection)
 - 📦 **Session compaction** — automatic context window management with summarization
+- 🧩 **Skill system** — extensible SKILL.md files with LLM auto-trigger and `/` commands
 
 ## 🚀 Quick Start
 
@@ -105,6 +106,7 @@ bun run dev
 - [Running Guide](./docs/running.md) — detailed setup and usage
 - [Progress](./docs/progress.md) — milestones, test coverage, tech stack
 - [TODOs](./docs/todos.md) — planned features and ideas
+- [Skill System](./docs/skill-system.md) — SKILL.md format, loader, registry, triggering
 
 ## 🛠️ Development
 

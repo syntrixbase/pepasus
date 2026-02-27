@@ -5,10 +5,10 @@ Tracked features, improvements, and ideas that are planned but not yet started.
 ## Next Up
 
 ### Skill System
-- [ ] Skill framework: SkillLoader, SkillRegistry, SKILL.md format (YAML frontmatter + markdown body)
-- [ ] Skill storage: `skills/` (builtin, git tracked) + `data/skills/` (user/LLM created, runtime)
-- [ ] Skill triggering: LLM-driven (description in context) + user `/` command
-- [ ] Skill injection: inline (MainAgent/TaskAgent context) + fork (spawn_task)
+- [x] Skill framework: SkillLoader, SkillRegistry, SKILL.md format (YAML frontmatter + markdown body)
+- [x] Skill storage: `skills/` (builtin, git tracked) + `data/skills/` (user/LLM created, runtime)
+- [x] Skill triggering: LLM-driven (description in context) + user `/` command
+- [x] Skill injection: inline (MainAgent/TaskAgent context) + fork (spawn_task)
 - [ ] LLM-created skills: PostTaskReflector can create new skills from repeated patterns
 
 ### Task Types (Subagent Specialization)

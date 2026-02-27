@@ -18,13 +18,14 @@
 | **Multi-model** | ✅ Done | Per-role model config (default, subAgent, compact, reflection) |
 | **Session compact** | ✅ Done | Auto-compact with context window awareness |
 | **Memory redesign** | ✅ Done | Cache-friendly index, tool-use reflector, memory_patch |
+| **Skill system** | ✅ Done | SKILL.md format, SkillLoader/Registry, use_skill tool, / commands |
 | **M5: Multi-channel** | 📋 Planned | Slack / SMS / Web channel adapters |
 
 ## Test Coverage
 
-- **Tests**: 548 pass, 0 fail
-- **Line coverage**: 99.82%
-- **Function coverage**: 99.08%
+- **Tests**: 655 pass, 0 fail
+- **Line coverage**: 99.81%
+- **Function coverage**: 98.86%
 - **Threshold**: 95% per file (enforced by CI + git hooks)
 
 ## Project Structure

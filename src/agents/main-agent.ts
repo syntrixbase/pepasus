@@ -23,6 +23,8 @@ import type { ToolCall } from "../models/tool.ts";
 import { EstimateCounter } from "../infra/token-counter.ts";
 import { getContextWindowSize } from "../session/context-windows.ts";
 import type { ModelRegistry } from "../infra/model-registry.ts";
+import path from "node:path";
+import { SkillRegistry, loadAllSkills } from "../skills/index.ts";
 
 // Main Agent's curated tool set
 import { mainAgentTools } from "../tools/builtins/index.ts";
@@ -59,6 +61,7 @@ export class MainAgent {
   private processing = false;
   private lastPromptTokens = 0;
   private tokenCounter = new EstimateCounter();
+  private skillRegistry: SkillRegistry;
 
   constructor(deps: MainAgentDeps) {
     this.models = deps.models;
@@ -86,6 +89,9 @@ export class MainAgent {
       { emit: () => {} }, // Main Agent doesn't use EventBus for its own tools
       (this.settings.tools?.timeout ?? 30) * 1000,
     );
+
+    // Skill system
+    this.skillRegistry = new SkillRegistry();
   }
 
   /** Start the Main Agent and underlying Task System. */
@@ -131,6 +137,12 @@ export class MainAgent {
         "mcp_connected",
       );
     }
+
+    // Load skills from builtin and user directories
+    const builtinSkillDir = path.join(process.cwd(), "skills");
+    const userSkillDir = path.join(this.settings.dataDir, "skills");
+    this.skillRegistry.registerMany(loadAllSkills(builtinSkillDir, userSkillDir));
+    logger.info({ skillCount: this.skillRegistry.listAll().length }, "skills_loaded");
 
     logger.info(
       { sessionMessages: this.sessionMessages.length },
@@ -219,13 +231,63 @@ export class MainAgent {
     // Track last channel for task notification routing
     this.lastChannel = message.channel;
 
-    // Add user message to session
+    const text = message.text.trim();
+
+    // Check for /skill command
+    if (text.startsWith("/")) {
+      const handled = await this._handleSkillCommand(text, message.channel);
+      if (handled) return;
+    }
+
+    // Normal message: add to session and think
     const userMsg: Message = { role: "user", content: message.text };
     this.sessionMessages.push(userMsg);
     await this.sessionStore.append(userMsg, { channel: message.channel });
 
-    // One step of thinking
     await this._think(message.channel);
+  }
+
+  /**
+   * Handle /skill-name args command.
+   * Returns true if handled, false if not a skill (treat as normal message).
+   */
+  private async _handleSkillCommand(
+    text: string,
+    channel: { type: string; channelId: string; replyTo?: string },
+  ): Promise<boolean> {
+    const spaceIdx = text.indexOf(" ");
+    const name = spaceIdx === -1 ? text.slice(1) : text.slice(1, spaceIdx);
+    const args = spaceIdx === -1 ? undefined : text.slice(spaceIdx + 1).trim() || undefined;
+
+    const skill = this.skillRegistry.get(name);
+    if (!skill) return false;
+    if (!skill.userInvocable) return false;
+
+    const body = this.skillRegistry.loadBody(name, args);
+    if (!body) return false;
+
+    if (skill.context === "fork") {
+      // Spawn task with skill content
+      const taskId = await this.agent.submit(body, "skill:" + name);
+      const systemMsg: Message = {
+        role: "user",
+        content: `[Skill "${name}" spawned as task ${taskId}]`,
+      };
+      this.sessionMessages.push(systemMsg);
+      await this.sessionStore.append(systemMsg);
+      logger.info({ skill: name, taskId }, "skill_fork_spawned");
+    } else {
+      // Inline: inject skill content as user message, then think
+      const skillMsg: Message = {
+        role: "user",
+        content: `[Skill: ${name} invoked]\n\n${body}`,
+      };
+      this.sessionMessages.push(skillMsg);
+      await this.sessionStore.append(skillMsg);
+      await this._think(channel);
+    }
+
+    return true;
   }
 
   /**
@@ -288,6 +350,43 @@ export class MainAgent {
         } else if (tc.name === "resume_task") {
           const resumeNeedsFollowUp = await this._handleResumeTask(tc);
           if (resumeNeedsFollowUp) needsFollowUp = true;
+        } else if (tc.name === "use_skill") {
+          // Handle use_skill tool call
+          const { skill: skillName, args: skillArgs } = tc.arguments as { skill: string; args?: string };
+          const skill = this.skillRegistry.get(skillName);
+
+          if (!skill) {
+            const toolMsg: Message = {
+              role: "tool",
+              content: JSON.stringify({ error: `Skill "${skillName}" not found` }),
+              toolCallId: tc.id,
+            };
+            this.sessionMessages.push(toolMsg);
+            await this.sessionStore.append(toolMsg);
+            needsFollowUp = true;
+          } else if (skill.context === "fork") {
+            const body = this.skillRegistry.loadBody(skillName, skillArgs);
+            const taskId = await this.agent.submit(body ?? "", "skill:" + skillName);
+            const toolMsg: Message = {
+              role: "tool",
+              content: JSON.stringify({ taskId, status: "spawned", skill: skillName }),
+              toolCallId: tc.id,
+            };
+            this.sessionMessages.push(toolMsg);
+            await this.sessionStore.append(toolMsg);
+            // fork does NOT trigger follow-up think
+          } else {
+            // Inline: return skill content as tool result
+            const body = this.skillRegistry.loadBody(skillName, skillArgs);
+            const toolMsg: Message = {
+              role: "tool",
+              content: body ?? `Skill "${skillName}" body could not be loaded`,
+              toolCallId: tc.id,
+            };
+            this.sessionMessages.push(toolMsg);
+            await this.sessionStore.append(toolMsg);
+            needsFollowUp = true; // LLM needs to follow skill instructions
+          }
         } else {
           // Execute simple tool directly — results need LLM follow-up
           needsFollowUp = true;
@@ -571,6 +670,17 @@ export class MainAgent {
       "The archive filename is in the compact metadata.",
     ].join("\n"));
 
+    // Skill metadata injection
+    const contextWindow = getContextWindowSize(
+      this.models.getModelId("default"),
+      this.settings.llm.contextWindow,
+    );
+    const skillBudget = Math.max(Math.floor(contextWindow * 0.02 * 4), 16_000); // 2% in chars, min 16K
+    const skillMetadata = this.skillRegistry.getMetadataForPrompt(skillBudget);
+    if (skillMetadata) {
+      lines.push("", skillMetadata);
+    }
+
     return lines.join("\n");
   }
 
@@ -581,5 +691,10 @@ export class MainAgent {
   /** Expose agent for testing. */
   get taskAgent(): Agent {
     return this.agent;
+  }
+
+  /** Expose skill registry for testing. */
+  get skills(): SkillRegistry {
+    return this.skillRegistry;
   }
 }
