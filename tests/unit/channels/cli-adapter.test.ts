@@ -8,6 +8,31 @@ import { CLIAdapter } from "@pegasus/channels/cli-adapter.ts";
 import type { InboundMessage, OutboundMessage } from "@pegasus/channels/types.ts";
 import { PassThrough } from "stream";
 
+/**
+ * Helper: patch process.stdin and process.stdout with mocks,
+ * run a test function, then restore originals.
+ */
+async function withMockedIO(
+  fn: (mockStdin: PassThrough, mockStdout: PassThrough) => Promise<void>,
+): Promise<void> {
+  const mockStdin = new PassThrough();
+  const mockStdout = new PassThrough();
+  const originalStdin = process.stdin;
+  const originalStdout = process.stdout;
+
+  Object.defineProperty(process, "stdin", { value: mockStdin, writable: true });
+  Object.defineProperty(process, "stdout", { value: mockStdout, writable: true });
+
+  try {
+    await fn(mockStdin, mockStdout);
+  } finally {
+    Object.defineProperty(process, "stdin", { value: originalStdin, writable: true });
+    Object.defineProperty(process, "stdout", { value: originalStdout, writable: true });
+    mockStdin.destroy();
+    mockStdout.destroy();
+  }
+}
+
 describe("CLIAdapter", () => {
   const adapters: CLIAdapter[] = [];
 
@@ -16,7 +41,7 @@ describe("CLIAdapter", () => {
       try {
         await adapter.stop();
       } catch {
-        // ignore
+        // ignore — may already be closed
       }
     }
     adapters.length = 0;
@@ -41,41 +66,25 @@ describe("CLIAdapter", () => {
   });
 
   it("should start and create readline interface", async () => {
-    const adapter = new CLIAdapter("TestBot");
-    adapters.push(adapter);
+    await withMockedIO(async (_mockStdin) => {
+      const adapter = new CLIAdapter("TestBot");
+      adapters.push(adapter);
 
-    // Patch stdin to prevent hanging
-    const mockStdin = new PassThrough();
-    const originalStdin = process.stdin;
-    Object.defineProperty(process, "stdin", { value: mockStdin, writable: true });
-
-    try {
-      await adapter.start({
-        send: () => {},
-      });
-      // If we got here, start() didn't throw
+      await adapter.start({ send: () => {} });
       expect(true).toBe(true);
-    } finally {
-      Object.defineProperty(process, "stdin", { value: originalStdin, writable: true });
-      mockStdin.destroy();
-    }
+    });
   });
 
   it("should send regular text input as InboundMessage", async () => {
-    const adapter = new CLIAdapter("TestBot");
-    adapters.push(adapter);
+    await withMockedIO(async (mockStdin) => {
+      const adapter = new CLIAdapter("TestBot");
+      adapters.push(adapter);
 
-    const received: InboundMessage[] = [];
-    const mockStdin = new PassThrough();
-    const originalStdin = process.stdin;
-    Object.defineProperty(process, "stdin", { value: mockStdin, writable: true });
-
-    try {
+      const received: InboundMessage[] = [];
       await adapter.start({
         send: (msg: InboundMessage) => received.push(msg),
       });
 
-      // Simulate user typing a line
       mockStdin.write("hello world\n");
       await Bun.sleep(50);
 
@@ -83,142 +92,109 @@ describe("CLIAdapter", () => {
       expect(received[0]!.text).toBe("hello world");
       expect(received[0]!.channel.type).toBe("cli");
       expect(received[0]!.channel.channelId).toBe("main");
-    } finally {
-      Object.defineProperty(process, "stdin", { value: originalStdin, writable: true });
-      mockStdin.destroy();
-    }
+    });
   });
 
   it("should skip empty input", async () => {
-    const adapter = new CLIAdapter("TestBot");
-    adapters.push(adapter);
+    await withMockedIO(async (mockStdin) => {
+      const adapter = new CLIAdapter("TestBot");
+      adapters.push(adapter);
 
-    const received: InboundMessage[] = [];
-    const mockStdin = new PassThrough();
-    const originalStdin = process.stdin;
-    Object.defineProperty(process, "stdin", { value: mockStdin, writable: true });
-
-    try {
+      const received: InboundMessage[] = [];
       await adapter.start({
         send: (msg: InboundMessage) => received.push(msg),
       });
 
-      // Empty lines should be skipped
       mockStdin.write("\n");
       mockStdin.write("   \n");
       await Bun.sleep(50);
 
       expect(received).toHaveLength(0);
-    } finally {
-      Object.defineProperty(process, "stdin", { value: originalStdin, writable: true });
-      mockStdin.destroy();
-    }
+    });
   });
 
   it("should handle /help command without sending to agent", async () => {
-    const adapter = new CLIAdapter("TestBot");
-    adapters.push(adapter);
+    await withMockedIO(async (mockStdin, _mockStdout) => {
+      const adapter = new CLIAdapter("TestBot");
+      adapters.push(adapter);
 
-    const received: InboundMessage[] = [];
-    const mockStdin = new PassThrough();
-    const originalStdin = process.stdin;
-    Object.defineProperty(process, "stdin", { value: mockStdin, writable: true });
+      const received: InboundMessage[] = [];
 
-    // Capture console.log
-    const logged: string[] = [];
-    const origLog = console.log;
-    console.log = (...args: unknown[]) => logged.push(args.map(String).join(" "));
+      // Capture stdout output from console.log
+      const logged: string[] = [];
+      const origLog = console.log;
+      console.log = (...args: unknown[]) => logged.push(args.map(String).join(" "));
 
-    try {
-      await adapter.start({
-        send: (msg: InboundMessage) => received.push(msg),
-      });
+      try {
+        await adapter.start({
+          send: (msg: InboundMessage) => received.push(msg),
+        });
 
-      mockStdin.write("/help\n");
-      await Bun.sleep(50);
+        mockStdin.write("/help\n");
+        await Bun.sleep(50);
 
-      // Help should not be sent to the agent
-      expect(received).toHaveLength(0);
-      // Help output should be printed
-      expect(logged.some((l) => l.includes("/help"))).toBe(true);
-    } finally {
-      console.log = origLog;
-      Object.defineProperty(process, "stdin", { value: originalStdin, writable: true });
-      mockStdin.destroy();
-    }
+        expect(received).toHaveLength(0);
+        expect(logged.some((l) => l.includes("/help"))).toBe(true);
+      } finally {
+        console.log = origLog;
+      }
+    });
   });
 
   it("should handle /exit command and call onExit", async () => {
-    let exitCalled = false;
-    const adapter = new CLIAdapter("TestBot", async () => {
-      exitCalled = true;
-    });
-    adapters.push(adapter);
-
-    const mockStdin = new PassThrough();
-    const originalStdin = process.stdin;
-    Object.defineProperty(process, "stdin", { value: mockStdin, writable: true });
-
-    // Suppress console output
-    const origLog = console.log;
-    console.log = () => {};
-
-    try {
-      await adapter.start({
-        send: () => {},
+    await withMockedIO(async (mockStdin) => {
+      let exitCalled = false;
+      const adapter = new CLIAdapter("TestBot", async () => {
+        exitCalled = true;
       });
+      adapters.push(adapter);
 
-      mockStdin.write("/exit\n");
-      await Bun.sleep(100);
+      const origLog = console.log;
+      console.log = () => {};
 
-      expect(exitCalled).toBe(true);
-    } finally {
-      console.log = origLog;
-      Object.defineProperty(process, "stdin", { value: originalStdin, writable: true });
-      mockStdin.destroy();
-    }
+      try {
+        await adapter.start({ send: () => {} });
+
+        mockStdin.write("/exit\n");
+        await Bun.sleep(100);
+
+        expect(exitCalled).toBe(true);
+      } finally {
+        console.log = origLog;
+      }
+    });
   });
 
   it("should handle /quit as alias for /exit", async () => {
-    let exitCalled = false;
-    const adapter = new CLIAdapter("TestBot", async () => {
-      exitCalled = true;
-    });
-    adapters.push(adapter);
-
-    const mockStdin = new PassThrough();
-    const originalStdin = process.stdin;
-    Object.defineProperty(process, "stdin", { value: mockStdin, writable: true });
-
-    const origLog = console.log;
-    console.log = () => {};
-
-    try {
-      await adapter.start({
-        send: () => {},
+    await withMockedIO(async (mockStdin) => {
+      let exitCalled = false;
+      const adapter = new CLIAdapter("TestBot", async () => {
+        exitCalled = true;
       });
+      adapters.push(adapter);
 
-      mockStdin.write("/quit\n");
-      await Bun.sleep(100);
+      const origLog = console.log;
+      console.log = () => {};
 
-      expect(exitCalled).toBe(true);
-    } finally {
-      console.log = origLog;
-      Object.defineProperty(process, "stdin", { value: originalStdin, writable: true });
-      mockStdin.destroy();
-    }
+      try {
+        await adapter.start({ send: () => {} });
+
+        mockStdin.write("/quit\n");
+        await Bun.sleep(100);
+
+        expect(exitCalled).toBe(true);
+      } finally {
+        console.log = origLog;
+      }
+    });
   });
 
   it("should treat unrecognized slash commands as regular input", async () => {
-    const adapter = new CLIAdapter("TestBot");
-    adapters.push(adapter);
+    await withMockedIO(async (mockStdin) => {
+      const adapter = new CLIAdapter("TestBot");
+      adapters.push(adapter);
 
-    const received: InboundMessage[] = [];
-    const mockStdin = new PassThrough();
-    const originalStdin = process.stdin;
-    Object.defineProperty(process, "stdin", { value: mockStdin, writable: true });
-
-    try {
+      const received: InboundMessage[] = [];
       await adapter.start({
         send: (msg: InboundMessage) => received.push(msg),
       });
@@ -226,86 +202,66 @@ describe("CLIAdapter", () => {
       mockStdin.write("/unknown_command\n");
       await Bun.sleep(50);
 
-      // Unrecognized command should be sent as regular text
       expect(received).toHaveLength(1);
       expect(received[0]!.text).toBe("/unknown_command");
-    } finally {
-      Object.defineProperty(process, "stdin", { value: originalStdin, writable: true });
-      mockStdin.destroy();
-    }
+    });
   });
 
   it("deliver should print persona name and message text", async () => {
-    const adapter = new CLIAdapter("Aria");
-    adapters.push(adapter);
+    await withMockedIO(async (_mockStdin) => {
+      const adapter = new CLIAdapter("Aria");
+      adapters.push(adapter);
 
-    const mockStdin = new PassThrough();
-    const originalStdin = process.stdin;
-    Object.defineProperty(process, "stdin", { value: mockStdin, writable: true });
+      const logged: string[] = [];
+      const origLog = console.log;
+      console.log = (...args: unknown[]) => logged.push(args.map(String).join(" "));
 
-    const logged: string[] = [];
-    const origLog = console.log;
-    console.log = (...args: unknown[]) => logged.push(args.map(String).join(" "));
+      try {
+        await adapter.start({ send: () => {} });
 
-    try {
-      await adapter.start({ send: () => {} });
+        const msg: OutboundMessage = {
+          text: "Hello user!",
+          channel: { type: "cli", channelId: "main" },
+        };
 
-      const msg: OutboundMessage = {
-        text: "Hello user!",
-        channel: { type: "cli", channelId: "main" },
-      };
+        await adapter.deliver(msg);
 
-      await adapter.deliver(msg);
-
-      expect(logged.some((l) => l.includes("Aria") && l.includes("Hello user!"))).toBe(
-        true,
-      );
-    } finally {
-      console.log = origLog;
-      Object.defineProperty(process, "stdin", { value: originalStdin, writable: true });
-      mockStdin.destroy();
-    }
+        expect(
+          logged.some((l) => l.includes("Aria") && l.includes("Hello user!")),
+        ).toBe(true);
+      } finally {
+        console.log = origLog;
+      }
+    });
   });
 
   it("should handle exit without onExit callback", async () => {
-    const adapter = new CLIAdapter("TestBot"); // no onExit
-    adapters.push(adapter);
+    await withMockedIO(async (mockStdin) => {
+      const adapter = new CLIAdapter("TestBot"); // no onExit
+      adapters.push(adapter);
 
-    const mockStdin = new PassThrough();
-    const originalStdin = process.stdin;
-    Object.defineProperty(process, "stdin", { value: mockStdin, writable: true });
+      const origLog = console.log;
+      console.log = () => {};
 
-    const origLog = console.log;
-    console.log = () => {};
-
-    try {
-      await adapter.start({ send: () => {} });
-
-      // Should not crash when no onExit is set
-      mockStdin.write("/exit\n");
-      await Bun.sleep(100);
-    } finally {
-      console.log = origLog;
-      Object.defineProperty(process, "stdin", { value: originalStdin, writable: true });
-      mockStdin.destroy();
-    }
+      try {
+        await adapter.start({ send: () => {} });
+        mockStdin.write("/exit\n");
+        await Bun.sleep(100);
+        // Should not crash
+      } finally {
+        console.log = origLog;
+      }
+    });
   });
 
   it("stop should close readline", async () => {
-    const adapter = new CLIAdapter("TestBot");
-    adapters.push(adapter);
+    await withMockedIO(async (_mockStdin) => {
+      const adapter = new CLIAdapter("TestBot");
+      adapters.push(adapter);
 
-    const mockStdin = new PassThrough();
-    const originalStdin = process.stdin;
-    Object.defineProperty(process, "stdin", { value: mockStdin, writable: true });
-
-    try {
       await adapter.start({ send: () => {} });
-      // Should not throw
       await adapter.stop();
-    } finally {
-      Object.defineProperty(process, "stdin", { value: originalStdin, writable: true });
-      mockStdin.destroy();
-    }
+      // Should not throw
+    });
   });
 });
