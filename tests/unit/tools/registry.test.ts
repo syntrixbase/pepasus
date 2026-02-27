@@ -155,6 +155,29 @@ describe("ToolRegistry", () => {
     });
   });
 
+  it("toLLMTools() uses parametersJsonSchema when present, bypassing Zod conversion", () => {
+    const registry = new ToolRegistry();
+    const rawSchema = {
+      type: "object",
+      properties: { query: { type: "string" } },
+      required: ["query"],
+    };
+    const tool: Tool = {
+      name: "mcp_tool",
+      description: "MCP tool",
+      category: "mcp" as ToolCategory,
+      parameters: z.any(),
+      parametersJsonSchema: rawSchema,
+      execute: async () => ({ success: true, startedAt: Date.now() }),
+    };
+
+    registry.register(tool);
+    const llmTools = registry.toLLMTools();
+
+    expect(llmTools).toHaveLength(1);
+    expect(llmTools[0]!.parameters).toEqual(rawSchema);
+  });
+
   it("allBuiltInTools should include memory tools", () => {
     const memoryTools = allBuiltInTools.filter((t) => t.category === "memory");
     expect(memoryTools).toHaveLength(5);

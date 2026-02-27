@@ -31,6 +31,8 @@ export interface Tool {
   description: string;
   category: ToolCategory;
   parameters: z.ZodTypeAny;
+  /** Pre-computed JSON Schema, skips Zod→JSON Schema conversion in toLLMTools(). Used by MCP tools. */
+  parametersJsonSchema?: Record<string, unknown>;
   execute: (params: unknown, context: ToolContext) => Promise<ToolResult>;
 }
 

@@ -36,7 +36,7 @@ Tracked features, improvements, and ideas that are planned but not yet started.
 - [ ] Memory decay: auto-archive old, unused facts
 
 ### Tool System
-- [ ] MCP server integration: connect external tool services via standard protocol
+- [x] MCP server integration: connect external tool services via standard protocol
 - [ ] Custom tool plugins: user-defined TypeScript tools
 - [ ] Tool permission system: per-tool approval rules
 
