@@ -344,11 +344,9 @@ When estimated total exceeds threshold, compact before the next LLM call.
 
 ## System Prompt Design
 
-The system prompt has two parts: a fixed template and dynamic context injected per-message.
+The system prompt is built **once** at startup and cached for all LLM calls. This enables LLM prefix caching — the provider can reuse the cached token prefix across calls, saving cost and latency.
 
-### Fixed Part (system prompt)
-
-Assembled at session start, rebuilt when channel type changes.
+### System Prompt (built once at `start()`)
 
 ```
 You are {persona.name}, {persona.role}.
@@ -378,9 +376,11 @@ That's fine when no response is needed.
 Speak to the user. Always specify channelId.
 Use replyTo to reply within a specific thread.
 
-### spawn_task({ description, input })
-Launch a background task with full tool access
-(file I/O, shell commands, web search, etc.).
+### spawn_task({ description, input, type? })
+Launch a background task with specialized tool access.
+- type: 'explore' — read-only research, web search
+- type: 'plan' — analysis and planning
+- type: 'general' — full capabilities (default)
 You will receive the result when the task completes.
 
 ### current_time({ timezone? })
@@ -411,37 +411,31 @@ On task completion:
 On task failure:
 - Assess the error: retry, try differently, or inform the user
 
-## Response Style
+## Reply Style by Channel
 
-{channel-specific style section — injected by code based on channel.type}
+When calling reply(), adapt style based on the channel type.
+The reply() parameters are:
+- text: the message content
+- channelId: the channel instance to reply to
+- replyTo: (optional) thread or conversation ID
+
+Style guidelines per channel type:
+- cli: Detailed responses, code blocks welcome, no character limit
+- telegram: Markdown, concise but informative, split long messages
+- sms: Extremely concise, under 160 characters
+- slack: Markdown, use threads for long discussions
+- web: Rich formatting and links supported
+
+## Session History
+...compact info...
+
+## Available Skills
+...skill metadata (2% of context window budget)...
 ```
-
-The "Response Style" section is assembled by code based on the active channel:
-
-| channel.type | Injected style guidance |
-|-------------|----------------------|
-| `cli` | "You are in a terminal session. Use detailed responses, code blocks are welcome. No character limit." |
-| `sms` | "You are communicating via SMS. Keep replies under 160 characters. Be extremely concise." |
-| `slack` | "You are in a Slack workspace. Use markdown formatting. Use threads for long discussions." |
-| `web` | "You are on a web interface. You can use rich formatting and links." |
 
 ### Dynamic Part (injected into messages)
 
-Before each LLM call, a context message is prepended to the current user message:
-
-```
-[Context]
-Source: {channel.type} / {channel.channelId}
-{User: {channel.userId}}
-{Thread: {channel.replyTo}}
-Available channels: {list of active channelIds}
-
-{Memory index (if available):}
-{- facts/user.md (1.2KB): user preferences}
-{- episodes/2026-02.md (3.4KB): recent interactions}
-```
-
-This keeps the system prompt stable while giving the LLM fresh situational awareness for each message.
+Memory index is injected as a user message on the first LLM call (iteration 1 only), not in the system prompt. This keeps the system prompt stable for prefix caching.
 
 Multiple channels connect to the same Main Agent through a unified adapter interface:
 
@@ -491,7 +485,7 @@ If no adapter matches the `channel.type` in an outbound message, a warning is lo
 
 The legacy `onReply()` callback still works when no adapters are registered — useful for tests and simple setups.
 
-The system prompt is channel-aware — it adapts response style based on `channel.type` (verbose for CLI, concise for SMS, markdown for Slack).
+The system prompt lists all channel types and their reply style guidelines. When a user message arrives, the channel metadata (type, channelId, replyTo) is visible in the message, and the LLM adapts its reply() accordingly.
 
 ## Relationship to Task System
 
