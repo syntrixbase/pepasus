@@ -7,6 +7,7 @@
  *   200-299 Task lifecycle
  *   300-399 Cognitive stages
  *   400-499 Tools / capabilities
+ *   500-549 Auth
  */
 export const EventType = {
   // System (0-99)
@@ -38,6 +39,12 @@ export const EventType = {
   TOOL_CALL_REQUESTED: 400,
   TOOL_CALL_COMPLETED: 410,
   TOOL_CALL_FAILED: 420,
+
+  // Auth (500-549)
+  AUTH_TOKEN_REFRESHED: 500,
+  AUTH_TOKEN_EXPIRING: 510,
+  AUTH_TOKEN_EXPIRED: 520,
+  AUTH_REFRESH_FAILED: 530,
 } as const;
 
 export type EventType = (typeof EventType)[keyof typeof EventType];
