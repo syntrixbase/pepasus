@@ -19,9 +19,9 @@ Tracked features, improvements, and ideas that are planned but not yet started.
 - [ ] Skill `agent` field maps to task type
 
 ### Task Progress Notification
-- [ ] `notify` tool for Task Agent: report interim progress to MainAgent during execution
-- [ ] MainAgent receives progress as `task_notify` events (same channel as completion)
-- [ ] Design doc says "Task can notify multiple times (not just on completion)" — not yet implemented
+- [x] `notify` tool for Task Agent: send messages to MainAgent during execution
+- [x] TASK_NOTIFY EventBus event (persisted to JSONL)
+- [x] MainAgent receives notify as `task_notify` events (same channel as completion)
 
 ## Planned
 

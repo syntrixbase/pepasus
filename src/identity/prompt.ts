@@ -56,6 +56,12 @@ export function buildSystemPrompt(
         "   - Your final text response is your deliverable — keep it under 2000 characters.",
         "3. EFFICIENT: Use the minimum number of tool calls needed. Don't over-research.",
         "4. If a tool call fails, note the failure briefly and move on. Do not retry endlessly.",
+        "5. NOTIFY: Use notify() to send messages to the main agent during execution.",
+        "   - Progress updates for long-running tasks: notify('Searched 3 sources, analyzing...')",
+        "   - Interim results the user might want to see early",
+        "   - Clarification requests when the task is ambiguous",
+        "   - Warnings about issues encountered (e.g., API errors, permission denied)",
+        "   - Do NOT over-notify. One message per major milestone is enough.",
       ].join("\n"),
     };
     const instruction = stageInstructions[stage];

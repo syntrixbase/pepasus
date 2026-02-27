@@ -199,6 +199,7 @@ export class TaskPersister {
           break;
 
         case "REFLECTION_COMPLETE":
+        case "TASK_NOTIFY":
           // Observability data — no state to reconstruct
           break;
 
@@ -378,6 +379,20 @@ export class TaskPersister {
         });
       } catch (err) {
         logger.warn({ taskId: event.taskId, error: err }, "persist_needinfo_failed");
+      }
+    });
+
+    // TASK_NOTIFY — task → main agent communication
+    this.bus.subscribe(EventType.TASK_NOTIFY, async (event) => {
+      if (!event.taskId) return;
+      const task = this.registry.getOrNull(event.taskId);
+      if (!task) return;
+      try {
+        await this._append(event.taskId, task.createdAt, "TASK_NOTIFY", {
+          message: event.payload["message"],
+        });
+      } catch (err) {
+        logger.warn({ taskId: event.taskId, error: err }, "persist_notify_failed");
       }
     });
 

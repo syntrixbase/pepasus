@@ -486,9 +486,14 @@ export class MainAgent {
   // ── Task notification handling ──
 
   private async _handleTaskNotify(notification: TaskNotification): Promise<void> {
-    const resultText = notification.type === "failed"
-      ? `[Task ${notification.taskId} failed]\nError: ${notification.error}`
-      : `[Task ${notification.taskId} completed]\nResult: ${JSON.stringify(notification.result)}`;
+    let resultText: string;
+    if (notification.type === "failed") {
+      resultText = `[Task ${notification.taskId} failed]\nError: ${notification.error}`;
+    } else if (notification.type === "notify") {
+      resultText = `[Task ${notification.taskId} update]\n${notification.message}`;
+    } else {
+      resultText = `[Task ${notification.taskId} completed]\nResult: ${JSON.stringify(notification.result)}`;
+    }
 
     const systemMsg: Message = { role: "user", content: resultText };
     this.sessionMessages.push(systemMsg);

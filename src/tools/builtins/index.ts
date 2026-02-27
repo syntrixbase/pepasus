@@ -85,6 +85,12 @@ const use_skill = skillToolModule.use_skill;
 
 export { use_skill };
 
+// Notify tool (for Task Agent → MainAgent communication)
+import * as notifyToolModule from "./notify-tool.ts";
+const notify = notifyToolModule.notify;
+
+export { notify };
+
 // Session tools
 import * as sessionToolsModule from "./session-tools.ts";
 const session_archive_read = sessionToolsModule.session_archive_read;
@@ -151,6 +157,7 @@ export const allTaskTools: Tool[] = [
   ...dataTools,
   ...memoryTools,
   ...taskTools,
+  notify,
 ];
 
 /** Tools for Main Agent (curated simple tools + spawn_task + resume_task + reply). */
