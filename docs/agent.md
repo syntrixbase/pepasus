@@ -213,16 +213,21 @@ const taskId = await agent.submit("Search for papers")
 // Wait for task to complete (for testing)
 const task = await agent.waitForTask(taskId, 5000)
 
-// Register notification callback for completion/failure
+// Register notification callback
 agent.onNotify((notification) => {
-    // notification.type: "completed" | "failed"
-    // notification.taskId, notification.result / notification.error
+    // notification.type: "completed" | "failed" | "notify"
+    // notification.taskId, notification.result / notification.error / notification.message
 })
 ```
 
 `submit` is the primary way CLI/API calls the Agent. Internally it emits a `MESSAGE_RECEIVED` event and waits for a `TASK_CREATED` event to return the taskId.
 
-`onNotify` replaces the old `onTaskComplete` — it handles both completion and failure notifications in a unified callback.
+`onNotify` handles three notification types:
+- `completed` — task finished with a result
+- `failed` — task failed with an error
+- `notify` — task sends an interim message (via the `notify()` tool)
+
+When a task calls the `notify()` tool during execution, Agent intercepts the tool result, emits a `TASK_NOTIFY` event (persisted by TaskPersister), and calls `notifyCallback` so MainAgent receives the message immediately.
 
 ## Lifecycle
 

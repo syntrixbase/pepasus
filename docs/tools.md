@@ -211,6 +211,15 @@ Memory tools operate on markdown files stored under `data/memory/` (facts and ep
 |------|-------------|------------|
 | `spawn_task` | Launch a background task | `{ description, input }` |
 | `reply` | Speak to the user (the **only** way to produce user-visible output) | `{ text, channelId, replyTo? }` |
+| `use_skill` | Invoke a skill by name | `{ skill, args? }` |
+
+### Task Agent–Only Tools (SYSTEM)
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `notify` | Send a message to the main agent during task execution | `{ message }` |
+
+The `notify` tool is a general-purpose communication channel from Task Agent to MainAgent. Use cases include progress updates, interim results, clarification requests, and warnings. Each notify call emits a `TASK_NOTIFY` event (persisted to JSONL) and calls the `notifyCallback` so MainAgent can react.
 
 ---
 
@@ -220,15 +229,15 @@ Different subsystems receive different tool subsets via pre-built arrays:
 
 | Collection | Contents | Used By |
 |------------|----------|---------|
-| `allTaskTools` | systemTools + fileTools + networkTools + dataTools + memoryTools + taskTools | Task System (Agent) |
-| `mainAgentTools` | `current_time`, `memory_list`, `memory_read`, `task_list`, `task_replay`, `session_archive_read`, `spawn_task`, `reply` | Main Agent |
+| `allTaskTools` | systemTools + fileTools + networkTools + dataTools + memoryTools + taskTools + `notify` | Task System (Agent) |
+| `mainAgentTools` | `current_time`, `memory_list`, `memory_read`, `task_list`, `task_replay`, `session_archive_read`, `spawn_task`, `resume_task`, `reply`, `use_skill` | Main Agent |
 | `reflectionTools` | `memory_read`, `memory_write`, `memory_patch`, `memory_append` | PostTaskReflector |
 | `sessionTools` | `session_archive_read` | Session layer |
 
 **Key design decisions:**
 
-- **`allTaskTools`** does **not** include `spawn_task` or `reply` — those are Main Agent–only.
-- **`mainAgentTools`** gives the orchestrator read-only access to memory and task history, plus the ability to spawn tasks and reply.
+- **`allTaskTools`** does **not** include `spawn_task`, `reply`, or `use_skill` — those are Main Agent–only. It **does** include `notify` for task → main agent communication.
+- **`mainAgentTools`** gives the orchestrator read-only access to memory and task history, plus the ability to spawn tasks, invoke skills, and reply.
 - **`reflectionTools`** provides full memory write access but omits `memory_list` because the memory index is pre-loaded and injected into the reflection prompt.
 
 ---

@@ -39,7 +39,8 @@ const logger = getLogger("agent");
 
 export type TaskNotification =
   | { type: "completed"; taskId: string; result: unknown }
-  | { type: "failed"; taskId: string; error: string };
+  | { type: "failed"; taskId: string; error: string }
+  | { type: "notify"; taskId: string; message: string };
 
 /** Push a tool result message into context.messages. */
 function context_pushToolResult(
@@ -495,6 +496,25 @@ export class Agent {
           },
           { taskId: task.taskId },
         );
+
+        // Intercept notify tool: emit TASK_NOTIFY event + call notifyCallback
+        if (toolName === "notify" && toolResult.success) {
+          const { message } = toolResult.result as { action: string; message: string; taskId: string };
+          await this.eventBus.emit(
+            createEvent(EventType.TASK_NOTIFY, {
+              source: "cognitive.act",
+              taskId: task.taskId,
+              payload: { message },
+            }),
+          );
+          if (this.notifyCallback) {
+            this.notifyCallback({
+              type: "notify",
+              taskId: task.taskId,
+              message,
+            });
+          }
+        }
       }), task.taskId);
       // Return immediately — non-blocking
       return;

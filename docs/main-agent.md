@@ -237,7 +237,16 @@ The Task System calls this whenever something noteworthy happens — it does not
 |--------|-------------|
 | Task completed (final result) | Each REASON_DONE / tool call step |
 | Task failed (error) | Internal state transitions |
-| Needs user clarification (NEED_MORE_INFO) | Progress percentages |
+| Needs user clarification (NEED_MORE_INFO) | |
+| Task notify (interim messages via `notify()` tool) | |
+
+Task Agent can send messages to Main Agent during execution using the `notify()` tool. This is a general-purpose communication channel — not just progress updates. Use cases:
+- Progress updates for long-running tasks
+- Interim results the user might want to see early
+- Clarification requests when the task is ambiguous
+- Warnings about issues encountered (e.g., API errors, permission denied)
+
+Each notify message arrives as a `task_notify` queue item and triggers `_think`, allowing Main Agent to decide whether to `reply()` to the user.
 
 **Principle: only notify Main Agent with information that matters to the user.** Internal tool calls, intermediate reasoning, FSM transitions — these are Task System's internal business. Main Agent only needs to know outcomes and decisions that require its attention.
 

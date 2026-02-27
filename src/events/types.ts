@@ -26,6 +26,7 @@ export const EventType = {
   TASK_FAILED: 230,
   TASK_SUSPENDED: 240,
   TASK_RESUMED: 250,
+  TASK_NOTIFY: 260,      // task → main agent communication
 
   // Cognitive stages (300-399)
   REASON_DONE: 300,

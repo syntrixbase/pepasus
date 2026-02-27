@@ -8,7 +8,7 @@
 - 🔄 **Event-driven architecture** — everything is an event, dispatched via EventBus, non-blocking concurrency
 - 🤖 **State machine task management** — TaskFSM controls task lifecycle precisely, with suspend/resume
 - 🧩 **2-stage cognitive pipeline** — Reason → Act, with async post-task reflection for memory learning
-- 📡 **Multi-channel adapter** — Channel Adapter pattern, supports CLI / Slack / SMS / Web
+- 📡 **Multi-channel adapter** — Channel Adapter pattern (CLI + Telegram implemented, Slack / SMS / Web planned)
 - 🎭 **Identity system** — configurable persona, consistent personality and behavior
 - 🔧 **Built-in tool system** — file, network, system, data, memory tools + LLM function calling
 - 💾 **Memory system** — long-term memory (facts + episodes), markdown file based
@@ -36,34 +36,40 @@ bun install
 
 ### Configure
 
-Pegasus uses layered config: `config.yml` (base) → `config.local.yml` (override) → Zod validation.
+Pegasus uses layered config: `config.yml` (base) → `config.local.yml` (override) → env vars → Zod validation.
 
-Create `config.local.yml`:
+Quickest: set env vars in `.env`:
+
+```bash
+cp .env.example .env
+# Edit .env — set your API key and default model:
+#   OPENAI_API_KEY=sk-proj-...
+#   LLM_DEFAULT_MODEL=openai/gpt-4o
+```
+
+Or create `config.local.yml` for more control:
 
 ```yaml
-# OpenAI
 llm:
-  provider: openai
+  roles:
+    default: openai/gpt-4o          # provider/model format
+    subAgent: openai/gpt-4o-mini    # optional: cheaper model for tasks
   providers:
     openai:
       apiKey: sk-proj-your-key
-      model: gpt-4o-mini
 
 # Or Anthropic
 # llm:
-#   provider: anthropic
+#   roles:
+#     default: anthropic/claude-sonnet-4-20250514
 #   providers:
 #     anthropic:
 #       apiKey: sk-ant-your-key
-#       model: claude-sonnet-4-20250514
 
-# Or local Ollama
+# Or local Ollama (no API key needed)
 # llm:
-#   provider: ollama
-#   providers:
-#     ollama:
-#       model: llama3.2:latest
-#       baseURL: http://localhost:11434/v1
+#   roles:
+#     default: ollama/llama3.2:latest
 ```
 
 ### Run

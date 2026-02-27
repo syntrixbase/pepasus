@@ -157,6 +157,7 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("background task worker");
     expect(prompt).toContain("FOCUS");
     expect(prompt).toContain("CONCISE RESULT");
+    expect(prompt).toContain("notify()");
   });
 
   test("reflect stage (removed) does not add instruction", () => {

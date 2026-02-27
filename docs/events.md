@@ -53,7 +53,8 @@ EventType
 │   ├── TASK_COMPLETED       = 220      # task completed
 │   ├── TASK_FAILED          = 230      # task failed
 │   ├── TASK_SUSPENDED       = 240      # task suspended
-│   └── TASK_RESUMED         = 250      # task resumed
+│   ├── TASK_RESUMED         = 250      # task resumed
+│   └── TASK_NOTIFY          = 260      # task → main agent communication (via notify tool)
 │
 ├── Cognitive stage events (300-399)
 │   ├── REASON_DONE          = 300      # reasoning complete (understand + think + plan)
