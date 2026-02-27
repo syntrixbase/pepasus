@@ -77,3 +77,4 @@ Before ANY change:
 | `docs/running.md` | Setup and usage guide |
 | `docs/progress.md` | Milestones, test coverage, tech stack |
 | `docs/todos.md` | Planned features, improvements, ideas |
+| `docs/skill-system.md` | Prompt-based skill system: SKILL.md format, loader, registry |
