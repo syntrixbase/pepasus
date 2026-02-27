@@ -36,9 +36,14 @@ llm:
       baseURL: ${ANTHROPIC_BASE_URL:-}
 
     zai:
-      type: openai  # treat ZAI as OpenAI-compatible
+      type: ${ZAI_TYPE:-openai}  # treat ZAI as OpenAI-compatible
       apiKey: ${ZAI_API_KEY}
       baseURL: ${ZAI_BASE_URL:-https://api.z.ai/api/coding/paas/v4}
+
+    litellm:
+      type: ${LITELLM_TYPE:-openai}
+      apiKey: ${LITELLM_API_KEY}
+      baseURL: ${LITELLM_BASE_URL:-https://api.litellm.com/v1}
 
     # For Ollama, LM Studio, or other OpenAI-compatible endpoints
     # Usage: roles.default: "ollama/llama3.2:latest"

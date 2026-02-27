@@ -82,9 +82,10 @@ If no PR number is provided, use the current branch's PR.
       - Restore stashed changes: `git stash pop`
       - Inform the user that original branch and changes have been restored
     - If `SWITCHED_BRANCH=false` (was on the PR branch itself):
-      - The PR branch has been deleted, switch to main and pull:
+      - The PR branch has been deleted, fetch remote updates and switch to origin/main detached HEAD:
         ```bash
-        git checkout main && git pull
+        git fetch origin main
+        git checkout origin/main
         ```
 
 11. **Report result**: Show the merge commit and confirm success.
