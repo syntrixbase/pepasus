@@ -5,9 +5,13 @@
  * clients for listTools/callTool/disconnect paths that require a connected client.
  */
 
-import { describe, it, expect, beforeEach, mock } from "bun:test";
+import { describe, it, expect, beforeEach, afterEach, mock } from "bun:test";
 import { MCPManager } from "../../../src/mcp/manager.ts";
 import type { MCPServerConfig } from "../../../src/mcp/manager.ts";
+import { TokenStore } from "../../../src/mcp/auth/token-store.ts";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import * as os from "node:os";
 
 // We need access to the private clients map for mock-injection tests.
 // This helper injects a fake client into the manager.
@@ -22,9 +26,15 @@ function injectMockClient(
 
 describe("MCPManager", () => {
   let manager: MCPManager;
+  let tmpDir: string;
 
   beforeEach(() => {
-    manager = new MCPManager();
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "mcp-manager-test-"));
+    manager = new MCPManager(tmpDir);
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
   // ═══════════════════════════════════════════════════
@@ -319,6 +329,109 @@ describe("MCPManager", () => {
       expect(servers).toContain("a");
       expect(servers).toContain("b");
       expect(servers).toHaveLength(2);
+    });
+  });
+
+  // ═══════════════════════════════════════════════════
+  // constructor
+  // ═══════════════════════════════════════════════════
+
+  describe("constructor", () => {
+    it("should accept dataDir and create TokenStore", () => {
+      const m = new MCPManager(tmpDir);
+      expect(m.getTokenStore()).toBeInstanceOf(TokenStore);
+    });
+
+    it("should create mcp-auth directory inside dataDir", () => {
+      // Constructor creates mcp-auth dir — we already have `manager` from beforeEach
+      expect(fs.existsSync(path.join(tmpDir, "mcp-auth"))).toBe(true);
+    });
+  });
+
+  // ═══════════════════════════════════════════════════
+  // getTokenStore
+  // ═══════════════════════════════════════════════════
+
+  describe("getTokenStore", () => {
+    it("should return the TokenStore instance", () => {
+      const store = manager.getTokenStore();
+      expect(store).toBeInstanceOf(TokenStore);
+    });
+  });
+
+  // ═══════════════════════════════════════════════════
+  // connectAll parallel + name collision
+  // ═══════════════════════════════════════════════════
+
+  describe("connectAll parallel execution", () => {
+    it("should run connections in parallel via Promise.allSettled", async () => {
+      // Both configs will fail (bad commands), but both should be attempted
+      const configs: MCPServerConfig[] = [
+        {
+          name: "fail-1",
+          transport: "stdio",
+          command: "/nonexistent/cmd/1",
+          enabled: true,
+        },
+        {
+          name: "fail-2",
+          transport: "stdio",
+          command: "/nonexistent/cmd/2",
+          enabled: true,
+        },
+      ];
+
+      // Should not throw — graceful degradation for both
+      await manager.connectAll(configs);
+      expect(manager.getConnectedServers()).toEqual([]);
+    });
+
+    it("should throw on server name collisions after sanitization", async () => {
+      const configs: MCPServerConfig[] = [
+        { name: "my.server", transport: "stdio", command: "echo", enabled: true },
+        { name: "my_server", transport: "stdio", command: "echo", enabled: true },
+      ];
+
+      await expect(manager.connectAll(configs)).rejects.toThrow(
+        "MCP server name collisions",
+      );
+    });
+
+    it("should not throw when names are unique after sanitization", async () => {
+      const configs: MCPServerConfig[] = [
+        { name: "server-a", transport: "stdio", command: "/nonexistent/fake", enabled: true },
+        { name: "server-b", transport: "stdio", command: "/nonexistent/fake", enabled: true },
+      ];
+
+      // Should not throw (names are unique), but connections will fail gracefully
+      await manager.connectAll(configs);
+      expect(manager.getConnectedServers()).toEqual([]);
+    });
+  });
+
+  // ═══════════════════════════════════════════════════
+  // auth config on stdio (warning, ignored)
+  // ═══════════════════════════════════════════════════
+
+  describe("auth config handling", () => {
+    it("should accept auth field in MCPServerConfig", async () => {
+      const configs: MCPServerConfig[] = [
+        {
+          name: "auth-stdio",
+          transport: "stdio",
+          command: "/nonexistent/cmd",
+          enabled: true,
+          auth: {
+            type: "client_credentials",
+            clientId: "test",
+            clientSecret: "secret",
+          },
+        },
+      ];
+
+      // Should not throw — auth is ignored for stdio (graceful degradation)
+      await manager.connectAll(configs);
+      expect(manager.getConnectedServers()).toEqual([]);
     });
   });
 });

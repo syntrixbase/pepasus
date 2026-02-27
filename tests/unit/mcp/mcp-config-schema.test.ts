@@ -226,4 +226,80 @@ describe("mcpServers config schema", () => {
       expect(message).toContain("stdio transport requires 'command'");
     }
   });
+
+  // ── auth field ──
+
+  it("should accept sse config with client_credentials auth", () => {
+    const result = ToolsConfigSchema.parse({
+      mcpServers: [{
+        name: "authed",
+        transport: "sse",
+        url: "https://api.example.com/sse",
+        auth: {
+          type: "client_credentials",
+          clientId: "id",
+          clientSecret: "secret",
+        },
+      }],
+    });
+    expect(result.mcpServers[0]!.auth).toBeDefined();
+    expect(result.mcpServers[0]!.auth!.type).toBe("client_credentials");
+  });
+
+  it("should accept sse config with device_code auth", () => {
+    const result = ToolsConfigSchema.parse({
+      mcpServers: [{
+        name: "dc",
+        transport: "sse",
+        url: "https://api.example.com/sse",
+        auth: {
+          type: "device_code",
+          clientId: "id",
+          deviceAuthorizationUrl: "https://example.com/device",
+          tokenUrl: "https://example.com/token",
+        },
+      }],
+    });
+    expect(result.mcpServers[0]!.auth!.type).toBe("device_code");
+  });
+
+  it("should accept config without auth (backward compatible)", () => {
+    const result = ToolsConfigSchema.parse({
+      mcpServers: [{
+        name: "no-auth",
+        transport: "sse",
+        url: "https://api.example.com/sse",
+      }],
+    });
+    expect(result.mcpServers[0]!.auth).toBeUndefined();
+  });
+
+  it("should accept auth on stdio transport (ignored at runtime)", () => {
+    const result = ToolsConfigSchema.parse({
+      mcpServers: [{
+        name: "stdio-auth",
+        transport: "stdio",
+        command: "echo",
+        auth: {
+          type: "client_credentials",
+          clientId: "id",
+          clientSecret: "secret",
+        },
+      }],
+    });
+    expect(result.mcpServers[0]!.auth).toBeDefined();
+  });
+
+  it("should reject invalid auth type", () => {
+    expect(() =>
+      ToolsConfigSchema.parse({
+        mcpServers: [{
+          name: "bad-auth",
+          transport: "sse",
+          url: "https://api.example.com/sse",
+          auth: { type: "authorization_code", clientId: "id" },
+        }],
+      }),
+    ).toThrow();
+  });
 });

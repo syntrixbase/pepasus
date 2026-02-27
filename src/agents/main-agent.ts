@@ -30,6 +30,8 @@ import { SkillRegistry, loadAllSkills } from "../skills/index.ts";
 import { mainAgentTools } from "../tools/builtins/index.ts";
 import { MCPManager, wrapMCPTools } from "../mcp/index.ts";
 import type { MCPServerConfig } from "../mcp/index.ts";
+import { TokenRefreshMonitor } from "../mcp/auth/refresh-monitor.ts";
+import type { DeviceCodeAuthConfig } from "../mcp/auth/types.ts";
 
 const logger = getLogger("main_agent");
 
@@ -50,6 +52,7 @@ export class MainAgent {
   private settings: Settings;
   private agent: Agent; // Task execution engine
   private mcpManager: MCPManager | null = null;
+  private tokenRefreshMonitor: TokenRefreshMonitor | null = null;
   private sessionStore: SessionStore;
   private toolRegistry: ToolRegistry;
   private toolExecutor: ToolExecutor;
@@ -112,7 +115,7 @@ export class MainAgent {
     // Connect to MCP servers and register tools in both Agent and MainAgent
     const mcpConfigs = (this.settings.tools?.mcpServers ?? []) as MCPServerConfig[];
     if (mcpConfigs.length > 0) {
-      this.mcpManager = new MCPManager();
+      this.mcpManager = new MCPManager(this.settings.dataDir);
       await this.mcpManager.connectAll(mcpConfigs);
 
       // Register in Agent's tool registry (for task execution)
@@ -137,6 +140,25 @@ export class MainAgent {
         { servers: mcpConfigs.filter((c) => c.enabled).length },
         "mcp_connected",
       );
+
+      // Start token refresh monitor for device_code servers
+      const deviceCodeConfigs = mcpConfigs.filter(
+        (c): c is MCPServerConfig & { auth: DeviceCodeAuthConfig } =>
+          c.enabled && c.auth?.type === "device_code",
+      );
+      if (deviceCodeConfigs.length > 0) {
+        this.tokenRefreshMonitor = new TokenRefreshMonitor(this.mcpManager.getTokenStore());
+        for (const config of deviceCodeConfigs) {
+          this.tokenRefreshMonitor.track(config.name, config.auth);
+        }
+        this.tokenRefreshMonitor.onEvent((event) => {
+          logger.warn({ authEvent: event.type, server: event.server }, event.message);
+        });
+        logger.info(
+          { servers: deviceCodeConfigs.length },
+          "token_refresh_monitor_started",
+        );
+      }
     }
 
     // Load skills from builtin and user directories
@@ -156,6 +178,12 @@ export class MainAgent {
 
   /** Stop the Main Agent. */
   async stop(): Promise<void> {
+    // Stop token refresh monitor
+    if (this.tokenRefreshMonitor) {
+      this.tokenRefreshMonitor.stop();
+      this.tokenRefreshMonitor = null;
+    }
+
     // Disconnect MCP servers first (before agent stops)
     if (this.mcpManager) {
       await this.mcpManager.disconnectAll();

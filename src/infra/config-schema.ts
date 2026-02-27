@@ -3,6 +3,7 @@
  * Separated to avoid circular dependencies between config.ts and config-loader.ts.
  */
 import { z } from "zod";
+import { MCPAuthConfigSchema } from "../mcp/auth/types.ts";
 
 // Provider-specific configuration
 export const ProviderConfigSchema = z.object({
@@ -88,6 +89,8 @@ export const ToolsConfigSchema = z.object({
         cwd: z.string().optional(),
         // sse/http transport fields
         url: z.string().url().optional(),
+        // auth
+        auth: MCPAuthConfigSchema.optional(),
         // common
         enabled: z.boolean().default(true),
       }).refine(
