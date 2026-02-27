@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { TaskType, DEFAULT_TASK_TYPE } from "@pegasus/task/task-type.ts";
-import { getToolsForType, exploreTools, planTools, allTaskTools } from "@pegasus/tools/builtins/index.ts";
 import { createTaskContext } from "@pegasus/task/context.ts";
+import { SubagentRegistry } from "@pegasus/subagents/registry.ts";
+import { parseSubagentFile, scanSubagentDir, loadAllSubagents } from "@pegasus/subagents/loader.ts";
+import type { SubagentDefinition } from "@pegasus/subagents/types.ts";
+import { allTaskTools } from "@pegasus/tools/builtins/index.ts";
+import { writeFileSync, mkdirSync, rmSync } from "node:fs";
+import { join } from "node:path";
 
 describe("TaskType enum", () => {
   test("has correct string values", () => {
@@ -15,95 +20,6 @@ describe("TaskType enum", () => {
   });
 });
 
-describe("getToolsForType", () => {
-  test("general returns all task tools", () => {
-    const tools = getToolsForType("general");
-    expect(tools).toBe(allTaskTools);
-    expect(tools.length).toBeGreaterThan(20);
-  });
-
-  test("explore returns read-only subset", () => {
-    const tools = getToolsForType("explore");
-    expect(tools).toBe(exploreTools);
-    const names = tools.map((t) => t.name);
-
-    // Should include read-only tools
-    expect(names).toContain("read_file");
-    expect(names).toContain("list_files");
-    expect(names).toContain("grep_files");
-    expect(names).toContain("http_get");
-    expect(names).toContain("web_search");
-    expect(names).toContain("memory_read");
-    expect(names).toContain("notify");
-
-    // Should NOT include write/mutate tools
-    expect(names).not.toContain("write_file");
-    expect(names).not.toContain("delete_file");
-    expect(names).not.toContain("edit_file");
-    expect(names).not.toContain("move_file");
-    expect(names).not.toContain("http_post");
-    expect(names).not.toContain("http_request");
-    expect(names).not.toContain("memory_write");
-    expect(names).not.toContain("memory_patch");
-    expect(names).not.toContain("memory_append");
-    expect(names).not.toContain("set_env");
-    expect(names).not.toContain("sleep");
-  });
-
-  test("plan returns read-only + memory write", () => {
-    const tools = getToolsForType("plan");
-    expect(tools).toBe(planTools);
-    const names = tools.map((t) => t.name);
-
-    // Should include read-only tools
-    expect(names).toContain("read_file");
-    expect(names).toContain("grep_files");
-    expect(names).toContain("web_search");
-
-    // Should include memory write tools
-    expect(names).toContain("memory_write");
-    expect(names).toContain("memory_append");
-
-    // Should NOT include file write or other mutate tools
-    expect(names).not.toContain("write_file");
-    expect(names).not.toContain("delete_file");
-    expect(names).not.toContain("edit_file");
-    expect(names).not.toContain("http_post");
-    expect(names).not.toContain("http_request");
-    expect(names).not.toContain("memory_patch");
-  });
-
-  test("unknown type defaults to general", () => {
-    const tools = getToolsForType("unknown_type");
-    expect(tools).toBe(allTaskTools);
-  });
-
-  test("all types include notify", () => {
-    for (const type of ["general", "explore", "plan"]) {
-      const names = getToolsForType(type).map((t) => t.name);
-      expect(names).toContain("notify");
-    }
-  });
-
-  test("explore is strict subset of general", () => {
-    const generalNames = new Set(getToolsForType("general").map((t) => t.name));
-    const exploreNames = getToolsForType("explore").map((t) => t.name);
-    for (const name of exploreNames) {
-      expect(generalNames.has(name)).toBe(true);
-    }
-    expect(exploreNames.length).toBeLessThan(generalNames.size);
-  });
-
-  test("plan is strict subset of general", () => {
-    const generalNames = new Set(getToolsForType("general").map((t) => t.name));
-    const planNames = getToolsForType("plan").map((t) => t.name);
-    for (const name of planNames) {
-      expect(generalNames.has(name)).toBe(true);
-    }
-    expect(planNames.length).toBeLessThan(generalNames.size);
-  });
-});
-
 describe("TaskContext taskType", () => {
   test("createTaskContext defaults taskType to general", () => {
     const ctx = createTaskContext();
@@ -113,5 +29,231 @@ describe("TaskContext taskType", () => {
   test("createTaskContext accepts custom taskType", () => {
     const ctx = createTaskContext({ taskType: "explore" });
     expect(ctx.taskType).toBe("explore");
+  });
+});
+
+// ── SubagentLoader tests ──
+
+const testDir = "/tmp/pegasus-test-subagents";
+
+function cleanup() {
+  try { rmSync(testDir, { recursive: true, force: true }); } catch { /* ok */ }
+}
+
+describe("SubagentLoader", () => {
+  test("parseSubagentFile parses valid SUBAGENT.md", () => {
+    cleanup();
+    const dir = join(testDir, "explore");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "SUBAGENT.md"), [
+      "---",
+      "name: explore",
+      'description: "Research agent"',
+      "tools: \"read_file, web_search, notify\"",
+      "---",
+      "",
+      "## Your Role",
+      "You are a research assistant.",
+    ].join("\n"));
+
+    const def = parseSubagentFile(join(dir, "SUBAGENT.md"), "explore", "builtin");
+    expect(def).not.toBeNull();
+    expect(def!.name).toBe("explore");
+    expect(def!.description).toBe("Research agent");
+    expect(def!.tools).toEqual(["read_file", "web_search", "notify"]);
+    expect(def!.prompt).toContain("research assistant");
+    expect(def!.source).toBe("builtin");
+    cleanup();
+  });
+
+  test("parseSubagentFile handles tools: * for all tools", () => {
+    cleanup();
+    const dir = join(testDir, "general");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "SUBAGENT.md"), [
+      "---",
+      "name: general",
+      'description: "Full access"',
+      'tools: "*"',
+      "---",
+      "General agent.",
+    ].join("\n"));
+
+    const def = parseSubagentFile(join(dir, "SUBAGENT.md"), "general", "builtin");
+    expect(def!.tools).toEqual(["*"]);
+    cleanup();
+  });
+
+  test("parseSubagentFile uses dir name when name not in frontmatter", () => {
+    cleanup();
+    const dir = join(testDir, "myagent");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "SUBAGENT.md"), [
+      "---",
+      'description: "Custom agent"',
+      'tools: "*"',
+      "---",
+      "Body.",
+    ].join("\n"));
+
+    const def = parseSubagentFile(join(dir, "SUBAGENT.md"), "myagent", "user");
+    expect(def!.name).toBe("myagent");
+    expect(def!.source).toBe("user");
+    cleanup();
+  });
+
+  test("parseSubagentFile rejects invalid name", () => {
+    cleanup();
+    const dir = join(testDir, "bad");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "SUBAGENT.md"), [
+      "---",
+      "name: Invalid Name!",
+      'description: "Bad"',
+      "---",
+      "Body.",
+    ].join("\n"));
+
+    const def = parseSubagentFile(join(dir, "SUBAGENT.md"), "bad", "builtin");
+    expect(def).toBeNull();
+    cleanup();
+  });
+
+  test("scanSubagentDir discovers all subagent directories", () => {
+    cleanup();
+    for (const name of ["alpha", "beta"]) {
+      const dir = join(testDir, name);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "SUBAGENT.md"), [
+        "---",
+        `name: ${name}`,
+        `description: "${name} agent"`,
+        'tools: "*"',
+        "---",
+        `${name} body.`,
+      ].join("\n"));
+    }
+
+    const defs = scanSubagentDir(testDir, "builtin");
+    expect(defs.length).toBe(2);
+    const names = defs.map((d) => d.name).sort();
+    expect(names).toEqual(["alpha", "beta"]);
+    cleanup();
+  });
+
+  test("scanSubagentDir returns empty for non-existent directory", () => {
+    const defs = scanSubagentDir("/tmp/nonexistent-subagent-dir", "builtin");
+    expect(defs).toEqual([]);
+  });
+
+  test("loadAllSubagents merges builtin and user", () => {
+    cleanup();
+    const builtinDir = join(testDir, "builtin");
+    const userDir = join(testDir, "user");
+    mkdirSync(join(builtinDir, "explore"), { recursive: true });
+    mkdirSync(join(userDir, "custom"), { recursive: true });
+    writeFileSync(join(builtinDir, "explore", "SUBAGENT.md"), "---\nname: explore\ndescription: builtin\ntools: \"*\"\n---\nBody.");
+    writeFileSync(join(userDir, "custom", "SUBAGENT.md"), "---\nname: custom\ndescription: user\ntools: \"*\"\n---\nBody.");
+
+    const defs = loadAllSubagents(builtinDir, userDir);
+    expect(defs.length).toBe(2);
+    cleanup();
+  });
+
+  test("loads builtin subagent files from project", () => {
+    const defs = scanSubagentDir(join(process.cwd(), "subagents"), "builtin");
+    expect(defs.length).toBeGreaterThanOrEqual(3);
+    const names = defs.map((d) => d.name).sort();
+    expect(names).toContain("general");
+    expect(names).toContain("explore");
+    expect(names).toContain("plan");
+  });
+});
+
+// ── SubagentRegistry tests ──
+
+describe("SubagentRegistry", () => {
+  function makeDef(name: string, tools: string[] = ["*"], source: "builtin" | "user" = "builtin"): SubagentDefinition {
+    return { name, description: `${name} agent`, tools, prompt: `${name} prompt`, source };
+  }
+
+  test("registerMany and get", () => {
+    const reg = new SubagentRegistry();
+    reg.registerMany([makeDef("general"), makeDef("explore", ["read_file", "notify"])]);
+    expect(reg.get("general")).not.toBeNull();
+    expect(reg.get("explore")).not.toBeNull();
+    expect(reg.get("unknown")).toBeNull();
+  });
+
+  test("user overrides builtin", () => {
+    const reg = new SubagentRegistry();
+    reg.registerMany([
+      makeDef("explore", ["read_file"], "builtin"),
+      makeDef("explore", ["read_file", "web_search"], "user"),
+    ]);
+    expect(reg.get("explore")!.tools).toEqual(["read_file", "web_search"]);
+  });
+
+  test("builtin does not override user", () => {
+    const reg = new SubagentRegistry();
+    reg.registerMany([
+      makeDef("explore", ["read_file", "web_search"], "user"),
+      makeDef("explore", ["read_file"], "builtin"),
+    ]);
+    expect(reg.get("explore")!.tools).toEqual(["read_file", "web_search"]);
+  });
+
+  test("getToolNames resolves * to all task tools", () => {
+    const reg = new SubagentRegistry();
+    reg.registerMany([makeDef("general")]);
+    const names = reg.getToolNames("general");
+    expect(names.length).toBe(allTaskTools.length);
+    expect(names).toContain("read_file");
+    expect(names).toContain("notify");
+  });
+
+  test("getToolNames returns explicit tool list", () => {
+    const reg = new SubagentRegistry();
+    reg.registerMany([makeDef("explore", ["read_file", "web_search", "notify"])]);
+    expect(reg.getToolNames("explore")).toEqual(["read_file", "web_search", "notify"]);
+  });
+
+  test("getToolNames falls back to * for unknown type", () => {
+    const reg = new SubagentRegistry();
+    const names = reg.getToolNames("unknown");
+    expect(names.length).toBe(allTaskTools.length);
+  });
+
+  test("getPrompt returns prompt body", () => {
+    const reg = new SubagentRegistry();
+    reg.registerMany([makeDef("explore")]);
+    expect(reg.getPrompt("explore")).toBe("explore prompt");
+  });
+
+  test("getPrompt returns empty string for unknown type", () => {
+    const reg = new SubagentRegistry();
+    expect(reg.getPrompt("unknown")).toBe("");
+  });
+
+  test("getMetadataForPrompt generates subagent listing", () => {
+    const reg = new SubagentRegistry();
+    reg.registerMany([makeDef("general"), makeDef("explore")]);
+    const metadata = reg.getMetadataForPrompt();
+    expect(metadata).toContain("general");
+    expect(metadata).toContain("explore");
+    expect(metadata).toContain("spawn_subagent");
+  });
+
+  test("has returns true for registered types", () => {
+    const reg = new SubagentRegistry();
+    reg.registerMany([makeDef("explore")]);
+    expect(reg.has("explore")).toBe(true);
+    expect(reg.has("unknown")).toBe(false);
+  });
+
+  test("listAll returns all definitions", () => {
+    const reg = new SubagentRegistry();
+    reg.registerMany([makeDef("general"), makeDef("explore"), makeDef("plan")]);
+    expect(reg.listAll().length).toBe(3);
   });
 });
