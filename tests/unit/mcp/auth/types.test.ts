@@ -362,9 +362,10 @@ describe("Type exports", () => {
     expect(provider.redirectUrl).toBe("https://example.com/callback");
   });
 
-  it("should support TransportAuthOptions union", () => {
+  it("should support TransportAuthOptions discriminated union", () => {
     // authProvider variant
     const opt1: TransportAuthOptions = {
+      mode: "authProvider",
       authProvider: {
         get redirectUrl() { return "https://example.com/callback"; },
         get clientMetadata() {
@@ -378,18 +379,20 @@ describe("Type exports", () => {
         codeVerifier() { return "v"; },
       },
     };
+    expect(opt1.mode).toBe("authProvider");
     expect(opt1.authProvider).toBeDefined();
 
     // requestInit variant
     const opt2: TransportAuthOptions = {
+      mode: "requestInit",
       requestInit: {
         headers: { Authorization: "Bearer tok" },
       },
     };
-    expect(opt2.requestInit).toBeDefined();
+    expect(opt2.mode).toBe("requestInit");
 
     // none variant
-    const opt3: TransportAuthOptions = {};
-    expect(opt3).toBeDefined();
+    const opt3: TransportAuthOptions = { mode: "none" };
+    expect(opt3.mode).toBe("none");
   });
 });

@@ -84,12 +84,10 @@ export interface OAuthClientProvider {
 }
 
 /**
- * Transport auth options union.
- * - authProvider: full OAuth flow via OAuthClientProvider
- * - requestInit: static headers (e.g. pre-set Bearer token)
- * - empty: no auth
+ * Transport auth options — discriminated union on `mode`.
+ * MCPManager checks `result.mode` to decide how to pass auth to the transport.
  */
-export type TransportAuthOptions = {
-  authProvider?: OAuthClientProvider;
-  requestInit?: RequestInit;
-};
+export type TransportAuthOptions =
+  | { mode: "authProvider"; authProvider: OAuthClientProvider }
+  | { mode: "requestInit"; requestInit: RequestInit }
+  | { mode: "none" };
