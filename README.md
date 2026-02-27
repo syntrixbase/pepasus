@@ -104,6 +104,7 @@ bun run dev
 - [Logging](./docs/logging.md) — log format, output, rotation
 - [Running Guide](./docs/running.md) — detailed setup and usage
 - [Progress](./docs/progress.md) — milestones, test coverage, tech stack
+- [TODOs](./docs/todos.md) — planned features and ideas
 
 ## 🛠️ Development
 

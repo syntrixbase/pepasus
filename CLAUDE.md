@@ -76,3 +76,4 @@ Before ANY change:
 | `docs/logging.md` | Log format, output, rotation |
 | `docs/running.md` | Setup and usage guide |
 | `docs/progress.md` | Milestones, test coverage, tech stack |
+| `docs/todos.md` | Planned features, improvements, ideas |
