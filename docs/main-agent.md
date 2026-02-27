@@ -457,6 +457,31 @@ interface ChannelAdapter {
 
 Each adapter listens for input on its channel and calls `agent.send()`. When Main Agent calls the `reply` tool, the outbound message is routed to the correct adapter via `deliver()`.
 
+### Adapter Routing
+
+Main Agent supports multi-channel routing via `registerAdapter()`. Each adapter is stored in an internal list, and the unified reply callback routes outbound messages by `channel.type`:
+
+```typescript
+mainAgent.registerAdapter(cliAdapter);      // type: "cli"
+mainAgent.registerAdapter(telegramAdapter); // type: "telegram"
+
+// When reply tool is called with channel.type = "telegram",
+// the message is routed to telegramAdapter.deliver()
+```
+
+Adapters are started independently and connected to Main Agent's `send()`:
+
+```typescript
+await cliAdapter.start({ send: (msg) => mainAgent.send(msg) });
+await telegramAdapter.start({ send: (msg) => mainAgent.send(msg) });
+```
+
+The `lastChannel` field tracks the most recent inbound message's channel, used for routing task completion notifications back to the correct channel.
+
+If no adapter matches the `channel.type` in an outbound message, a warning is logged but no error is thrown. If an adapter's `deliver()` fails, the error is caught and logged without crashing the agent.
+
+The legacy `onReply()` callback still works when no adapters are registered — useful for tests and simple setups.
+
 The system prompt is channel-aware — it adapts response style based on `channel.type` (verbose for CLI, concise for SMS, markdown for Slack).
 
 ## Relationship to Task System

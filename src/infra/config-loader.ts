@@ -50,6 +50,11 @@ const DEFAULT_CONFIG = {
   session: {
     compactThreshold: 0.8,
   },
+  channels: {
+    telegram: {
+      enabled: false,
+    },
+  },
   system: {
     logLevel: "info",
     logFormat: "json",
@@ -238,6 +243,7 @@ function configToSettings(config: any): Settings {
     identity: config.identity,
     tools: config.tools,
     session: config.session,
+    channels: config.channels,
     logLevel: config.system?.logLevel,
     dataDir: config.system?.dataDir,
     logFormat: config.system?.logFormat,

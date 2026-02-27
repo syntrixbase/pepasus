@@ -25,6 +25,9 @@ Tracked features, improvements, and ideas that are planned but not yet started.
 - [ ] MainAgent sees user preferences, identity info — most valuable facts come from here
 
 ### Multi-Channel
+- [x] Telegram channel adapter (Grammy + long polling, text-only MVP)
+- [x] Multi-channel adapter routing in MainAgent (`registerAdapter()`)
+- [x] CLIAdapter extracted from cli.ts as proper ChannelAdapter
 - [ ] Slack channel adapter
 - [ ] SMS channel adapter
 - [ ] Web/API channel adapter
