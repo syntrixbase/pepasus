@@ -307,11 +307,11 @@ export class Agent {
   ): Promise<void> {
     switch (state) {
       case TaskState.REASONING:
-        this._spawn(this._runReason(task, trigger));
+        this._spawn(this._runReason(task, trigger), task.taskId);
         break;
 
       case TaskState.ACTING:
-        this._spawn(this._runAct(task, trigger));
+        this._spawn(this._runAct(task, trigger), task.taskId);
         break;
 
       case TaskState.SUSPENDED:
@@ -495,7 +495,7 @@ export class Agent {
           },
           { taskId: task.taskId },
         );
-      }));
+      }), task.taskId);
       // Return immediately — non-blocking
       return;
     }
@@ -588,9 +588,30 @@ export class Agent {
   // Helpers
   // ═══════════════════════════════════════════════════
 
-  private _spawn(promise: Promise<void>): void {
-    const tracked = promise.catch((err) => {
-      logger.error({ error: err }, "spawned_task_error");
+  private _spawn(promise: Promise<void>, taskId?: string): void {
+    const tracked = promise.catch(async (err) => {
+      logger.error({ error: err, taskId }, "spawned_task_error");
+
+      // If this was a task-related spawn and the task is not yet terminal, fail it
+      if (taskId) {
+        const task = this.taskRegistry.getOrNull(taskId);
+        if (task && !task.isTerminal) {
+          const errorMsg = err instanceof Error ? err.message : String(err);
+          task.context.error = errorMsg;
+          // Directly transition + dispatch (TASK_FAILED is not subscribed via EventBus)
+          const failEvent = createEvent(EventType.TASK_FAILED, {
+            source: "agent",
+            taskId,
+            payload: { error: errorMsg },
+          });
+          try {
+            task.transition(failEvent);
+            await this._dispatchCognitiveStage(task, TaskState.FAILED, failEvent);
+          } catch (transitionErr) {
+            logger.error({ taskId, error: transitionErr }, "failed_to_transition_task");
+          }
+        }
+      }
     });
     this.backgroundTasks.add(tracked);
     tracked.finally(() => this.backgroundTasks.delete(tracked));

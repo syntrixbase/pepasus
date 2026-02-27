@@ -192,4 +192,52 @@ describe("Agent lifecycle", () => {
       await agent.stop();
     }
   }, 10_000);
+
+  test("LLM error triggers TASK_FAILED and onNotify", async () => {
+    const errorModel: LanguageModel = {
+      provider: "test",
+      modelId: "test-model",
+      async generate() {
+        throw new Error("LLM API error: 400 Bad Request");
+      },
+    };
+
+    const agent = new Agent({
+      model: errorModel,
+      persona: testPersona,
+      settings: SettingsSchema.parse({
+        llm: { maxConcurrentCalls: 3 },
+        agent: { maxActiveTasks: 10 },
+        logLevel: "warn",
+        dataDir: testDataDir,
+      }),
+    });
+    await agent.start();
+
+    try {
+      const notifications: TaskNotification[] = [];
+      agent.onNotify((n) => notifications.push(n));
+
+      const taskId = await agent.submit("This will fail");
+      expect(taskId).toBeTruthy();
+
+      // Wait for the error to propagate
+      await sleep(500);
+
+      // Task should be failed
+      const task = agent.taskRegistry.getOrNull(taskId);
+      expect(task).not.toBeNull();
+      expect(task!.isTerminal).toBe(true);
+      expect(task!.state).toBe(TaskState.FAILED);
+
+      // onNotify should have fired with failure
+      const failNotif = notifications.find(
+        (n) => n.taskId === taskId && n.type === "failed",
+      );
+      expect(failNotif).toBeDefined();
+      expect(failNotif!.type).toBe("failed");
+    } finally {
+      await agent.stop();
+    }
+  }, 10_000);
 });
