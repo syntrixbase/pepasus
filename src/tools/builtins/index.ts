@@ -79,6 +79,12 @@ const reply = replyToolModule.reply;
 
 export { reply };
 
+// Skill tool (for Main Agent — signal tool)
+import * as skillToolModule from "./skill-tool.ts";
+const use_skill = skillToolModule.use_skill;
+
+export { use_skill };
+
 // Session tools
 import * as sessionToolsModule from "./session-tools.ts";
 const session_archive_read = sessionToolsModule.session_archive_read;
@@ -158,6 +164,7 @@ export const mainAgentTools: Tool[] = [
   spawn_task,
   resume_task,
   reply,
+  use_skill,
 ];
 
 /** Memory tools available to PostTaskReflector (no memory_list — info is pre-loaded). */
