@@ -436,6 +436,12 @@ describe("MainAgent", () => {
     // Each reply has text starting with "Response"
     expect(replies[0]!.text).toMatch(/^Response/);
 
+    // Verify spawn tool result includes description in session messages
+    const sessionContent = await Bun.file(
+      `${testDataDir}/main/current.jsonl`,
+    ).text();
+    expect(sessionContent).toContain('"description":"Do a complex search"');
+
     await agent.stop();
   }, 15_000);
 

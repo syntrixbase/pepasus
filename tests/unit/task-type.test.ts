@@ -30,6 +30,16 @@ describe("TaskContext taskType", () => {
     const ctx = createTaskContext({ taskType: "explore" });
     expect(ctx.taskType).toBe("explore");
   });
+
+  test("createTaskContext defaults description to empty string", () => {
+    const ctx = createTaskContext();
+    expect(ctx.description).toBe("");
+  });
+
+  test("createTaskContext accepts custom description", () => {
+    const ctx = createTaskContext({ description: "Search for weather data" });
+    expect(ctx.description).toBe("Search for weather data");
+  });
 });
 
 // ── SubagentLoader tests ──

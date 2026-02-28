@@ -480,13 +480,13 @@ export class MainAgent {
   // ── Task spawning ──
 
   private async _handleSpawnSubagent(tc: ToolCall): Promise<void> {
-    const { input, type } = tc.arguments as { description: string; input: string; type?: string };
+    const { description, input, type } = tc.arguments as { description: string; input: string; type?: string };
     const taskType = type ?? "general";
-    const taskId = await this.agent.submit(input, "main-agent", taskType);
+    const taskId = await this.agent.submit(input, "main-agent", taskType, description);
 
     const toolMsg: Message = {
       role: "tool",
-      content: JSON.stringify({ taskId, status: "spawned", type: taskType }),
+      content: JSON.stringify({ taskId, status: "spawned", type: taskType, description }),
       toolCallId: tc.id,
     };
     this.sessionMessages.push(toolMsg);

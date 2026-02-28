@@ -71,6 +71,9 @@ export interface TaskContext {
   // Task identifier
   id: string;
 
+  // Short summary for task list readability
+  description: string;
+
   // Original input
   inputText: string;
   inputMetadata: Record<string, unknown>;
@@ -104,6 +107,7 @@ export interface TaskContext {
 export function createTaskContext(
   opts: {
     id?: string;
+    description?: string;
     inputText?: string;
     inputMetadata?: Record<string, unknown>;
     source?: string;
@@ -112,6 +116,7 @@ export function createTaskContext(
 ): TaskContext {
   return {
     id: opts.id ?? shortId(),
+    description: opts.description ?? "",
     inputText: opts.inputText ?? "",
     inputMetadata: opts.inputMetadata ?? {},
     source: opts.source ?? "",

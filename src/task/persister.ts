@@ -129,6 +129,7 @@ export class TaskPersister {
       switch (entry.event) {
         case "TASK_CREATED":
           ctx.id = entry.taskId;
+          ctx.description = (entry.data.description as string) ?? "";
           ctx.inputText = (entry.data.inputText as string) ?? "";
           ctx.source = (entry.data.source as string) ?? "";
           ctx.inputMetadata =
@@ -300,6 +301,7 @@ export class TaskPersister {
       try {
         const date = this._dateStr(task.createdAt);
         await this._append(event.taskId, task.createdAt, "TASK_CREATED", {
+          description: task.context.description,
           inputText: task.context.inputText,
           source: task.context.source,
           inputMetadata: task.context.inputMetadata,

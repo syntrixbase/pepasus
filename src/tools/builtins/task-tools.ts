@@ -42,6 +42,7 @@ export const task_list: Tool = {
 
       const summaries: Array<{
         taskId: string;
+        description: string;
         inputText: string;
         status: string;
         createdAt: number;
@@ -58,6 +59,7 @@ export const task_list: Tool = {
               : "in_progress";
           summaries.push({
             taskId,
+            description: ctx.description,
             inputText: ctx.inputText,
             status,
             createdAt: 0,

@@ -106,6 +106,7 @@ describe("TaskPersister", () => {
     it("should persist TASK_CREATED with input and update index+pending", async () => {
       const task = new TaskFSM({ taskId: "evt-task" });
       task.context.inputText = "hello world";
+      task.context.description = "Greet the user";
       task.context.source = "user";
       registry.register(task);
 
@@ -129,6 +130,7 @@ describe("TaskPersister", () => {
       const line = JSON.parse(logContent.trim());
       expect(line.event).toBe("TASK_CREATED");
       expect(line.data.inputText).toBe("hello world");
+      expect(line.data.description).toBe("Greet the user");
 
       // Check index
       const indexContent = await Bun.file(
@@ -282,6 +284,7 @@ describe("TaskPersister", () => {
 
       // Write a complete task lifecycle
       await persister._appendForTest(taskId, createdAt, "TASK_CREATED", {
+        description: "Simple math question",
         inputText: "what is 2+2?",
         source: "user",
         inputMetadata: {},
@@ -316,6 +319,7 @@ describe("TaskPersister", () => {
       const ctx = await TaskPersister.replay(filePath);
 
       expect(ctx.id).toBe(taskId);
+      expect(ctx.description).toBe("Simple math question");
       expect(ctx.inputText).toBe("what is 2+2?");
       expect(ctx.source).toBe("user");
       expect(ctx.messages).toHaveLength(2);
@@ -662,6 +666,8 @@ describe("TaskPersister", () => {
       const filePath = `${testDir}/tasks/2026-02-25/old-task.jsonl`;
       const ctx = await TaskPersister.replay(filePath);
       expect(ctx.taskType).toBe("general");
+      // Old format also lacks description — should default to ""
+      expect(ctx.description).toBe("");
     });
   });
 });
