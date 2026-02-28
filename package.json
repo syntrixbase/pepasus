@@ -7,9 +7,9 @@
   "private": true,
   "scripts": {
     "dev": "bun run src/cli.ts",
-    "test": "PEGASUS_LOG_LEVEL=silent bun test",
-    "test:watch": "PEGASUS_LOG_LEVEL=silent bun test --watch",
-    "coverage": "PEGASUS_LOG_LEVEL=silent bun test --coverage",
+    "test": "PEGASUS_LOG_LEVEL=silent bun test tests/",
+    "test:watch": "PEGASUS_LOG_LEVEL=silent bun test --watch tests/",
+    "coverage": "PEGASUS_LOG_LEVEL=silent bun test --coverage tests/",
     "check": "bun run typecheck && bun run test",
     "typecheck": "bunx tsc --noEmit",
     "logs": "tail -f data/logs/pegasus.log | pino-pretty",

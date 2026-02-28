@@ -15,7 +15,7 @@ echo "🔍 Running typecheck..."
 bunx tsc --noEmit
 
 echo "🧪 Running tests..."
-TEST_OUTPUT=$(PEGASUS_LOG_LEVEL=silent bun test 2>&1)
+TEST_OUTPUT=$(PEGASUS_LOG_LEVEL=silent bun test tests/ 2>&1)
 TEST_EXIT=$?
 echo "$TEST_OUTPUT"
 
