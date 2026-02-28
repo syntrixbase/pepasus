@@ -34,13 +34,13 @@ Comprehensive prompt improvements based on analysis of OpenClaw's system prompt 
 See `docs/architecture.md` and `docs/main-agent.md` for Pegasus's own design context.
 
 **P0 — Token efficiency & accuracy:**
-- [ ] Prompt Mode (full/minimal): Main Agent gets full prompt; Task Agents get minimal (strip "How You Think", "Reply vs Spawn", "Channels", "Session History", Skill metadata — none of which apply to subagents). Saves ~200 lines of irrelevant tokens per Task Agent LLM call.
-- [ ] Main Agent tool descriptions: Current prompt lumps 13 tools into 3 vague categories. Add per-tool one-line descriptions and usage guidance (especially memory_write vs memory_patch vs memory_append, task_replay use cases, session_archive_read purpose).
+- [x] Prompt Mode (full/minimal): Main Agent gets full prompt; Task Agents get minimal (strip "How You Think", "Reply vs Spawn", "Channels", "Session History", Skill metadata — none of which apply to subagents). Saves ~200 lines of irrelevant tokens per Task Agent LLM call.
+- [x] Main Agent tool descriptions: Current prompt lumps 13 tools into 3 vague categories. Add per-tool one-line descriptions and usage guidance (especially memory_write vs memory_patch vs memory_append, task_replay use cases, session_archive_read purpose).
 
 **P1 — Safety & efficiency:**
-- [ ] Safety section: Anti-power-seeking guardrails for a continuously-running autonomous agent that accepts messages from external channels (Telegram, Slack, SMS). "No independent goals", "prioritize safety over completion", "do not bypass safeguards".
-- [ ] Tool Call Style guidance: Tell Main Agent when to think silently vs narrate in inner monologue. "Default: just call the tool. Narrate only for multi-step work, complex problems, or sensitive actions." Reduces inner monologue token waste.
-- [ ] Input sanitization: Strip Unicode control characters (bidi marks, zero-width chars, format overrides) from external channel messages before prompt injection. Defense against prompt injection via crafted Unicode.
+- [x] Safety section: Anti-power-seeking guardrails for a continuously-running autonomous agent that accepts messages from external channels (Telegram, Slack, SMS). "No independent goals", "prioritize safety over completion", "do not bypass safeguards".
+- [x] Tool Call Style guidance: Tell Main Agent when to think silently vs narrate in inner monologue. "Default: just call the tool. Narrate only for multi-step work, complex problems, or sensitive actions." Reduces inner monologue token waste.
+- [x] Input sanitization: Strip Unicode control characters (bidi marks, zero-width chars, format overrides) from external channel messages before prompt injection. Defense against prompt injection via crafted Unicode.
 
 **P2 — Context awareness & architecture:**
 - [ ] Runtime metadata: One-line runtime info in system prompt (host, OS, model, timezone, workspace). Enables environment-aware decisions (e.g., brew vs apt).
