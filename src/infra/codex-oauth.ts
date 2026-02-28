@@ -2,13 +2,14 @@
  * Codex OAuth — PKCE flow for OpenAI Codex authentication.
  *
  * Handles token acquisition, storage, and automatic refresh.
- * Tokens are stored in {dataDir}/codex-auth.json.
+ * Tokens are stored in ~/.pegasus/auth/codex.json.
  */
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { createServer } from "node:http";
 import { randomBytes, createHash } from "node:crypto";
 import path from "node:path";
 import { getLogger } from "./logger.ts";
+import { getAuthDir } from "./auth-dir.ts";
 
 const logger = getLogger("codex_oauth");
 
@@ -32,13 +33,8 @@ export interface CodexCredentials {
   accountId: string;
 }
 
-/** Configuration for Codex OAuth. */
-export interface CodexOAuthConfig {
-  dataDir: string;
-}
-
-function credentialsPath(dataDir: string): string {
-  return path.join(dataDir, "codex-auth.json");
+function credentialsPath(): string {
+  return path.join(getAuthDir(), "codex.json");
 }
 
 // ── PKCE helpers ──
@@ -57,9 +53,9 @@ function generateState(): string {
 
 // ── Token storage ──
 
-/** Load stored credentials from disk. Returns null if not found or expired. */
-export function loadCredentials(dataDir: string): CodexCredentials | null {
-  const filePath = credentialsPath(dataDir);
+/** Load stored credentials from disk. Returns null if not found or invalid. */
+export function loadCredentials(pathOverride?: string): CodexCredentials | null {
+  const filePath = pathOverride ?? credentialsPath();
   if (!existsSync(filePath)) return null;
   try {
     const content = readFileSync(filePath, "utf-8");
@@ -72,8 +68,8 @@ export function loadCredentials(dataDir: string): CodexCredentials | null {
 }
 
 /** Save credentials to disk. */
-export function saveCredentials(dataDir: string, creds: CodexCredentials): void {
-  const filePath = credentialsPath(dataDir);
+export function saveCredentials(creds: CodexCredentials, pathOverride?: string): void {
+  const filePath = pathOverride ?? credentialsPath();
   writeFileSync(filePath, JSON.stringify(creds, null, 2), "utf-8");
   logger.info("codex_credentials_saved");
 }
@@ -82,7 +78,6 @@ export function saveCredentials(dataDir: string, creds: CodexCredentials): void 
 
 /** Refresh the access token using the refresh token. */
 export async function refreshToken(
-  config: CodexOAuthConfig,
   creds: CodexCredentials,
 ): Promise<CodexCredentials> {
   logger.info("codex_token_refreshing");
@@ -124,21 +119,19 @@ export async function refreshToken(
     newCreds.accountId = extractedAccountId;
   }
 
-  saveCredentials(config.dataDir, newCreds);
+  saveCredentials(newCreds);
   logger.info("codex_token_refreshed");
   return newCreds;
 }
 
 /** Get valid credentials, refreshing if needed. */
-export async function getValidCredentials(
-  config: CodexOAuthConfig,
-): Promise<CodexCredentials | null> {
-  let creds = loadCredentials(config.dataDir);
+export async function getValidCredentials(): Promise<CodexCredentials | null> {
+  let creds = loadCredentials();
   if (!creds) return null;
 
   if (Date.now() >= creds.expiresAt) {
     try {
-      creds = await refreshToken(config, creds);
+      creds = await refreshToken(creds);
     } catch (err) {
       logger.error({ error: err }, "codex_token_refresh_failed");
       return null;
@@ -169,9 +162,7 @@ function extractAccountId(accessToken: string): string | null {
 // ── PKCE OAuth flow ──
 
 /** Run the full PKCE OAuth flow. Opens browser, waits for callback. */
-export async function loginCodexOAuth(
-  config: CodexOAuthConfig,
-): Promise<CodexCredentials> {
+export async function loginCodexOAuth(): Promise<CodexCredentials> {
   const { verifier, challenge } = generatePKCE();
   const state = generateState();
 
@@ -227,7 +218,7 @@ export async function loginCodexOAuth(
     accountId,
   };
 
-  saveCredentials(config.dataDir, creds);
+  saveCredentials(creds);
   logger.info({ accountId }, "codex_oauth_login_success");
   return creds;
 }

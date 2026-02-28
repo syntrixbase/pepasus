@@ -75,7 +75,7 @@ Authorization: Bearer <access_token>
 chatgpt-account-id: <account_id>
 ```
 
-OAuth runs at startup if the codex provider is configured. Tokens are persisted to `data/codex-auth.json`.
+OAuth runs at startup if the codex provider is configured. Tokens are persisted to `~/.pegasus/auth/codex.json`.
 
 ## Configuration
 
@@ -88,7 +88,7 @@ llm:
     subAgent: codex/gpt-5.3-codex   # use Codex for subagent tasks
 ```
 
-No API key or OAuth config needed — everything is built-in. When `llm.codex.enabled: true`, Pegasus runs OAuth login at startup (opens browser for ChatGPT authorization). Tokens are stored in `data/codex-auth.json` and auto-refreshed.
+No API key or OAuth config needed — everything is built-in. When `llm.codex.enabled: true`, Pegasus runs OAuth login at startup (opens browser for ChatGPT authorization). Tokens are stored in `~/.pegasus/auth/codex.json` and auto-refreshed.
 
 The `llm.codex` config also supports optional overrides:
 - `baseURL`: defaults to `https://chatgpt.com/backend-api`
@@ -113,5 +113,5 @@ response.created → response.in_progress
 1. **Non-streaming first**: Pegasus currently uses `stream: false` for all LLM calls. Codex Responses supports this. Streaming can be added later.
 2. **LanguageModel interface**: Codex client implements the same `generate()` interface as OpenAI/Anthropic clients. No changes needed in cognitive processors.
 3. **OAuth at startup**: Token acquisition runs during `MainAgent.start()`. If OAuth fails, the agent logs a warning and continues without Codex (other providers still work).
-4. **Token persistence**: Tokens stored in `data/codex-auth.json` to survive restarts. Refresh happens automatically before expiry.
+4. **Token persistence**: Tokens stored in `~/.pegasus/auth/codex.json` to survive restarts. Refresh happens automatically before expiry.
 5. **store: false**: Always sent to prevent conversation persistence on ChatGPT backend.

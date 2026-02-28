@@ -122,7 +122,7 @@ export class MainAgent {
     // Connect to MCP servers and register tools in both Agent and MainAgent
     const mcpConfigs = (this.settings.tools?.mcpServers ?? []) as MCPServerConfig[];
     if (mcpConfigs.length > 0) {
-      this.mcpManager = new MCPManager(this.settings.dataDir);
+      this.mcpManager = new MCPManager();
       await this.mcpManager.connectAll(mcpConfigs);
 
       // Register in Agent's tool registry (for task execution)
@@ -667,16 +667,14 @@ export class MainAgent {
     const codexConfig = this.settings.llm?.codex;
     if (!codexConfig?.enabled) return;
 
-    const oauthConfig = { dataDir: this.settings.dataDir };
-
     try {
       // Try stored credentials first
-      let creds = await getValidCredentials(oauthConfig);
+      let creds = await getValidCredentials();
 
       if (!creds) {
         // No stored credentials or refresh failed → interactive login
         logger.info("codex_oauth_login_required");
-        creds = await loginCodexOAuth(oauthConfig);
+        creds = await loginCodexOAuth();
       }
 
       // Set credentials on ModelRegistry so Codex models can be created

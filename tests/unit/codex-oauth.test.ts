@@ -5,8 +5,10 @@ import {
 } from "../../src/infra/codex-oauth.ts";
 import type { CodexCredentials } from "../../src/infra/codex-oauth.ts";
 import { rm, mkdir } from "node:fs/promises";
+import { join } from "node:path";
 
 const testDir = "/tmp/pegasus-test-codex-oauth";
+const testFile = join(testDir, "codex.json");
 
 describe("Codex OAuth", () => {
   afterEach(async () => {
@@ -23,8 +25,8 @@ describe("Codex OAuth", () => {
         accountId: "acct-123",
       };
 
-      saveCredentials(testDir, creds);
-      const loaded = loadCredentials(testDir);
+      saveCredentials(creds, testFile);
+      const loaded = loadCredentials(testFile);
 
       expect(loaded).not.toBeNull();
       expect(loaded!.accessToken).toBe("test-access-token");
@@ -33,25 +35,25 @@ describe("Codex OAuth", () => {
     });
 
     it("should return null for non-existent credentials", () => {
-      const loaded = loadCredentials("/tmp/nonexistent-dir-xyz");
+      const loaded = loadCredentials("/tmp/nonexistent-file-xyz.json");
       expect(loaded).toBeNull();
     });
 
     it("should return null for invalid JSON", async () => {
       await mkdir(testDir, { recursive: true });
       const { writeFileSync } = await import("node:fs");
-      writeFileSync(`${testDir}/codex-auth.json`, "not json");
+      writeFileSync(testFile, "not json");
 
-      const loaded = loadCredentials(testDir);
+      const loaded = loadCredentials(testFile);
       expect(loaded).toBeNull();
     });
 
     it("should return null for missing fields", async () => {
       await mkdir(testDir, { recursive: true });
       const { writeFileSync } = await import("node:fs");
-      writeFileSync(`${testDir}/codex-auth.json`, JSON.stringify({ accessToken: "" }));
+      writeFileSync(testFile, JSON.stringify({ accessToken: "" }));
 
-      const loaded = loadCredentials(testDir);
+      const loaded = loadCredentials(testFile);
       expect(loaded).toBeNull();
     });
   });
