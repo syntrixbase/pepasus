@@ -144,7 +144,7 @@ describe("PostTaskReflector", () => {
               id: "tc1",
               name: "memory_write",
               arguments: {
-                path: "facts/learned.md",
+                path: "facts/memory.md",
                 content: "# Learned\n> Summary: test\n\n- Something new",
               },
             }],
@@ -170,7 +170,7 @@ describe("PostTaskReflector", () => {
     expect(result.toolCallsCount).toBe(1);
 
     // Verify file was actually written
-    const content = await Bun.file(`${testMemoryDir}/facts/learned.md`).text();
+    const content = await Bun.file(`${testMemoryDir}/facts/memory.md`).text();
     expect(content).toContain("Something new");
   });
 

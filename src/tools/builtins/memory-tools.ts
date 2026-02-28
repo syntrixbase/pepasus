@@ -14,6 +14,12 @@ import path from "node:path";
 import { readdir, access, mkdir } from "node:fs/promises";
 import type { Tool, ToolResult, ToolContext, ToolCategory } from "../types.ts";
 
+/** Allowed fact file names. The LLM cannot create arbitrary fact files. */
+export const ALLOWED_FACT_FILES = new Set(["user.md", "memory.md"]);
+
+/** Maximum total size of all fact files combined (bytes). */
+export const FACTS_BUDGET_BYTES = 15_360; // 15KB
+
 /** Extract `> Summary: ...` from file content. */
 export function extractSummary(content: string): string {
   const match = content.match(/^>\s*Summary:\s*(.+)$/m);
@@ -165,6 +171,44 @@ export const memory_write: Tool = {
     try {
       const filePath = resolveMemoryPath(relativePath, memoryDir);
 
+      // Fact file constraints
+      if (relativePath.startsWith("facts/")) {
+        const fileName = path.basename(relativePath);
+        if (!ALLOWED_FACT_FILES.has(fileName)) {
+          return {
+            success: false,
+            error: `Fact file "${fileName}" is not allowed. Only allowed: ${[...ALLOWED_FACT_FILES].join(", ")}`,
+            startedAt,
+            completedAt: Date.now(),
+            durationMs: Date.now() - startedAt,
+          };
+        }
+
+        // Check facts budget: total size of all fact files after this write
+        const factsDir = path.join(memoryDir, "facts");
+        let totalSize = content.length; // this write
+        try {
+          const files = await readdir(factsDir);
+          for (const f of files) {
+            if (f === fileName) continue; // skip the file being overwritten
+            const fPath = path.join(factsDir, f);
+            const fSize = Bun.file(fPath).size;
+            totalSize += fSize;
+          }
+        } catch {
+          // facts/ doesn't exist yet — only this write counts
+        }
+        if (totalSize > FACTS_BUDGET_BYTES) {
+          return {
+            success: false,
+            error: `Facts budget exceeded: ${totalSize} bytes > 15KB limit. Condense existing facts before adding new content.`,
+            startedAt,
+            completedAt: Date.now(),
+            durationMs: Date.now() - startedAt,
+          };
+        }
+      }
+
       // Ensure parent directory exists
       const parentDir = path.dirname(filePath);
       await mkdir(parentDir, { recursive: true });
@@ -210,6 +254,21 @@ export const memory_patch: Tool = {
 
     try {
       const filePath = resolveMemoryPath(relativePath, memoryDir);
+
+      // Fact file allowlist check
+      if (relativePath.startsWith("facts/")) {
+        const fileName = path.basename(relativePath);
+        if (!ALLOWED_FACT_FILES.has(fileName)) {
+          return {
+            success: false,
+            error: `Fact file "${fileName}" is not allowed. Only allowed: ${[...ALLOWED_FACT_FILES].join(", ")}`,
+            startedAt,
+            completedAt: Date.now(),
+            durationMs: Date.now() - startedAt,
+          };
+        }
+      }
+
       const content = await Bun.file(filePath).text();
 
       const firstIdx = content.indexOf(old_str);
