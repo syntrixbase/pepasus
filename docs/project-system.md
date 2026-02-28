@@ -11,7 +11,7 @@ The key mental model: **one person, many projects**. MainAgent is the single bra
 | Concept | What It Is | Lifecycle | Context |
 |---------|-----------|-----------|---------|
 | **subagent** | One-off task executor | Created → done → discarded | Inherits from MainAgent |
-| **Project** | Persistent task space | Created → active ⇄ suspended → completed → archived | Own session, memory, skills |
+| **Project** | Persistent task space | active ⇄ suspended → completed → archived | Own session, memory, skills |
 | **MainAgent** | The brain | Always running | Global persona + memory |
 
 ### Why Not Just Subagents?
@@ -33,21 +33,20 @@ Pegasus Projects are different: they are **work contexts owned by a single agent
 ## Architecture
 
 ```
-MainAgent (brain)
+MainAgent (brain, main thread)
 ├── CLIAdapter              ← user terminal
 ├── TelegramAdapter         ← Telegram messages
-├── ProjectAdapter "frontend-redesign"   ← Project channel
-│   └── Worker Thread
-│       └── ProjectAgent instance
-│           ├── PROJECT.md (system prompt)
-│           ├── session/ (conversation history)
-│           ├── memory/ (facts + episodes)
-│           ├── skills/ (project-specific)
-│           ├── spawn_subagent (can delegate sub-tasks)
-│           └── cwd → /path/to/code/repo (optional)
-├── ProjectAdapter "social-media"
-│   └── Worker Thread
-│       └── ProjectAgent instance
+├── ProjectAdapter          ← single adapter, manages all Project Workers
+│   ├── Worker "frontend-redesign"
+│   │   └── ProjectAgent instance
+│   │       ├── Proxy LanguageModel (LLM calls → main thread)
+│   │       ├── Local ToolRegistry + ToolExecutor
+│   │       ├── Local EventBus + TaskFSM
+│   │       ├── Local SessionStore + Memory
+│   │       └── spawn_subagent (can delegate sub-tasks)
+│   ├── Worker "social-media"
+│   │   └── ProjectAgent instance
+│   └── ... (one Worker per active Project)
 └── spawn_subagent (one-off, existing mechanism unchanged)
 ```
 
@@ -56,16 +55,20 @@ MainAgent (brain)
 | # | Question | Decision | Rationale |
 |---|----------|----------|-----------|
 | 1 | Naming | **Project** | Distinct from OpenClaw's Workspace; intuitive |
-| 2 | Core directory | `data/projects/<name>/` | Unified plain directory for session, memory, skills |
-| 3 | Working data | Separate from core directory | Code/work files live in independent git repos; Project directory stores only the agent's brain (memory, session, skills) |
-| 4 | Agent instance | **Independent Agent per Project** | Own EventBus, TaskFSM, cognitive pipeline |
-| 5 | Lifecycle | **Full state machine**: created → active ⇄ suspended → completed → archived | Supports long-running, pausable work |
+| 2 | Core directory | `data/projects/<name>/` | Unified plain directory for session, memory, skills, tasks |
+| 3 | Working data | Separate from core directory | Code/work files live in independent git repos; Project directory stores only the agent's brain |
+| 4 | Agent instance | **Independent Agent per Project** | Own EventBus, TaskFSM, cognitive pipeline in Worker thread |
+| 5 | Lifecycle | **Four states**: active ⇄ suspended → completed → archived | Simple, no transient states |
 | 6 | Concurrency | **Multiple Projects can be active in parallel** | MainAgent is a project manager overseeing many efforts |
-| 7 | Communication | **Channel Adapter pattern** | Project ↔ MainAgent communication uses the same mechanism as Telegram/CLI |
+| 7 | Communication | **Channel Adapter pattern** | Single ProjectAdapter manages all Workers, routes by channelId |
 | 8 | Initial context | **PROJECT.md definition file** | MainAgent generates it at creation time; injected as system prompt |
-| 9 | LLM model | **Per-Project configurable** | In PROJECT.md frontmatter |
+| 9 | LLM model | **Per-Project configurable** | In PROJECT.md frontmatter; Worker reads and overrides global config |
 | 10 | Tools | **Base tools + project-specific skills + spawn_subagent** | Projects can delegate sub-tasks just like MainAgent |
 | 11 | Runtime isolation | **Bun Worker thread per active Project** | Crash isolation, parallel execution, memory separation |
+| 12 | LLM calls | **Main thread only** | Worker uses proxy LanguageModel; unified credentials, concurrency, cost tracking |
+| 13 | Tool execution | **Worker-local** | File I/O, HTTP, etc. run in Worker thread; parallel, isolated |
+| 14 | PROJECT.md writes | **MainAgent only** | Worker reads PROJECT.md but never modifies it; avoids concurrency issues |
+| 15 | Config loading | **Worker self-loads** | Worker reads config.yml (env vars inherited) + PROJECT.md overrides; init message only passes `projectPath` |
 
 ## Project Directory Structure
 
@@ -75,6 +78,10 @@ data/projects/
 │   ├── PROJECT.md              ← definition file (system prompt + metadata)
 │   ├── session/
 │   │   └── current.jsonl       ← conversation history
+│   ├── tasks/
+│   │   ├── index.jsonl         ← task index
+│   │   └── 2026-02-28/
+│   │       └── abc123.jsonl    ← task event log
 │   ├── memory/
 │   │   ├── facts/
 │   │   │   └── context.md      ← project-specific facts
@@ -85,15 +92,17 @@ data/projects/
 ├── social-media/
 │   ├── PROJECT.md
 │   ├── session/
+│   ├── tasks/
 │   ├── memory/
 │   └── skills/
 └── api-migration/              ← status: archived
     ├── PROJECT.md
     ├── session/
+    ├── tasks/
     └── memory/
 ```
 
-**Important**: the Project directory stores the agent's **brain** (memory, conversation, skills), not work data. If the Project involves coding, the actual code lives in a separate git repo. The `workdir` field in PROJECT.md points to it.
+**Important**: the Project directory stores the agent's **brain** (memory, conversation, skills, task logs), not work data. If the Project involves coding, the actual code lives in a separate git repo. The `workdir` field in PROJECT.md points to it.
 
 ## PROJECT.md Format
 
@@ -102,7 +111,7 @@ Follows the same frontmatter + markdown body pattern as SUBAGENT.md and SKILL.md
 ```yaml
 ---
 name: frontend-redesign
-status: active                          # created | active | suspended | completed | archived
+status: active                          # active | suspended | completed | archived
 model: "anthropic/claude-sonnet-4-20250514"  # optional, falls back to config default
 workdir: /home/user/code/my-app         # optional, for code projects
 created: 2026-02-28T10:00:00Z
@@ -139,21 +148,16 @@ Migrate the frontend component library from class components to React hooks.
 | `suspended` | No | Last suspension timestamp |
 | `completed` | No | Completion timestamp |
 
-**Body**: injected into Project Agent's system prompt. Contains goal, background, constraints — everything the agent needs to know about this project. Written by MainAgent at creation time, can be updated later.
+**Body**: injected into Project Agent's system prompt. Contains goal, background, constraints — everything the agent needs to know about this project. Written by MainAgent at creation time; only MainAgent may update it.
 
 ## Lifecycle State Machine
 
 ```
-                 ┌──────────────┐
-    create_project()            │
-                 ▼              │
-            ┌─────────┐        │
-            │ created  │        │
-            └────┬─────┘        │
-                 │ activate     │
-                 ▼              │
-            ┌─────────┐        │
-     ┌─────►│  active  │◄──────┘ resume
+    create_project()
+                 │
+                 ▼
+            ┌─────────┐
+     ┌─────►│  active  │
      │      └────┬─────┘
      │           │ suspend / idle timeout
      │           ▼
@@ -178,7 +182,6 @@ Migrate the frontend component library from class components to React hooks.
 
 | State | Worker Thread | Agent Instance | Session | Description |
 |-------|--------------|----------------|---------|-------------|
-| **created** | No | No | Empty | PROJECT.md exists, nothing running |
 | **active** | Running | Running | Accumulating | Worker thread alive, processing messages |
 | **suspended** | Stopped | Stopped | Preserved | Worker terminated, session/memory persisted on disk |
 | **completed** | Stopped | Stopped | Preserved | Task done, results available |
@@ -188,51 +191,82 @@ Migrate the frontend component library from class components to React hooks.
 
 | From | To | Trigger | What Happens |
 |------|-----|---------|-------------|
-| — | created | `create_project()` tool call | MainAgent generates PROJECT.md, creates directory structure |
-| created | active | Automatic (immediately after creation) | Spawn Worker thread, init Agent, load PROJECT.md as system prompt |
-| active | suspended | `suspend_project()` / idle timeout | Graceful shutdown: flush session, terminate Worker |
+| — | active | `create_project()` tool call | MainAgent generates PROJECT.md, creates directory structure, spawns Worker |
+| active | suspended | `suspend_project()` / idle timeout | Graceful shutdown (see below), update PROJECT.md status |
 | suspended | active | `resume_project()` / MainAgent decision | Spawn Worker, load persisted session, continue |
-| active | completed | `complete_project()` / Project Agent self-reports | Flush session, terminate Worker, mark done |
+| active | completed | `complete_project()` / Project Agent notifies MainAgent | Graceful shutdown, update PROJECT.md status |
 | completed | archived | `archive_project()` / auto-archive policy | Update status field, no data deleted |
 
 ## Communication: Channel Adapter Pattern
 
-Project ↔ MainAgent communication reuses the existing Channel Adapter architecture. A Project appears to MainAgent as just another channel — like Telegram or CLI.
+Project ↔ MainAgent communication reuses the existing Channel Adapter architecture. A single ProjectAdapter manages all Project Workers and routes messages by `channelId`.
 
 ### ProjectAdapter
+
+Unlike CLIAdapter or TelegramAdapter (one adapter = one external service), ProjectAdapter is a **multiplexer**: one adapter instance manages multiple Workers, routing by `channelId` (= project name).
 
 ```typescript
 class ProjectAdapter implements ChannelAdapter {
   readonly type = "project";
-  readonly projectId: string;
-  private worker: Worker | null = null;
+  private workers = new Map<string, Worker>();  // projectId → Worker
 
-  // MainAgent → Project
+  // MainAgent → Project (route by channelId)
   async deliver(message: OutboundMessage): Promise<void> {
-    this.worker?.postMessage({
+    const worker = this.workers.get(message.channel.channelId);
+    worker?.postMessage({
       type: "message",
       text: message.text,
-      channel: message.channel,
     });
   }
 
-  // Project → MainAgent (via Worker postMessage)
-  async start(agent: { send(msg: InboundMessage): void }): Promise<void> {
-    this.worker = new Worker("./project-agent-worker.ts", { smol: true });
-    this.worker.onmessage = (event) => {
+  // Start a specific Project Worker
+  async startProject(projectId: string, projectPath: string,
+                     agent: { send(msg: InboundMessage): void }): Promise<void> {
+    const worker = new Worker("./project-agent-worker.ts", { smol: true });
+
+    worker.onmessage = (event) => {
       if (event.data.type === "notify") {
         agent.send({
           text: event.data.text,
-          channel: { type: "project", channelId: this.projectId },
+          channel: { type: "project", channelId: projectId },
         });
       }
     };
-    this.worker.postMessage({ type: "init", projectPath: "..." });
+
+    // Crash detection
+    worker.addEventListener("close", (event) => {
+      this.workers.delete(projectId);
+      agent.send({
+        text: `[Project Worker crashed with exit code ${event.code}]`,
+        channel: { type: "project", channelId: projectId },
+      });
+    });
+
+    worker.postMessage({ type: "init", projectPath });
+    this.workers.set(projectId, worker);
+  }
+
+  // Stop a specific Project Worker (graceful + timeout)
+  async stopProject(projectId: string): Promise<void> {
+    const worker = this.workers.get(projectId);
+    if (!worker) return;
+
+    worker.postMessage({ type: "shutdown" });
+
+    // Wait for graceful shutdown, force terminate after timeout
+    const timeout = setTimeout(() => worker.terminate(), 30_000);
+    worker.addEventListener("close", () => clearTimeout(timeout));
+  }
+
+  // ChannelAdapter interface
+  async start(agent: { send(msg: InboundMessage): void }): Promise<void> {
+    // No-op: individual projects started via startProject()
   }
 
   async stop(): Promise<void> {
-    this.worker?.terminate();
-    this.worker = null;
+    // Stop all Workers
+    const stops = [...this.workers.keys()].map(id => this.stopProject(id));
+    await Promise.all(stops);
   }
 }
 ```
@@ -244,10 +278,10 @@ User (CLI): "check on the frontend project"
   → CLIAdapter → MainAgent.send()
   → MainAgent LLM thinks: "I should ask the frontend-redesign project for status"
   → reply(channelType="project", channelId="frontend-redesign", text="what's your current status?")
-  → ProjectAdapter.deliver() → Worker.postMessage()
+  → ProjectAdapter.deliver() → workers.get("frontend-redesign").postMessage()
   → ProjectAgent receives message, processes it
   → ProjectAgent responds via postMessage()
-  → ProjectAdapter.onmessage → MainAgent.send(channel=project)
+  → ProjectAdapter.onmessage → MainAgent.send(channel={type:"project", channelId:"frontend-redesign"})
   → MainAgent LLM thinks: "Project says X, I should tell the user"
   → reply(channelType="cli", text="Frontend project status: ...")
   → CLIAdapter.deliver() → stdout
@@ -258,14 +292,15 @@ User (CLI): "check on the frontend project"
 Because all Project messages flow through MainAgent, cross-project coordination is natural:
 
 ```
-ProjectAdapter "api-migration" → MainAgent:
+ProjectAdapter Worker "api-migration" → MainAgent:
   "I found a breaking API change that affects the frontend"
 
 MainAgent thinks:
   "This is relevant to the frontend-redesign project"
 
-MainAgent → ProjectAdapter "frontend-redesign":
-  "The API migration project found a breaking change in /api/users. Please adjust the frontend components."
+MainAgent → ProjectAdapter Worker "frontend-redesign":
+  "The API migration project found a breaking change in /api/users.
+   Please adjust the frontend components."
 ```
 
 ## Worker Thread Model
@@ -281,26 +316,66 @@ Each active Project runs in a **Bun Worker thread** — a separate JavaScript ru
 | **Parallel execution** | Multiple Projects work simultaneously on different threads |
 | **Clean lifecycle** | `worker.terminate()` for instant cleanup |
 
+### Main Thread vs Worker Thread Responsibilities
+
+| Responsibility | Where | Why |
+|---------------|-------|-----|
+| **LLM API calls** | Main thread | Unified credentials, single semaphore for concurrency control, centralized cost tracking |
+| **Tool execution** | Worker thread | Parallel I/O, crash isolation, no main thread blocking |
+| **EventBus + TaskFSM** | Worker thread | Independent state management per Project |
+| **Session persistence** | Worker thread | Scoped to project directory |
+| **Memory read/write** | Worker thread | Scoped to project directory |
+| **PROJECT.md updates** | Main thread | Only MainAgent modifies status; avoids concurrency |
+
+### LLM Proxy Model
+
+Worker threads do NOT hold LLM credentials or call LLM APIs directly. Instead, the Worker's `LanguageModel` is a **proxy** that forwards requests to the main thread via `postMessage`.
+
+```
+Worker Thread                              Main Thread
+┌─────────────────────┐                   ┌─────────────────────┐
+│ Thinker calls       │                   │                     │
+│ model.generate()    │                   │                     │
+│   ↓                 │                   │                     │
+│ ProxyLanguageModel  │  postMessage      │ LLM Request Handler │
+│   .generate()  ─────┼──────────────────►│   ↓                 │
+│                     │                   │ ModelRegistry        │
+│                     │                   │   .generate()        │
+│                     │  postMessage      │   ↓                 │
+│   ← result    ◄─────┼──────────────────│ return result        │
+│   ↓                 │                   │                     │
+│ Thinker continues   │                   │                     │
+└─────────────────────┘                   └─────────────────────┘
+```
+
+The proxy implements the same `LanguageModel` interface, so Thinker/PostTaskReflector are unaware they're running in a Worker. The main thread's existing `llmSemaphore` naturally limits concurrency across MainAgent + all Projects.
+
 ### Worker Architecture
 
 ```
 Main Thread (MainAgent)
 │
-├── Worker Thread 1 (Project "frontend-redesign")
-│   ├── Own EventBus
-│   ├── Own Agent (TaskRegistry, TaskFSM, cognitive pipeline)
-│   ├── Own ToolRegistry + ToolExecutor
-│   ├── Own SessionStore (data/projects/frontend-redesign/session/)
-│   ├── Own MemoryManager (data/projects/frontend-redesign/memory/)
-│   └── Communication: postMessage ↔ ProjectAdapter
+├── LLM Request Handler (receives proxy requests from all Workers)
+│   └── ModelRegistry + Semaphore (shared across all Projects)
 │
-├── Worker Thread 2 (Project "social-media")
-│   └── ... (same structure)
+├── ProjectAdapter (single instance, manages all Workers)
+│   ├── Worker Thread 1 (Project "frontend-redesign")
+│   │   ├── Own EventBus
+│   │   ├── Own Agent (TaskRegistry, TaskFSM, cognitive pipeline)
+│   │   ├── Proxy LanguageModel (→ main thread)
+│   │   ├── Own ToolRegistry + ToolExecutor
+│   │   ├── Own SessionStore (data/projects/frontend-redesign/session/)
+│   │   └── Own memory tools (data/projects/frontend-redesign/memory/)
+│   │
+│   └── Worker Thread 2 (Project "social-media")
+│       └── ... (same structure)
 │
-└── Main thread Agent (for subagents, same as today)
+└── Main thread Agent (for MainAgent's own subagents, unchanged)
 ```
 
-### Worker Entry Point
+### Worker Bootstrap
+
+When a Project Worker starts, it self-initializes from `projectPath`:
 
 ```typescript
 // project-agent-worker.ts
@@ -308,12 +383,21 @@ declare var self: Worker;
 
 self.onmessage = async (event) => {
   if (event.data.type === "init") {
-    const { projectPath, config } = event.data;
-    // 1. Load PROJECT.md
-    // 2. Initialize Agent, EventBus, ToolRegistry, SessionStore, MemoryManager
-    // 3. Build system prompt from PROJECT.md body
-    // 4. Start Agent event loop
-    // 5. Signal ready
+    const { projectPath } = event.data;
+
+    // 1. Load global config (Worker reads config.yml; env vars inherited from parent)
+    // 2. Load PROJECT.md → parse frontmatter for per-project overrides (model, workdir)
+    // 3. Create ProxyLanguageModel (forwards LLM calls to main thread via postMessage)
+    // 4. Initialize Agent with:
+    //    - ProxyLanguageModel (not real LLM client)
+    //    - ToolRegistry + ToolExecutor (local)
+    //    - EventBus (local)
+    //    - SessionStore (projectPath/session/)
+    //    - Memory tools scoped to projectPath/memory/
+    //    - TaskPersister writing to projectPath/tasks/
+    // 5. Build system prompt from PROJECT.md body
+    // 6. Load session history (if resuming from suspended)
+    // 7. Start EventBus
     postMessage({ type: "ready" });
   }
 
@@ -322,8 +406,13 @@ self.onmessage = async (event) => {
     agent.submit(event.data.text, "main-agent");
   }
 
+  if (event.data.type === "llm_response") {
+    // Main thread returned LLM result → resolve pending proxy promise
+    proxyModel.resolveRequest(event.data.requestId, event.data.result);
+  }
+
   if (event.data.type === "shutdown") {
-    // Graceful shutdown: flush session, stop EventBus
+    // Graceful shutdown: flush session, stop EventBus, persist pending tasks
     await agent.shutdown();
     postMessage({ type: "shutdown-complete" });
     process.exit(0);
@@ -331,11 +420,25 @@ self.onmessage = async (event) => {
 };
 ```
 
+### Shutdown Protocol
+
+Graceful shutdown with timeout:
+
+1. Main thread sends `{ type: "shutdown" }` to Worker
+2. Worker stops accepting new tasks
+3. Worker waits for current cognitive stage to complete (if any)
+4. Worker flushes SessionStore and TaskPersister
+5. Worker sends `{ type: "shutdown-complete" }` back
+6. Main thread receives confirmation and cleans up
+
+**Timeout**: if Worker doesn't respond within 30 seconds, main thread calls `worker.terminate()`. Session may lose the last few messages, but JSONL repair on next resume handles this (same as MainAgent crash recovery).
+
 ### Resource Management
 
-- **`smol: true`**: reduces per-Worker memory footprint
+- **`smol: true`**: reduces per-Worker memory footprint (smaller JS heap)
 - **`worker.unref()`**: Workers don't prevent MainAgent from exiting
-- **Semaphores**: each Worker has its own LLM/tool semaphores (not shared with MainAgent)
+- **LLM concurrency**: controlled by main thread's `llmSemaphore` (shared across all Projects + MainAgent)
+- **Tool concurrency**: each Worker has its own `toolSemaphore` (independent)
 
 ## Initial Context Injection
 
@@ -354,11 +457,11 @@ New tools added to MainAgent's tool set:
 
 | Tool | Parameters | Description |
 |------|-----------|-------------|
-| `create_project` | `name`, `goal`, `background?`, `constraints?`, `model?`, `workdir?` | Create new Project, generate PROJECT.md, activate |
+| `create_project` | `name`, `goal`, `background?`, `constraints?`, `model?`, `workdir?` | Create new Project: generate PROJECT.md, create directory structure, spawn Worker, status = active |
 | `list_projects` | `status?` | List all Projects with status summary |
-| `suspend_project` | `name` | Suspend active Project (stop Worker, preserve state) |
-| `resume_project` | `name` | Resume suspended Project (start Worker, load state) |
-| `complete_project` | `name` | Mark Project as completed |
+| `suspend_project` | `name` | Suspend active Project (graceful shutdown Worker, preserve state) |
+| `resume_project` | `name` | Resume suspended Project (spawn Worker, load persisted session) |
+| `complete_project` | `name` | Mark Project as completed (graceful shutdown Worker) |
 | `archive_project` | `name` | Archive completed Project |
 
 Note: MainAgent communicates with active Projects via the existing `reply()` tool (channelType = "project"). No special "send message to project" tool is needed.
@@ -385,8 +488,10 @@ On MainAgent startup:
 
 1. Scan `data/projects/*/PROJECT.md`
 2. Parse frontmatter to get status
-3. For each `active` Project → spawn Worker thread, register ProjectAdapter
+3. For each `active` Project → spawn Worker thread via ProjectAdapter
 4. For `suspended`/`completed`/`archived` → register metadata only (no Worker)
+
+**Crash recovery**: if Pegasus process crashes and restarts, Projects with `status: active` in their PROJECT.md are automatically resumed. The Worker is re-spawned, and SessionStore applies the same JSONL repair logic as MainAgent (inject cancellation results for incomplete tool calls). TaskPersister marks any interrupted pending tasks as FAILED.
 
 This mirrors how subagents and skills are discovered — file scanning, no index file.
 
@@ -396,6 +501,7 @@ Each Project has its own SessionStore (`data/projects/<name>/session/`):
 
 - **Same format as MainAgent**: JSONL files, append-only
 - **Same compaction logic**: auto-compact when context window fills up
+- **Same repair logic**: on resume, repair incomplete tool calls
 - **Independent from MainAgent session**: Project session tracks Project-internal conversations
 - **Persisted across suspend/resume**: when a Project is resumed, its session history is loaded
 
@@ -433,7 +539,7 @@ The existing subagent system (`spawn_subagent`, TaskFSM, etc.) is unchanged. Bot
 
 ### Channel Adapters
 
-ProjectAdapter is a new ChannelAdapter implementation. It follows the same interface as CLIAdapter and TelegramAdapter. MainAgent's multi-channel routing handles it transparently.
+ProjectAdapter is a new ChannelAdapter implementation. Unlike other adapters (one instance per external service), it multiplexes multiple Workers behind a single `type: "project"` adapter. MainAgent's existing routing logic (`find adapter by type`) works without modification.
 
 ### EventBus
 
@@ -446,3 +552,4 @@ Each Project Worker has its own EventBus instance. Events don't cross Worker bou
 - **Project-to-Project communication**: currently all communication goes through MainAgent; direct Project ↔ Project channels could be added later
 - **Auto-suspend**: idle timeout to automatically suspend Projects that haven't been active
 - **Resource limits**: per-Project token budgets, tool call limits
+- **CLI commands**: direct `/projects` command for listing status without LLM call
