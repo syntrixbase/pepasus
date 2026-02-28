@@ -17,6 +17,7 @@
 - 🧠 **Multi-model support** — per-role model configuration (default, subAgent, compact, reflection)
 - 📦 **Session compaction** — automatic context window management with summarization
 - 🧩 **Skill system** — extensible SKILL.md files with LLM auto-trigger and `/` commands
+- 📂 **Project system** — long-lived task spaces with independent Worker threads, session, memory, and skills per project
 
 ## 🚀 Quick Start
 
@@ -113,6 +114,9 @@ bun run dev
 - [Progress](./docs/progress.md) — milestones, test coverage, tech stack
 - [TODOs](./docs/todos.md) — planned features and ideas
 - [Skill System](./docs/skill-system.md) — SKILL.md format, loader, registry, triggering
+- [Task Types](./docs/task-types.md) — subagent specialization (SUBAGENT.md), loader, registry
+- [Project System](./docs/project-system.md) — long-lived task spaces, Worker threads, ProjectAdapter
+- [Codex API](./docs/codex-api.md) — Codex API integration, Responses API, OAuth
 
 ## 🛠️ Development
 
