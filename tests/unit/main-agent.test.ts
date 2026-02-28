@@ -9,6 +9,7 @@ import type { Persona } from "@pegasus/identity/persona.ts";
 import { SettingsSchema } from "@pegasus/infra/config.ts";
 import type { OutboundMessage } from "@pegasus/channels/types.ts";
 import { mkdir, rm } from "node:fs/promises";
+import { writeFileSync } from "node:fs";
 import { ModelRegistry } from "@pegasus/infra/model-registry.ts";
 import type { LLMConfig } from "@pegasus/infra/config-schema.ts";
 
@@ -1358,6 +1359,63 @@ describe("MainAgent", () => {
     expect(toolMsg!.content).toMatch(/^\[\d{4}-\d{2}-\d{2}/);
     // Should contain "took" duration
     expect(toolMsg!.content).toMatch(/took \d+\.\d+s/);
+
+    await agent.stop();
+  }, 10_000);
+
+  // ── Memory index injection tests ──
+
+  it("should inject memory index on start when memory files exist", async () => {
+    // 1. Create memory files before starting
+    const memoryDir = `${testDataDir}/memory/facts`;
+    await mkdir(memoryDir, { recursive: true });
+    writeFileSync(`${memoryDir}/user.md`, "# User Info\nName: Test User");
+
+    // 2. Start agent
+    const model = createReplyModel("Hello!");
+    const agent = new MainAgent({
+      models: createMockModelRegistry(model),
+      persona: testPersona,
+      settings: SettingsSchema.parse({
+        dataDir: testDataDir,
+        logLevel: "warn",
+        llm: { maxConcurrentCalls: 3 },
+        agent: { maxActiveTasks: 10 },
+      }),
+    });
+
+    await agent.start();
+
+    // 3. Check session messages contain memory index
+    const content = await Bun.file(`${testDataDir}/main/current.jsonl`).text();
+    expect(content).toContain("[Available memory]");
+    expect(content).toContain("facts/user.md");
+
+    await agent.stop();
+  }, 10_000);
+
+  it("should not inject memory index when no memory files exist", async () => {
+    const model = createReplyModel("Hello!");
+    const agent = new MainAgent({
+      models: createMockModelRegistry(model),
+      persona: testPersona,
+      settings: SettingsSchema.parse({
+        dataDir: testDataDir,
+        logLevel: "warn",
+        llm: { maxConcurrentCalls: 3 },
+        agent: { maxActiveTasks: 10 },
+      }),
+    });
+
+    await agent.start();
+
+    // Check session file — should NOT contain memory index
+    const sessionFile = Bun.file(`${testDataDir}/main/current.jsonl`);
+    const exists = await sessionFile.exists();
+    if (exists) {
+      const content = await sessionFile.text();
+      expect(content).not.toContain("[Available memory]");
+    }
 
     await agent.stop();
   }, 10_000);
