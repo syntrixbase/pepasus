@@ -80,17 +80,17 @@ OAuth runs at startup if the codex provider is configured. Tokens are persisted 
 ## Configuration
 
 ```yaml
-codex:
-  enabled: true     # default: false
-
 llm:
+  codex:
+    enabled: true     # default: false, or CODEX_ENABLED=true
+
   roles:
     subAgent: codex/gpt-5.3-codex   # use Codex for subagent tasks
 ```
 
-No API key or OAuth config needed — everything is built-in. When `codex.enabled: true`, Pegasus runs OAuth login at startup (opens browser for ChatGPT authorization). Tokens are stored in `data/codex-auth.json` and auto-refreshed.
+No API key or OAuth config needed — everything is built-in. When `llm.codex.enabled: true`, Pegasus runs OAuth login at startup (opens browser for ChatGPT authorization). Tokens are stored in `data/codex-auth.json` and auto-refreshed.
 
-The `codex` config also supports optional overrides:
+The `llm.codex` config also supports optional overrides:
 - `baseURL`: defaults to `https://chatgpt.com/backend-api`
 - `model`: defaults to `gpt-5.3-codex`
 

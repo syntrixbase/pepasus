@@ -68,6 +68,12 @@ llm:
   # Override when using providers with different context limits (e.g. OpenRouter).
   contextWindow: ${LLM_CONTEXT_WINDOW:-}
 
+  # OpenAI Codex integration (Responses API + OAuth)
+  # When enabled, Pegasus runs OAuth login at startup to obtain Codex credentials.
+  # Use "codex/<model>" in role mapping, e.g. roles.subAgent: codex/gpt-5.3-codex
+  codex:
+    enabled: ${CODEX_ENABLED:-false}
+
 identity:
   personaPath: ${IDENTITY_PERSONA_PATH:-data/personas/default.json}
 
@@ -122,12 +128,6 @@ channels:
   telegram:
     enabled: ${TELEGRAM_ENABLED:-false}
     token: ${TELEGRAM_BOT_TOKEN:-}
-
-# OpenAI Codex integration (Responses API + OAuth)
-# When enabled, Pegasus runs OAuth login at startup to obtain Codex credentials.
-# Use "codex/<model>" in role mapping, e.g. roles.subAgent: codex/gpt-5.3-codex
-codex:
-  enabled: ${CODEX_ENABLED:-false}
 
 system:
   logLevel: ${PEGASUS_LOG_LEVEL:-info}  # debug | info | warn | error

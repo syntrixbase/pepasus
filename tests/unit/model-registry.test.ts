@@ -20,6 +20,7 @@ function baseLLMConfig(overrides?: Partial<LLMConfig>): LLMConfig {
     maxConcurrentCalls: 3,
     timeout: 120,
     contextWindow: undefined,
+    codex: { enabled: false, baseURL: "https://chatgpt.com/backend-api", model: "gpt-5.3-codex" },
     ...overrides,
   };
 }

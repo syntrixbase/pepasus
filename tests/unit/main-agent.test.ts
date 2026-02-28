@@ -31,6 +31,7 @@ function createMockModelRegistry(model: LanguageModel): ModelRegistry {
   const llmConfig: LLMConfig = {
     providers: { test: { type: "openai", apiKey: "dummy", baseURL: undefined } },
     roles: { default: "test/test-model", subAgent: undefined, compact: undefined, reflection: undefined },
+    codex: { enabled: false, baseURL: "https://chatgpt.com/backend-api", model: "gpt-5.3-codex" },
     maxConcurrentCalls: 3,
     timeout: 120,
     contextWindow: undefined,

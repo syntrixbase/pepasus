@@ -41,6 +41,7 @@ function createMockModelRegistry(model: LanguageModel): ModelRegistry {
     maxConcurrentCalls: 3,
     timeout: 120,
     contextWindow: undefined,
+    codex: { enabled: false, baseURL: "https://chatgpt.com/backend-api", model: "gpt-5.3-codex" },
   };
   const registry = new ModelRegistry(llmConfig);
   (registry as any).cache.set("test/test-model", model);

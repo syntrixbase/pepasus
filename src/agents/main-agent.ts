@@ -664,7 +664,7 @@ export class MainAgent {
    * Tries stored credentials first, falls back to interactive OAuth flow.
    */
   private async _initCodexAuth(): Promise<void> {
-    const codexConfig = this.settings.codex;
+    const codexConfig = this.settings.llm?.codex;
     if (!codexConfig?.enabled) return;
 
     const oauthConfig = { dataDir: this.settings.dataDir };
