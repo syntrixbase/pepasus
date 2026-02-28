@@ -35,6 +35,7 @@ import { getContextWindowSize } from "../session/context-windows.ts";
 import type { MCPManager, MCPServerConfig } from "../mcp/index.ts";
 import { wrapMCPTools } from "../mcp/index.ts";
 import path from "node:path";
+import { formatToolTimestamp } from "../infra/time.ts";
 
 const logger = getLogger("agent");
 
@@ -44,16 +45,21 @@ export type TaskNotification =
   | { type: "notify"; taskId: string; message: string };
 
 /** Push a tool result message into context.messages. */
-function context_pushToolResult(
+export function context_pushToolResult(
   context: TaskContext,
   toolCallId: string,
   toolResult: ToolResult,
 ): void {
+  const rawContent = toolResult.success
+    ? JSON.stringify(toolResult.result)
+    : `Error: ${toolResult.error}`;
+  const tsPrefix = formatToolTimestamp(
+    toolResult.completedAt ?? Date.now(),
+    toolResult.durationMs,
+  );
   context.messages.push({
     role: "tool",
-    content: toolResult.success
-      ? JSON.stringify(toolResult.result)
-      : `Error: ${toolResult.error}`,
+    content: `${tsPrefix}\n${rawContent}`,
     toolCallId,
   });
 }
