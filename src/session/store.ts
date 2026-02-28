@@ -16,6 +16,7 @@ import path from "node:path";
 import type { Message } from "../infra/llm-types.ts";
 import type { TokenCounter } from "../infra/token-counter.ts";
 import { getLogger } from "../infra/logger.ts";
+import { formatTimestamp } from "../infra/time.ts";
 
 const logger = getLogger("session_store");
 
@@ -61,9 +62,27 @@ export class SessionStore {
       const lines = content.trim().split("\n").filter(Boolean);
       const messages = lines.map((line) => {
         const entry = JSON.parse(line) as SessionEntry;
+        let msgContent = entry.content;
+
+        // Inject timestamp from stored ts if not already present
+        if (entry.role === "user" || entry.role === "tool") {
+          const hasTimestamp = /^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(
+            msgContent,
+          );
+          if (!hasTimestamp) {
+            const ts = formatTimestamp(entry.ts);
+            if (entry.role === "user" && msgContent.startsWith("[")) {
+              // Merge into existing bracket: [channel: ...] → [YYYY-MM-DD HH:MM:SS | channel: ...]
+              msgContent = `[${ts} | ${msgContent.slice(1)}`;
+            } else {
+              msgContent = `[${ts}]\n${msgContent}`;
+            }
+          }
+        }
+
         const msg: Message = {
           role: entry.role as Message["role"],
-          content: entry.content,
+          content: msgContent,
         };
         if (entry.toolCallId) msg.toolCallId = entry.toolCallId;
         if (entry.toolCalls)
