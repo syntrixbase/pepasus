@@ -85,6 +85,18 @@ const use_skill = skillToolModule.use_skill;
 
 export { use_skill };
 
+// Project tools (for Main Agent)
+import * as projectToolsModule from "./project-tools.ts";
+const create_project = projectToolsModule.create_project;
+const list_projects = projectToolsModule.list_projects;
+const suspend_project = projectToolsModule.suspend_project;
+const resume_project = projectToolsModule.resume_project;
+const complete_project = projectToolsModule.complete_project;
+const archive_project = projectToolsModule.archive_project;
+
+export { create_project, list_projects, suspend_project, resume_project, complete_project, archive_project };
+export { projectTools } from "./project-tools.ts";
+
 // Notify tool (for Task Agent → MainAgent communication)
 import * as notifyToolModule from "./notify-tool.ts";
 const notify = notifyToolModule.notify;
@@ -160,7 +172,7 @@ export const allTaskTools: Tool[] = [
   notify,
 ];
 
-/** Tools for Main Agent (curated simple tools + spawn_subagent + resume_task + reply). */
+/** Tools for Main Agent (curated simple tools + spawn_subagent + resume_task + reply + project tools). */
 export const mainAgentTools: Tool[] = [
   current_time,
   memory_list,
@@ -175,6 +187,12 @@ export const mainAgentTools: Tool[] = [
   resume_task,
   reply,
   use_skill,
+  create_project,
+  list_projects,
+  suspend_project,
+  resume_project,
+  complete_project,
+  archive_project,
 ];
 
 /** Memory tools available to PostTaskReflector (no memory_list — info is pre-loaded). */
