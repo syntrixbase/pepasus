@@ -62,6 +62,7 @@ export interface ToolContext {
   allowedPaths?: string[];
   memoryDir?: string;
   sessionDir?: string;
+  projectManager?: unknown; // ProjectManager — used by project tools (loosely typed to avoid circular imports)
 }
 
 // ── ToolStats ─────────────────────────────────

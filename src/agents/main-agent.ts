@@ -30,6 +30,8 @@ import path from "node:path";
 import { SkillRegistry, loadAllSkills } from "../skills/index.ts";
 import { SubagentRegistry, loadAllSubagents } from "../subagents/index.ts";
 import { loginCodexOAuth, getValidCredentials } from "../infra/codex-oauth.ts";
+import { ProjectManager } from "../projects/manager.ts";
+import { ProjectAdapter } from "../projects/project-adapter.ts";
 
 // Main Agent's curated tool set
 import { mainAgentTools } from "../tools/builtins/index.ts";
@@ -71,6 +73,8 @@ export class MainAgent {
   private tokenCounter = new EstimateCounter();
   private skillRegistry: SkillRegistry;
   private subagentRegistry: SubagentRegistry;
+  private projectManager: ProjectManager;
+  private projectAdapter: ProjectAdapter;
   private systemPrompt: string = "";
 
   constructor(deps: MainAgentDeps) {
@@ -103,6 +107,11 @@ export class MainAgent {
     // Skill system
     this.skillRegistry = new SkillRegistry();
     this.subagentRegistry = new SubagentRegistry();
+
+    // Projects
+    const projectsDir = path.join(this.settings.dataDir, "projects");
+    this.projectManager = new ProjectManager(projectsDir);
+    this.projectAdapter = new ProjectAdapter();
   }
 
   /** Start the Main Agent and underlying Task System. */
@@ -184,6 +193,23 @@ export class MainAgent {
     this.agent.setSubagentRegistry(this.subagentRegistry);
     logger.info({ subagentCount: this.subagentRegistry.listAll().length }, "subagents_loaded");
 
+    // Load projects
+    this.projectManager.loadAll();
+
+    // Set up ProjectAdapter
+    this.projectAdapter.setModelRegistry(this.models);
+    this.registerAdapter(this.projectAdapter);
+
+    // Resume active projects
+    for (const project of this.projectManager.list("active")) {
+      try {
+        this.projectAdapter.startProject(project.name, project.projectDir);
+        logger.info({ project: project.name }, "project_resumed");
+      } catch (err) {
+        logger.warn({ project: project.name, error: err }, "project_resume_failed");
+      }
+    }
+
     // Build system prompt once (stable for LLM prefix caching)
     this.systemPrompt = this._buildSystemPrompt();
 
@@ -195,6 +221,9 @@ export class MainAgent {
 
   /** Stop the Main Agent. */
   async stop(): Promise<void> {
+    // Stop project Workers first
+    await this.projectAdapter.stop();
+
     // Stop token refresh monitor
     if (this.tokenRefreshMonitor) {
       this.tokenRefreshMonitor.stop();
@@ -454,6 +483,7 @@ export class MainAgent {
               taskId: "main-agent",
               memoryDir: `${this.settings.dataDir}/memory`,
               sessionDir: `${this.settings.dataDir}/main`,
+              projectManager: this.projectManager,
             },
           );
           const rawContent = toolResult.success
@@ -470,6 +500,28 @@ export class MainAgent {
           };
           this.sessionMessages.push(toolMsg);
           await this.sessionStore.append(toolMsg);
+
+          // Handle project lifecycle actions — start/stop Workers as needed
+          if (toolResult.success && toolResult.result) {
+            const action = (toolResult.result as Record<string, unknown>).action;
+            if (action === "create_project") {
+              const projectName = tc.arguments.name as string;
+              const project = this.projectManager.get(projectName);
+              if (project) {
+                this.projectAdapter.startProject(projectName, project.projectDir);
+              }
+            } else if (action === "suspend_project") {
+              await this.projectAdapter.stopProject(tc.arguments.name as string);
+            } else if (action === "resume_project") {
+              const project = this.projectManager.get(tc.arguments.name as string);
+              if (project) {
+                this.projectAdapter.startProject(tc.arguments.name as string, project.projectDir);
+              }
+            } else if (action === "complete_project") {
+              await this.projectAdapter.stopProject(tc.arguments.name as string);
+            }
+            // archive_project: no Worker to stop — already stopped when completed
+          }
         }
       }
 
@@ -704,6 +756,9 @@ export class MainAgent {
     // Get subagent metadata for prompt
     const subagentMetadata = this.subagentRegistry.getMetadataForPrompt();
 
+    // Build project metadata for prompt
+    const projectMetadata = this._buildProjectMetadata();
+
     // Get skill metadata with budget
     const contextWindow = getContextWindowSize(
       this.models.getModelId("default"),
@@ -717,7 +772,26 @@ export class MainAgent {
       persona: this.persona,
       subagentMetadata: subagentMetadata || undefined,
       skillMetadata: skillMetadata || undefined,
+      projectMetadata: projectMetadata || undefined,
     });
+  }
+
+  private _buildProjectMetadata(): string {
+    const activeProjects = this.projectManager.list("active");
+    const suspendedProjects = this.projectManager.list("suspended");
+
+    if (activeProjects.length === 0 && suspendedProjects.length === 0) return "";
+
+    const lines: string[] = [];
+    lines.push("You manage these long-running projects. Use reply(channelType='project', channelId='<name>') to communicate with them.");
+    lines.push("");
+    for (const p of activeProjects) {
+      lines.push(`- **${p.name}** (active): ${p.prompt.split("\n")[0]}`);
+    }
+    for (const p of suspendedProjects) {
+      lines.push(`- **${p.name}** (suspended): ${p.prompt.split("\n")[0]}`);
+    }
+    return lines.join("\n");
   }
 
   private _getLastChannel() {
@@ -732,5 +806,10 @@ export class MainAgent {
   /** Expose skill registry for testing. */
   get skills(): SkillRegistry {
     return this.skillRegistry;
+  }
+
+  /** Expose project manager for testing. */
+  get projects(): ProjectManager {
+    return this.projectManager;
   }
 }
