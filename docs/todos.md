@@ -58,6 +58,11 @@ See `docs/architecture.md` and `docs/main-agent.md` for Pegasus's own design con
 - [ ] Reflection during session compact: extract facts/episodes while summarizing
 - [ ] MainAgent sees user preferences, identity info — most valuable facts come from here
 
+### Multi-User Identity & Permissions
+- [ ] Owner ID hashing: In system prompt, represent authorized user IDs as HMAC-SHA256 hashes (first 12 hex chars) instead of raw phone numbers / Telegram IDs. Prevents identity leakage if prompt is extracted via prompt injection. Learned from OpenClaw's `formatOwnerDisplayId()`.
+- [ ] Authorized senders: System prompt declares allowlisted sender hashes so the LLM can distinguish owner vs guest without seeing real identifiers.
+- [ ] Per-user permission model: Different users get different tool access levels (e.g., owner can spawn_subagent, guest can only converse).
+
 ### Multi-Channel
 - [x] Telegram channel adapter (Grammy + long polling, text-only MVP)
 - [x] Multi-channel adapter routing in MainAgent (`registerAdapter()`)

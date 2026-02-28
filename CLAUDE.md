@@ -57,6 +57,15 @@ Before ANY change:
 - `docs/` — persistent system design docs: architecture decisions, the "Why" behind designs. Survives implementation.
 - `docs/plans/` — disposable implementation plans: step-by-step task lists, checklists. Gitignored. Delete after execution.
 
+## Git Worktree Workflow
+
+When implementing new features:
+
+1. Create a git worktree in `.worktrees/` directory: `git worktree add .worktrees/<feature-name> -b <branch-name>`
+2. Do all development work inside the worktree
+3. After the feature branch is merged to main, remove the worktree: `git worktree remove .worktrees/<feature-name>`
+4. Keep `.worktrees/` gitignored — it is local workspace only
+
 ## Documentation Map
 
 | Document | Content |
