@@ -302,3 +302,86 @@ describe("buildSystemPrompt", () => {
     expect(formatSize(2560)).toBe("2.5KB");
   });
 });
+
+// ── Prompt structure integration tests ────────────────────
+
+describe("buildSystemPrompt - prompt structure", () => {
+  const persona: Persona = {
+    name: "Pegasus",
+    role: "personal AI assistant",
+    personality: ["curious", "precise"],
+    style: "clear and direct",
+    values: ["accuracy", "helpfulness"],
+  };
+
+  test("main mode prompt has correct section order", () => {
+    const prompt = buildSystemPrompt({
+      mode: "main",
+      persona,
+      subagentMetadata: "## Available Subagent Types\n- explore: research",
+      skillMetadata: "## Available Skills\n- commit: git",
+    });
+
+    const safetyIdx = prompt.indexOf("## Safety");
+    const thinkIdx = prompt.indexOf("## How You Think");
+    const toolsIdx = prompt.indexOf("## Tools");
+    const styleIdx = prompt.indexOf("## Thinking Style");
+    const spawnIdx = prompt.indexOf("## When to Reply vs Spawn");
+    const subagentIdx = prompt.indexOf("## Available Subagent Types");
+    const channelIdx = prompt.indexOf("## Channels and reply()");
+    const sessionIdx = prompt.indexOf("## Session History");
+    const skillIdx = prompt.indexOf("## Available Skills");
+
+    // All sections present
+    expect(safetyIdx).toBeGreaterThan(0);
+    expect(thinkIdx).toBeGreaterThan(0);
+    expect(toolsIdx).toBeGreaterThan(0);
+    expect(styleIdx).toBeGreaterThan(0);
+    expect(spawnIdx).toBeGreaterThan(0);
+    expect(subagentIdx).toBeGreaterThan(0);
+    expect(channelIdx).toBeGreaterThan(0);
+    expect(sessionIdx).toBeGreaterThan(0);
+    expect(skillIdx).toBeGreaterThan(0);
+
+    // Correct order
+    expect(safetyIdx).toBeLessThan(thinkIdx);
+    expect(thinkIdx).toBeLessThan(toolsIdx);
+    expect(toolsIdx).toBeLessThan(styleIdx);
+    expect(styleIdx).toBeLessThan(spawnIdx);
+    expect(spawnIdx).toBeLessThan(subagentIdx);
+    expect(subagentIdx).toBeLessThan(channelIdx);
+    expect(channelIdx).toBeLessThan(sessionIdx);
+    expect(sessionIdx).toBeLessThan(skillIdx);
+  });
+
+  test("task mode prompt is minimal", () => {
+    const prompt = buildSystemPrompt({
+      mode: "task",
+      persona,
+      subagentPrompt: "## Your Role\nYou are a research assistant.\n\n## Rules\n1. READ ONLY",
+    });
+
+    // Has: identity + safety + subagent prompt
+    expect(prompt).toContain("Pegasus");
+    expect(prompt).toContain("## Safety");
+    expect(prompt).toContain("## Your Role");
+    expect(prompt).toContain("READ ONLY");
+
+    // Does NOT have main-only sections
+    expect(prompt).not.toContain("## How You Think");
+    expect(prompt).not.toContain("## Tools");
+    expect(prompt).not.toContain("## Thinking Style");
+    expect(prompt).not.toContain("## When to Reply vs Spawn");
+    expect(prompt).not.toContain("## Channels");
+    expect(prompt).not.toContain("## Session History");
+  });
+
+  test("main mode prompt does not contain subagent body", () => {
+    const prompt = buildSystemPrompt({
+      mode: "main",
+      persona,
+      subagentPrompt: "## Your Role\nYou are a research assistant.",
+    });
+    expect(prompt).not.toContain("You are a research assistant");
+  });
+});
