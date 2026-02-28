@@ -10,8 +10,6 @@ import {
   memory_append,
   extractSummary,
   resolveMemoryPath,
-  ALLOWED_FACT_FILES,
-  FACTS_BUDGET_BYTES,
 } from "../../../src/tools/builtins/memory-tools.ts";
 import { rm, mkdir } from "node:fs/promises";
 
