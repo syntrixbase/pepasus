@@ -26,6 +26,8 @@ import type { ModelRegistry } from "../infra/model-registry.ts";
 import path from "node:path";
 import { SkillRegistry, loadAllSkills } from "../skills/index.ts";
 import { SubagentRegistry, loadAllSubagents } from "../subagents/index.ts";
+import { loginCodexOAuth, getValidCredentials } from "../infra/codex-oauth.ts";
+import type { CodexOAuthConfig } from "../infra/codex-oauth.ts";
 
 // Main Agent's curated tool set
 import { mainAgentTools } from "../tools/builtins/index.ts";
@@ -105,6 +107,9 @@ export class MainAgent {
   async start(): Promise<void> {
     // Load session history from disk
     this.sessionMessages = await this.sessionStore.load();
+
+    // Authenticate Codex provider if configured (OAuth PKCE)
+    await this._initCodexAuth();
 
     // Register notification callback BEFORE agent.start()
     this.agent.onNotify((notification) => {
@@ -653,6 +658,67 @@ export class MainAgent {
    * to enable prefix caching. Channel-specific behavior is described as
    * reply() guidelines, not as "you are currently in X channel".
    */
+  // ── Codex OAuth ──
+
+  /**
+   * Initialize Codex OAuth if a codex provider is configured.
+   * Tries stored credentials first, falls back to interactive OAuth flow.
+   */
+  private async _initCodexAuth(): Promise<void> {
+    // Find codex provider in config
+    const providers = this.settings.llm?.providers ?? {};
+    let codexProviderName: string | null = null;
+
+    for (const [name, config] of Object.entries(providers)) {
+      const type = config.type ?? name;
+      if (type === "openai-codex") {
+        codexProviderName = name;
+        break;
+      }
+    }
+
+    if (!codexProviderName) return; // No codex provider configured
+
+    const providerConfig = providers[codexProviderName]!;
+    const oauthConfig: CodexOAuthConfig = {
+      clientId: providerConfig.clientId ?? "",
+      audience: providerConfig.audience,
+      scope: providerConfig.scope,
+      dataDir: this.settings.dataDir,
+    };
+
+    if (!oauthConfig.clientId) {
+      logger.warn(
+        { provider: codexProviderName },
+        "codex_oauth_skipped_no_client_id",
+      );
+      return;
+    }
+
+    try {
+      // Try stored credentials first
+      let creds = await getValidCredentials(oauthConfig);
+
+      if (!creds) {
+        // No stored credentials or refresh failed → interactive login
+        logger.info("codex_oauth_login_required");
+        creds = await loginCodexOAuth(oauthConfig);
+      }
+
+      // Set credentials on ModelRegistry so Codex models can be created
+      this.models.setCodexCredentials(creds);
+      logger.info({ accountId: creds.accountId }, "codex_auth_ready");
+    } catch (err) {
+      logger.error(
+        { error: err instanceof Error ? err.message : String(err) },
+        "codex_auth_failed",
+      );
+      // Continue without Codex — other providers still work
+    }
+  }
+
+  // ── System prompt ──
+
   private _buildSystemPrompt(): string {
     const lines: string[] = [
       `You are ${this.persona.name}, ${this.persona.role}.`,

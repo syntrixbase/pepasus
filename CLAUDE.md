@@ -79,3 +79,4 @@ Before ANY change:
 | `docs/todos.md` | Planned features, improvements, ideas |
 | `docs/skill-system.md` | Prompt-based skill system: SKILL.md format, loader, registry |
 | `docs/task-types.md` | Subagent specialization: file-based definitions (SUBAGENT.md), loader, registry |
+| `docs/codex-api.md` | Codex API integration: Responses API, OAuth, provider config |

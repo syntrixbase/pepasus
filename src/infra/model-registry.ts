@@ -9,6 +9,8 @@ import type { LanguageModel } from "./llm-types.ts";
 import type { LLMConfig } from "./config-schema.ts";
 import { createOpenAICompatibleModel } from "./openai-client.ts";
 import { createAnthropicCompatibleModel } from "./anthropic-client.ts";
+import { createCodexModel } from "./codex-client.ts";
+import type { CodexCredentials } from "./codex-oauth.ts";
 import { getLogger } from "./logger.ts";
 
 const logger = getLogger("model_registry");
@@ -19,10 +21,22 @@ export class ModelRegistry {
   private providers: LLMConfig["providers"];
   private roles: LLMConfig["roles"];
   private cache = new Map<string, LanguageModel>();
+  private codexCredentials: CodexCredentials | null = null;
 
   constructor(llmConfig: LLMConfig) {
     this.providers = llmConfig.providers;
     this.roles = llmConfig.roles;
+  }
+
+  /** Set Codex OAuth credentials (called after OAuth flow completes). */
+  setCodexCredentials(creds: CodexCredentials): void {
+    this.codexCredentials = creds;
+    // Invalidate cached codex models so they pick up new tokens
+    for (const [key, model] of this.cache.entries()) {
+      if (model.provider === "openai-codex") {
+        this.cache.delete(key);
+      }
+    }
   }
 
   /** Get model for a role. Lazy-creates on first call. */
@@ -72,18 +86,33 @@ export class ModelRegistry {
           baseURL: providerConfig.baseURL,
           model: modelName,
         });
+      case "openai-codex": {
+        if (!this.codexCredentials) {
+          throw new Error(
+            `Codex provider "${providerName}" requires OAuth authentication. ` +
+            `Run Pegasus with Codex configured to trigger the OAuth flow.`,
+          );
+        }
+        return createCodexModel({
+          baseURL: providerConfig.baseURL || "https://chatgpt.com/backend-api",
+          model: modelName,
+          accessToken: this.codexCredentials.accessToken,
+          accountId: this.codexCredentials.accountId,
+        });
+      }
     }
   }
 
   private _resolveType(
     name: string,
-    explicitType?: "openai" | "anthropic",
-  ): "openai" | "anthropic" {
+    explicitType?: "openai" | "anthropic" | "openai-codex",
+  ): "openai" | "anthropic" | "openai-codex" {
     if (explicitType) return explicitType;
     if (name === "openai") return "openai";
     if (name === "anthropic") return "anthropic";
+    if (name === "codex" || name === "openai-codex") return "openai-codex";
     throw new Error(
-      `Provider "${name}" requires explicit "type" field (openai or anthropic)`,
+      `Provider "${name}" requires explicit "type" field (openai, anthropic, or openai-codex)`,
     );
   }
 }

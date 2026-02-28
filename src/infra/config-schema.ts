@@ -7,9 +7,13 @@ import { MCPAuthConfigSchema } from "../mcp/auth/types.ts";
 
 // Provider-specific configuration
 export const ProviderConfigSchema = z.object({
-  type: z.enum(["openai", "anthropic"]).optional(),
+  type: z.enum(["openai", "anthropic", "openai-codex"]).optional(),
   apiKey: z.string().optional(),
   baseURL: z.string().optional(),
+  // OAuth configuration for openai-codex provider
+  clientId: z.string().optional(),
+  audience: z.string().optional(),
+  scope: z.string().optional(),
 });
 
 export const RolesConfigSchema = z.object({
