@@ -160,6 +160,117 @@ describe("ModelRegistry", () => {
     expect(model.provider).toBe("anthropic");
   });
 
+  // ── setCodexCredentials tests ──────────────────────
+
+  test("setCodexCredentials enables codex model creation", () => {
+    const registry = new ModelRegistry(baseLLMConfig({
+      roles: {
+        default: "codex/gpt-5.3-codex",
+        subAgent: undefined,
+        compact: undefined,
+        reflection: undefined,
+      },
+    }));
+
+    // Without credentials, codex model throws
+    expect(() => registry.get("default")).toThrow("requires OAuth authentication");
+
+    // Set credentials
+    registry.setCodexCredentials({
+      accessToken: "test-token",
+      refreshToken: "test-refresh",
+      expiresAt: Date.now() + 3600000,
+      accountId: "acct-123",
+    });
+
+    // Now it works
+    const model = registry.get("default");
+    expect(model.provider).toBe("openai-codex");
+    expect(model.modelId).toBe("gpt-5.3-codex");
+  });
+
+  test("setCodexCredentials with custom baseURL", () => {
+    const registry = new ModelRegistry(baseLLMConfig({
+      roles: {
+        default: "codex/gpt-5.3-codex",
+        subAgent: undefined,
+        compact: undefined,
+        reflection: undefined,
+      },
+    }));
+
+    registry.setCodexCredentials(
+      {
+        accessToken: "tok",
+        refreshToken: "ref",
+        expiresAt: Date.now() + 3600000,
+        accountId: "acct",
+      },
+      "https://custom-codex.example.com/api",
+    );
+
+    const model = registry.get("default");
+    expect(model.provider).toBe("openai-codex");
+  });
+
+  test("setCodexCredentials invalidates cached codex models", () => {
+    const registry = new ModelRegistry(baseLLMConfig({
+      roles: {
+        default: "codex/gpt-5.3-codex",
+        subAgent: undefined,
+        compact: undefined,
+        reflection: undefined,
+      },
+    }));
+
+    // Set initial credentials and create model
+    registry.setCodexCredentials({
+      accessToken: "token-v1",
+      refreshToken: "ref",
+      expiresAt: Date.now() + 3600000,
+      accountId: "acct",
+    });
+    const model1 = registry.get("default");
+
+    // Update credentials — should invalidate cache
+    registry.setCodexCredentials({
+      accessToken: "token-v2",
+      refreshToken: "ref",
+      expiresAt: Date.now() + 3600000,
+      accountId: "acct",
+    });
+    const model2 = registry.get("default");
+
+    // Should be a different instance (re-created with new token)
+    expect(model1).not.toBe(model2);
+  });
+
+  test("setCodexCredentials does not invalidate non-codex cached models", () => {
+    const registry = new ModelRegistry(baseLLMConfig({
+      roles: {
+        default: "openai/gpt-4o",
+        compact: "codex/gpt-5.3-codex",
+        subAgent: undefined,
+        reflection: undefined,
+      },
+    }));
+
+    // Create and cache the openai model
+    const openaiModel1 = registry.get("default");
+
+    // Set codex credentials
+    registry.setCodexCredentials({
+      accessToken: "tok",
+      refreshToken: "ref",
+      expiresAt: Date.now() + 3600000,
+      accountId: "acct",
+    });
+
+    // OpenAI model should still be the same cached instance
+    const openaiModel2 = registry.get("default");
+    expect(openaiModel1).toBe(openaiModel2);
+  });
+
   test("all roles can be configured independently", () => {
     const registry = new ModelRegistry(baseLLMConfig({
       roles: {
