@@ -28,6 +28,32 @@ Tracked features, improvements, and ideas that are planned but not yet started.
 
 ## Planned
 
+### System Prompt Optimization (learned from OpenClaw)
+
+Comprehensive prompt improvements based on analysis of OpenClaw's system prompt architecture.
+See `docs/architecture.md` and `docs/main-agent.md` for Pegasus's own design context.
+
+**P0 — Token efficiency & accuracy:**
+- [ ] Prompt Mode (full/minimal): Main Agent gets full prompt; Task Agents get minimal (strip "How You Think", "Reply vs Spawn", "Channels", "Session History", Skill metadata — none of which apply to subagents). Saves ~200 lines of irrelevant tokens per Task Agent LLM call.
+- [ ] Main Agent tool descriptions: Current prompt lumps 13 tools into 3 vague categories. Add per-tool one-line descriptions and usage guidance (especially memory_write vs memory_patch vs memory_append, task_replay use cases, session_archive_read purpose).
+
+**P1 — Safety & efficiency:**
+- [ ] Safety section: Anti-power-seeking guardrails for a continuously-running autonomous agent that accepts messages from external channels (Telegram, Slack, SMS). "No independent goals", "prioritize safety over completion", "do not bypass safeguards".
+- [ ] Tool Call Style guidance: Tell Main Agent when to think silently vs narrate in inner monologue. "Default: just call the tool. Narrate only for multi-step work, complex problems, or sensitive actions." Reduces inner monologue token waste.
+- [ ] Input sanitization: Strip Unicode control characters (bidi marks, zero-width chars, format overrides) from external channel messages before prompt injection. Defense against prompt injection via crafted Unicode.
+
+**P2 — Context awareness & architecture:**
+- [ ] Runtime metadata: One-line runtime info in system prompt (host, OS, model, timezone, workspace). Enables environment-aware decisions (e.g., brew vs apt).
+- [ ] Section modularization: Refactor `_buildSystemPrompt()` into composable `buildXxxSection()` functions (identity, tools, safety, channels, session, skills). Independently testable, conditionally includable.
+
+**P3 — Alignment verification:**
+- [ ] Verify SUBAGENT.md content matches task-types.md design: Confirm explore/plan/general prompts include all designed constraints (e.g., "CONCISE RESULT: keep under 2000 chars", "READ ONLY", "NOTIFY: use notify() for progress").
+
+### Heartbeat & Scheduled Tasks
+- [ ] Heartbeat system: periodic poll mechanism where the system pings the Agent to check if anything needs attention. Agent responds with ack (no-op) or alert message. Useful for: monitoring long-running background work, periodic memory consolidation, proactive user updates.
+- [ ] Cron/scheduled tasks: time-based task triggers (reminders, periodic checks, scheduled reports). Integrate with EventBus as scheduled event sources.
+- [ ] Wake events: external triggers that wake the Agent from idle (e.g., file system changes, webhook callbacks).
+
 ### MainAgent Reflection
 - [ ] Reflection during session compact: extract facts/episodes while summarizing
 - [ ] MainAgent sees user preferences, identity info — most valuable facts come from here

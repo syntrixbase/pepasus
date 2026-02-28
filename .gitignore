@@ -39,6 +39,7 @@ config.local.yml
 .pegasus.yml
 !config.example.json
 !config.yml
+/.code
 
 # Worktrees
 .worktrees/
