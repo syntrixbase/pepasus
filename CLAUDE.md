@@ -78,4 +78,4 @@ Before ANY change:
 | `docs/progress.md` | Milestones, test coverage, tech stack |
 | `docs/todos.md` | Planned features, improvements, ideas |
 | `docs/skill-system.md` | Prompt-based skill system: SKILL.md format, loader, registry |
-| `docs/task-types.md` | Task types (subagent specialization): general, explore, plan — per-type tools and prompts |
+| `docs/task-types.md` | Subagent specialization: file-based definitions (SUBAGENT.md), loader, registry |

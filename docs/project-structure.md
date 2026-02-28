@@ -72,6 +72,12 @@ pegasus/
 │   │       ├── reply-tool.ts       # reply (Main Agent only)
 │   │       └── spawn-subagent-tool.ts  # spawn_subagent (Main Agent only)
 │   │
+│   ├── subagents/                  # Subagent type system
+│   │   ├── types.ts               # SubagentDefinition, SubagentFrontmatter
+│   │   ├── loader.ts              # Parse SUBAGENT.md files, scan directories
+│   │   ├── registry.ts            # SubagentRegistry (priority resolution, metadata)
+│   │   └── index.ts               # Re-exports
+│   │
 │   ├── identity/                   # Identity layer
 │   │   ├── persona.ts              # Persona type + validation
 │   │   └── prompt.ts               # System prompt builder

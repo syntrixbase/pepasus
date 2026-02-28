@@ -27,8 +27,8 @@ import type { TaskContext } from "../task/context.ts";
 import { ToolRegistry } from "../tools/registry.ts";
 import { ToolExecutor } from "../tools/executor.ts";
 import type { ToolResult } from "../tools/types.ts";
-import { allBuiltInTools, reflectionTools, getToolsForType } from "../tools/builtins/index.ts";
-import { TaskType } from "../task/task-type.ts";
+import { allBuiltInTools, reflectionTools, allTaskTools } from "../tools/builtins/index.ts";
+import type { SubagentRegistry } from "../subagents/index.ts";
 import type { MemoryIndexEntry } from "../identity/prompt.ts";
 import { TaskPersister } from "../task/persister.ts";
 import { getContextWindowSize } from "../session/context-windows.ts";
@@ -104,6 +104,7 @@ export interface AgentDeps {
   reflectionModel?: LanguageModel;
   persona: Persona;
   settings?: Settings;
+  subagentRegistry?: SubagentRegistry;
 }
 
 export class Agent {
@@ -130,6 +131,7 @@ export class Agent {
   private backgroundTasks = new Set<Promise<void>>();
   private settings: Settings;
   private notifyCallback: ((notification: TaskNotification) => void) | null = null;
+  private subagentRegistry: SubagentRegistry | null = null;
 
   constructor(deps: AgentDeps) {
     this.settings = deps.settings ?? getSettings();
@@ -144,10 +146,24 @@ export class Agent {
 
     // Per-type registries for LLM tool visibility + execution validation
     this.typeToolRegistries = new Map();
-    for (const type of Object.values(TaskType)) {
-      const registry = new ToolRegistry();
-      registry.registerMany(getToolsForType(type));
-      this.typeToolRegistries.set(type, registry);
+    this.subagentRegistry = deps.subagentRegistry ?? null;
+    if (this.subagentRegistry) {
+      // Build from SubagentRegistry definitions
+      const allToolMap = new Map(allTaskTools.map((t) => [t.name, t]));
+      for (const def of this.subagentRegistry.listAll()) {
+        const registry = new ToolRegistry();
+        const toolNames = this.subagentRegistry.getToolNames(def.name);
+        const tools = toolNames
+          .map((name) => allToolMap.get(name))
+          .filter((t): t is NonNullable<typeof t> => t != null);
+        registry.registerMany(tools);
+        this.typeToolRegistries.set(def.name, registry);
+      }
+    } else {
+      // Fallback: register "general" with all tools
+      const generalRegistry = new ToolRegistry();
+      generalRegistry.registerMany(allTaskTools);
+      this.typeToolRegistries.set("general", generalRegistry);
     }
 
     const toolExecutor = new ToolExecutor(
@@ -419,8 +435,11 @@ export class Agent {
     // Select per-type tool registry for LLM visibility
     const typeRegistry = this.typeToolRegistries.get(task.context.taskType);
 
+    // Get subagent-specific system prompt from registry
+    const subagentPrompt = this.subagentRegistry?.getPrompt(task.context.taskType) ?? undefined;
+
     const reasoning = await this.llmSemaphore.use(() =>
-      this.thinker.run(task.context, memoryIndex, typeRegistry),
+      this.thinker.run(task.context, memoryIndex, typeRegistry, subagentPrompt),
     );
     task.context.reasoning = reasoning;
 
@@ -731,6 +750,23 @@ export class Agent {
   /** Register a callback for task completion/failure notifications. */
   onNotify(callback: (notification: TaskNotification) => void): void {
     this.notifyCallback = callback;
+  }
+
+  /** Set subagent registry and rebuild per-type tool registries. */
+  setSubagentRegistry(registry: SubagentRegistry): void {
+    this.subagentRegistry = registry;
+    // Rebuild per-type tool registries from subagent definitions
+    this.typeToolRegistries.clear();
+    const allToolMap = new Map(allTaskTools.map((t) => [t.name, t]));
+    for (const def of registry.listAll()) {
+      const typeRegistry = new ToolRegistry();
+      const toolNames = registry.getToolNames(def.name);
+      const tools = toolNames
+        .map((name) => allToolMap.get(name))
+        .filter((t): t is NonNullable<typeof t> => t != null);
+      typeRegistry.registerMany(tools);
+      this.typeToolRegistries.set(def.name, typeRegistry);
+    }
   }
 
   /** Submit a task. Returns the taskId. */

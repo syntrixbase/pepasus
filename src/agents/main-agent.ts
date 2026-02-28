@@ -25,6 +25,7 @@ import { getContextWindowSize } from "../session/context-windows.ts";
 import type { ModelRegistry } from "../infra/model-registry.ts";
 import path from "node:path";
 import { SkillRegistry, loadAllSkills } from "../skills/index.ts";
+import { SubagentRegistry, loadAllSubagents } from "../subagents/index.ts";
 
 // Main Agent's curated tool set
 import { mainAgentTools } from "../tools/builtins/index.ts";
@@ -65,6 +66,7 @@ export class MainAgent {
   private lastPromptTokens = 0;
   private tokenCounter = new EstimateCounter();
   private skillRegistry: SkillRegistry;
+  private subagentRegistry: SubagentRegistry;
   private systemPrompt: string = "";
 
   constructor(deps: MainAgentDeps) {
@@ -96,6 +98,7 @@ export class MainAgent {
 
     // Skill system
     this.skillRegistry = new SkillRegistry();
+    this.subagentRegistry = new SubagentRegistry();
   }
 
   /** Start the Main Agent and underlying Task System. */
@@ -166,6 +169,13 @@ export class MainAgent {
     const userSkillDir = path.join(this.settings.dataDir, "skills");
     this.skillRegistry.registerMany(loadAllSkills(builtinSkillDir, userSkillDir));
     logger.info({ skillCount: this.skillRegistry.listAll().length }, "skills_loaded");
+
+    // Load subagent definitions from builtin and user directories
+    const builtinSubagentDir = path.join(process.cwd(), "subagents");
+    const userSubagentDir = path.join(this.settings.dataDir, "subagents");
+    this.subagentRegistry.registerMany(loadAllSubagents(builtinSubagentDir, userSubagentDir));
+    this.agent.setSubagentRegistry(this.subagentRegistry);
+    logger.info({ subagentCount: this.subagentRegistry.listAll().length }, "subagents_loaded");
 
     // Build system prompt once (stable for LLM prefix caching)
     this.systemPrompt = this._buildSystemPrompt();
@@ -670,10 +680,7 @@ export class MainAgent {
       "",
       "Available tool calls:",
       "- reply(): the ONLY way the user hears you — ALWAYS call this when you have something to say",
-      "- spawn_subagent(): delegate complex work to a background worker that has FULL tool access",
-      "  - type: 'explore' — read-only research, web search, information gathering",
-      "  - type: 'plan' — analyze a problem and produce a structured plan",
-      "  - type: 'general' — full capabilities (file I/O, code changes, multi-step work)",
+      "- spawn_subagent(): delegate complex work to a specialized background subagent",
       "- Other tools: gather information for your thinking",
     ].join("\n"));
 
@@ -686,27 +693,12 @@ export class MainAgent {
       "- You can answer from session context or memory",
       "- A quick tool call is enough (time, memory lookup)",
       "",
-      "Spawn a task when:",
+      "Spawn a subagent when:",
       "- You need file I/O, shell commands, or web requests",
       "- The work requires multiple steps",
       "- You're unsure — err on the side of spawning",
       "",
-      "Choose the right task type:",
-      "- 'explore' for research, searches, reading files, gathering information (read-only, safest)",
-      "- 'plan' for analyzing problems and producing structured plans (read + memory write)",
-      "- 'general' for tasks requiring file modifications, code changes, or full tool access",
-      "",
-      "The spawned task worker has powerful tools you don't have directly:",
-      "- Web search and HTTP requests (web_search, http_get, http_post)",
-      "- File system operations (read_file, write_file, edit_file, list_files, grep_files)",
-      "- Data processing (json_parse, base64_encode/decode)",
-      "- Memory read/write",
-      "- System tools (sleep, get_env, set_env)",
-      "",
-      "So if the user asks to search the web, check weather, read/write files, etc.,",
-      "ALWAYS spawn a task. Do NOT say you cannot do it — you CAN via spawn_subagent.",
-      "",
-      "After calling spawn_subagent, the task runs in the background.",
+      "After calling spawn_subagent, the subagent runs in the background.",
       "You will receive the result automatically when it completes.",
       "Do NOT poll with task_replay — just wait for the result to arrive.",
       "",
@@ -715,6 +707,12 @@ export class MainAgent {
       "- Think about it, then ALWAYS call reply() to inform the user",
       "- Never just think about the result without calling reply()",
     ].join("\n"));
+
+    // Subagent type metadata (loaded from SUBAGENT.md files)
+    const subagentMetadata = this.subagentRegistry.getMetadataForPrompt();
+    if (subagentMetadata) {
+      lines.push("", subagentMetadata);
+    }
 
     // Channel-specific reply guidelines
     lines.push("", [

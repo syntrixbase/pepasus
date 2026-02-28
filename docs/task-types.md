@@ -1,10 +1,46 @@
 # Task Types (Subagent Specialization)
 
-> Source code: `src/task/task-type.ts`, `src/identity/prompt.ts`, `src/tools/builtins/index.ts`
+> Source code: `src/subagents/`, `subagents/*/SUBAGENT.md`
 
 ## Core Idea
 
 Not every background task needs the same tools or instructions. A web search should not have write_file. A planning task should not be calling web_search. Task Types let the MainAgent spawn **specialized subagents** with per-type tool sets and system prompts.
+
+Subagent types are defined as **files** (SUBAGENT.md), not hardcoded. Users can add custom subagent types by creating files in `data/subagents/`.
+
+## File Format
+
+Each subagent type is a directory containing `SUBAGENT.md` with YAML frontmatter + markdown body:
+
+```
+subagents/
+  general/SUBAGENT.md    # builtin, git tracked
+  explore/SUBAGENT.md
+  plan/SUBAGENT.md
+data/subagents/           # user-created, runtime (overrides builtin)
+  deepresearch/SUBAGENT.md
+```
+
+```yaml
+---
+name: explore
+description: "Fast, read-only research agent. Use when you need to search, read, or gather information."
+tools: "read_file, list_files, http_get, web_search, notify, ..."
+---
+
+## Your Role
+You are a research assistant...
+
+## Rules
+1. READ ONLY: ...
+```
+
+Frontmatter fields:
+- `name`: subagent type name (must match directory name)
+- `description`: injected into MainAgent system prompt to help LLM choose the right type
+- `tools`: comma-separated tool names, or `"*"` for all task tools
+
+Body: the system prompt appended to the base persona prompt when this subagent type runs.
 
 ## Why
 
