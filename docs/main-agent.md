@@ -346,102 +346,40 @@ When estimated total exceeds threshold, compact before the next LLM call.
 
 The system prompt is built **once** at startup and cached for all LLM calls. This enables LLM prefix caching — the provider can reuse the cached token prefix across calls, saving cost and latency.
 
-### System Prompt (built once at `start()`)
+### Prompt Modes
 
-```
-You are {persona.name}, {persona.role}.
+The prompt builder (`src/identity/prompt.ts`) supports two modes via `buildSystemPrompt(options)`:
 
-Personality: {persona.personality}.
-Speaking style: {persona.style}.
-Core values: {persona.values}.
-{persona.background}
+**Main Agent (mode: "main")** — full prompt with all sections:
 
-## How You Think
+| Section | Purpose |
+|---------|---------|
+| Identity | Persona name, role, personality, style, values, background |
+| Safety | Anti-power-seeking guardrails for autonomous agent |
+| How You Think | Inner monologue concept, reply() as only communication |
+| Tools | Per-tool descriptions for all 15 MainAgent tools |
+| Thinking Style | When to narrate vs silently call tools |
+| When to Reply vs Spawn | Decision guidelines for direct reply vs subagent |
+| Subagent Types | Injected from SubagentRegistry |
+| Channels and reply() | Channel metadata format + per-channel style guidelines |
+| Session History | Compact info + archive access |
+| Available Skills | Injected from SkillRegistry (2% of context window budget) |
 
-Your text output is your INNER MONOLOGUE — private thinking that
-the user never sees. Think freely: reason, analyze, hesitate,
-change your mind.
+**Task Agent (mode: "task")** — minimal prompt:
 
-To act on the outside world, use tool calls:
-- reply(): the ONLY way the user hears you
-- spawn_subagent(): delegate complex work to a background worker
-- Other tools: gather information for your thinking
+| Section | Purpose |
+|---------|---------|
+| Identity | Same persona identity |
+| Safety | Same safety guardrails |
+| SUBAGENT.md body | Type-specific instructions (explore/plan/general) |
 
-If you don't call reply(), the user receives silence.
-That's fine when no response is needed.
+Task Agents skip How You Think, Tools, Thinking Style, Reply vs Spawn, Channels, Session History, and Skills — saving ~100 lines of irrelevant tokens per LLM call.
 
-## Tools
+> **Source of truth:** The actual prompt text lives in `src/identity/prompt.ts` section builder functions.
 
-### reply({ text, channelType, channelId, replyTo? })
-Speak to the user. Pass back the channel metadata from the
-user message to route the reply correctly.
+### Input Sanitization
 
-### spawn_subagent({ description, input, type? })
-Launch a background task with specialized tool access.
-- type: 'explore' — read-only research, web search
-- type: 'plan' — analysis and planning
-- type: 'general' — full capabilities (default)
-You will receive the result when the task completes.
-
-### current_time({ timezone? })
-Get current date and time.
-
-### memory_list(), memory_read({ path })
-Access long-term memory files.
-
-### task_status({ taskId }), task_list({ date? })
-Query running or historical tasks.
-
-## When to Reply vs Spawn
-
-Reply directly (via reply tool) when:
-- Simple conversation, greetings, opinions, follow-ups
-- You can answer from session context or memory
-- A quick tool call is enough (time, memory lookup)
-
-Spawn a task when:
-- You need file I/O, shell commands, or web requests
-- The work requires multiple steps
-- You're unsure — err on the side of spawning
-
-On task completion:
-- You will receive the result in your session
-- Think about it, then call reply() to inform the user
-
-On task failure:
-- Assess the error: retry, try differently, or inform the user
-
-## Channels and reply()
-
-Each user message starts with a metadata line showing its source channel:
-  [channel: <type> | id: <channelId> | thread: <replyTo>]
-
-Fields:
-- type: channel type (cli, telegram, slack, sms, web)
-- id: unique channel instance identifier
-- thread: (optional) thread or conversation ID
-
-When calling reply(), pass these values back:
-- channelType: the type from the metadata
-- channelId: the id from the metadata
-- replyTo: the thread from the metadata (if present)
-
-Style guidelines per channel type:
-- cli: Detailed responses, code blocks welcome, no character limit
-- telegram: Markdown, concise but informative, split long messages
-- sms: Extremely concise, under 160 characters
-- slack: Markdown, use threads for long discussions
-- web: Rich formatting and links supported
-- sms: Extremely concise, under 160 characters
-- slack: Markdown, use threads for long discussions
-- web: Rich formatting and links supported
-
-## Session History
-...compact info...
-
-## Available Skills
-...skill metadata (2% of context window budget)...
-```
+External channel messages are sanitized via `sanitizeForPrompt()` (`src/infra/sanitize.ts`) before entering the session. Strips Unicode control/format/separator characters while preserving normal whitespace. Defends against prompt injection via crafted Unicode sequences.
 
 ### Dynamic Part (injected into messages)
 

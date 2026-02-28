@@ -40,7 +40,7 @@ export class Thinker {
     logger.info({ iteration: context.iteration, taskType: context.taskType }, "think_start");
 
     // Build system prompt: base persona + optional subagent-specific prompt
-    const system = buildSystemPrompt(this.persona, subagentPrompt);
+    const system = buildSystemPrompt({ persona: this.persona, subagentPrompt });
 
     // Build conversation history for multi-turn support
     const messages: Message[] = context.messages.map((m) => ({

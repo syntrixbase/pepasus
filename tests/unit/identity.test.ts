@@ -129,80 +129,259 @@ describe("buildSystemPrompt", () => {
     values: ["accuracy", "empathy"],
   };
 
-  test("includes persona name and role", () => {
-    const prompt = buildSystemPrompt(persona);
+  const personaWithBg: Persona = {
+    ...persona,
+    background: "Expert in AI systems",
+  };
+
+  // Identity section (both modes)
+  test("includes persona identity in main mode", () => {
+    const prompt = buildSystemPrompt({ mode: "main", persona });
+    expect(prompt).toContain("Alice");
+    expect(prompt).toContain("digital employee");
+    expect(prompt).toContain("professional");
+    expect(prompt).toContain("concise and warm");
+    expect(prompt).toContain("accuracy");
+  });
+
+  test("includes persona identity in task mode", () => {
+    const prompt = buildSystemPrompt({ mode: "task", persona });
     expect(prompt).toContain("Alice");
     expect(prompt).toContain("digital employee");
   });
 
-  test("includes personality traits", () => {
-    const prompt = buildSystemPrompt(persona);
-    expect(prompt).toContain("professional");
-    expect(prompt).toContain("helpful");
-  });
-
-  test("includes style", () => {
-    const prompt = buildSystemPrompt(persona);
-    expect(prompt).toContain("concise and warm");
-  });
-
-  test("includes values", () => {
-    const prompt = buildSystemPrompt(persona);
-    expect(prompt).toContain("accuracy");
-    expect(prompt).toContain("empathy");
-  });
-
-  test("appends subagent prompt when provided", () => {
-    const prompt = buildSystemPrompt(persona, "## Your Role\nYou are a research assistant.");
-    expect(prompt).toContain("Alice");
-    expect(prompt).toContain("research assistant");
-  });
-
-  test("no subagent prompt returns base prompt only", () => {
-    const prompt = buildSystemPrompt(persona);
-    expect(prompt).toContain("Alice");
-    expect(prompt).not.toContain("Your Role");
-  });
-
-  test("empty subagent prompt returns base prompt only", () => {
-    const prompt = buildSystemPrompt(persona, "");
-    expect(prompt).not.toContain("Your Role");
-  });
-
   test("includes background when present", () => {
-    const personaWithBg: Persona = {
-      ...persona,
-      background: "Expert in AI systems",
-    };
-    const prompt = buildSystemPrompt(personaWithBg);
+    const prompt = buildSystemPrompt({ mode: "main", persona: personaWithBg });
     expect(prompt).toContain("Expert in AI systems");
   });
 
-  test("works without background", () => {
-    // persona without background should still produce valid prompt
-    const prompt = buildSystemPrompt(persona);
-    expect(prompt.length).toBeGreaterThan(50);
+  // Safety section (both modes)
+  test("includes safety section in main mode", () => {
+    const prompt = buildSystemPrompt({ mode: "main", persona });
+    expect(prompt).toContain("## Safety");
+    expect(prompt).toContain("no independent goals");
   });
 
-  test("should NOT include memory index in system prompt (moved to user message)", () => {
-    const prompt = buildSystemPrompt(persona, "## Your Role\nYou are a worker.");
-    expect(prompt).not.toContain("Available memory");
-    expect(prompt).not.toContain("memory_read");
+  test("includes safety section in task mode", () => {
+    const prompt = buildSystemPrompt({ mode: "task", persona });
+    expect(prompt).toContain("## Safety");
   });
 
-  test("should not include memory section in system prompt", () => {
-    const prompt = buildSystemPrompt(persona);
-    expect(prompt).not.toContain("Available memory");
+  // Main-only sections
+  test("includes How You Think in main mode", () => {
+    const prompt = buildSystemPrompt({ mode: "main", persona });
+    expect(prompt).toContain("## How You Think");
+    expect(prompt).toContain("INNER MONOLOGUE");
+    expect(prompt).toContain("reply()");
   });
 
-  test("should not include memory section when no stage", () => {
-    const prompt = buildSystemPrompt(persona);
-    expect(prompt).not.toContain("Available memory");
+  test("does NOT include How You Think in task mode", () => {
+    const prompt = buildSystemPrompt({ mode: "task", persona });
+    expect(prompt).not.toContain("## How You Think");
+    expect(prompt).not.toContain("INNER MONOLOGUE");
   });
 
+  test("includes Tools section in main mode", () => {
+    const prompt = buildSystemPrompt({ mode: "main", persona });
+    expect(prompt).toContain("## Tools");
+    expect(prompt).toContain("memory_list");
+    expect(prompt).toContain("memory_read");
+    expect(prompt).toContain("memory_write");
+    expect(prompt).toContain("memory_patch");
+    expect(prompt).toContain("memory_append");
+    expect(prompt).toContain("spawn_subagent");
+    expect(prompt).toContain("current_time");
+    expect(prompt).toContain("session_archive_read");
+  });
+
+  test("does NOT include Tools section in task mode", () => {
+    const prompt = buildSystemPrompt({ mode: "task", persona });
+    expect(prompt).not.toContain("## Tools");
+  });
+
+  test("includes Thinking Style in main mode", () => {
+    const prompt = buildSystemPrompt({ mode: "main", persona });
+    expect(prompt).toContain("## Thinking Style");
+  });
+
+  test("does NOT include Thinking Style in task mode", () => {
+    const prompt = buildSystemPrompt({ mode: "task", persona });
+    expect(prompt).not.toContain("## Thinking Style");
+  });
+
+  test("includes Reply vs Spawn in main mode", () => {
+    const prompt = buildSystemPrompt({ mode: "main", persona });
+    expect(prompt).toContain("## When to Reply vs Spawn");
+  });
+
+  test("does NOT include Reply vs Spawn in task mode", () => {
+    const prompt = buildSystemPrompt({ mode: "task", persona });
+    expect(prompt).not.toContain("## When to Reply vs Spawn");
+  });
+
+  test("includes Channels in main mode", () => {
+    const prompt = buildSystemPrompt({ mode: "main", persona });
+    expect(prompt).toContain("## Channels and reply()");
+  });
+
+  test("does NOT include Channels in task mode", () => {
+    const prompt = buildSystemPrompt({ mode: "task", persona });
+    expect(prompt).not.toContain("## Channels and reply()");
+  });
+
+  test("includes Session History in main mode", () => {
+    const prompt = buildSystemPrompt({ mode: "main", persona });
+    expect(prompt).toContain("## Session History");
+  });
+
+  test("does NOT include Session History in task mode", () => {
+    const prompt = buildSystemPrompt({ mode: "task", persona });
+    expect(prompt).not.toContain("## Session History");
+  });
+
+  // Task-only: subagent prompt
+  test("appends subagent prompt in task mode", () => {
+    const prompt = buildSystemPrompt({
+      mode: "task",
+      persona,
+      subagentPrompt: "## Your Role\nYou are a research assistant.",
+    });
+    expect(prompt).toContain("research assistant");
+  });
+
+  test("does NOT append subagent prompt in main mode even if provided", () => {
+    const prompt = buildSystemPrompt({
+      mode: "main",
+      persona,
+      subagentPrompt: "## Your Role\nYou are a research assistant.",
+    });
+    expect(prompt).not.toContain("research assistant");
+  });
+
+  // Subagent metadata (main only)
+  test("includes subagent metadata in main mode when provided", () => {
+    const prompt = buildSystemPrompt({
+      mode: "main",
+      persona,
+      subagentMetadata: "## Available Subagent Types\n- explore: read-only research",
+    });
+    expect(prompt).toContain("Available Subagent Types");
+  });
+
+  // Skill metadata (main only)
+  test("includes skill metadata in main mode when provided", () => {
+    const prompt = buildSystemPrompt({
+      mode: "main",
+      persona,
+      skillMetadata: "## Available Skills\n- commit: git commit helper",
+    });
+    expect(prompt).toContain("Available Skills");
+  });
+
+  test("does NOT include skill metadata in task mode", () => {
+    const prompt = buildSystemPrompt({
+      mode: "task",
+      persona,
+      skillMetadata: "## Available Skills\n- commit: git commit helper",
+    });
+    expect(prompt).not.toContain("Available Skills");
+  });
+
+  // Backward compat: no mode defaults to "task"
+  test("no mode defaults to task mode for backward compatibility", () => {
+    const prompt = buildSystemPrompt({ persona });
+    expect(prompt).toContain("Alice");
+    expect(prompt).toContain("## Safety");
+    expect(prompt).not.toContain("## How You Think");
+  });
+
+  // formatSize (unchanged)
   test("formatSize formats bytes correctly", () => {
     expect(formatSize(500)).toBe("500B");
     expect(formatSize(1024)).toBe("1.0KB");
     expect(formatSize(2560)).toBe("2.5KB");
+  });
+});
+
+// ── Prompt structure integration tests ────────────────────
+
+describe("buildSystemPrompt - prompt structure", () => {
+  const persona: Persona = {
+    name: "Pegasus",
+    role: "personal AI assistant",
+    personality: ["curious", "precise"],
+    style: "clear and direct",
+    values: ["accuracy", "helpfulness"],
+  };
+
+  test("main mode prompt has correct section order", () => {
+    const prompt = buildSystemPrompt({
+      mode: "main",
+      persona,
+      subagentMetadata: "## Available Subagent Types\n- explore: research",
+      skillMetadata: "## Available Skills\n- commit: git",
+    });
+
+    const safetyIdx = prompt.indexOf("## Safety");
+    const thinkIdx = prompt.indexOf("## How You Think");
+    const toolsIdx = prompt.indexOf("## Tools");
+    const styleIdx = prompt.indexOf("## Thinking Style");
+    const spawnIdx = prompt.indexOf("## When to Reply vs Spawn");
+    const subagentIdx = prompt.indexOf("## Available Subagent Types");
+    const channelIdx = prompt.indexOf("## Channels and reply()");
+    const sessionIdx = prompt.indexOf("## Session History");
+    const skillIdx = prompt.indexOf("## Available Skills");
+
+    // All sections present
+    expect(safetyIdx).toBeGreaterThan(0);
+    expect(thinkIdx).toBeGreaterThan(0);
+    expect(toolsIdx).toBeGreaterThan(0);
+    expect(styleIdx).toBeGreaterThan(0);
+    expect(spawnIdx).toBeGreaterThan(0);
+    expect(subagentIdx).toBeGreaterThan(0);
+    expect(channelIdx).toBeGreaterThan(0);
+    expect(sessionIdx).toBeGreaterThan(0);
+    expect(skillIdx).toBeGreaterThan(0);
+
+    // Correct order
+    expect(safetyIdx).toBeLessThan(thinkIdx);
+    expect(thinkIdx).toBeLessThan(toolsIdx);
+    expect(toolsIdx).toBeLessThan(styleIdx);
+    expect(styleIdx).toBeLessThan(spawnIdx);
+    expect(spawnIdx).toBeLessThan(subagentIdx);
+    expect(subagentIdx).toBeLessThan(channelIdx);
+    expect(channelIdx).toBeLessThan(sessionIdx);
+    expect(sessionIdx).toBeLessThan(skillIdx);
+  });
+
+  test("task mode prompt is minimal", () => {
+    const prompt = buildSystemPrompt({
+      mode: "task",
+      persona,
+      subagentPrompt: "## Your Role\nYou are a research assistant.\n\n## Rules\n1. READ ONLY",
+    });
+
+    // Has: identity + safety + subagent prompt
+    expect(prompt).toContain("Pegasus");
+    expect(prompt).toContain("## Safety");
+    expect(prompt).toContain("## Your Role");
+    expect(prompt).toContain("READ ONLY");
+
+    // Does NOT have main-only sections
+    expect(prompt).not.toContain("## How You Think");
+    expect(prompt).not.toContain("## Tools");
+    expect(prompt).not.toContain("## Thinking Style");
+    expect(prompt).not.toContain("## When to Reply vs Spawn");
+    expect(prompt).not.toContain("## Channels");
+    expect(prompt).not.toContain("## Session History");
+  });
+
+  test("main mode prompt does not contain subagent body", () => {
+    const prompt = buildSystemPrompt({
+      mode: "main",
+      persona,
+      subagentPrompt: "## Your Role\nYou are a research assistant.",
+    });
+    expect(prompt).not.toContain("You are a research assistant");
   });
 });

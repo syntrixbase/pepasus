@@ -10,7 +10,9 @@
 import type { Message } from "../infra/llm-types.ts";
 import { generateText } from "../infra/llm-utils.ts";
 import type { Persona } from "../identity/persona.ts";
+import { buildSystemPrompt } from "../identity/prompt.ts";
 import type { Settings } from "../infra/config.ts";
+import { sanitizeForPrompt } from "../infra/sanitize.ts";
 import { getSettings } from "../infra/config.ts";
 import { getLogger } from "../infra/logger.ts";
 import { ToolRegistry } from "../tools/registry.ts";
@@ -277,7 +279,7 @@ export class MainAgent {
     // Track last channel for task notification routing
     this.lastChannel = message.channel;
 
-    const text = message.text.trim();
+    const text = sanitizeForPrompt(message.text.trim());
 
     // Check for /skill command
     if (text.startsWith("/")) {
@@ -287,7 +289,7 @@ export class MainAgent {
 
     // Normal message: add to session with channel metadata for LLM visibility
     const channelMeta = `[channel: ${message.channel.type} | id: ${message.channel.channelId}${message.channel.replyTo ? ` | thread: ${message.channel.replyTo}` : ""}]`;
-    const userMsg: Message = { role: "user", content: `${channelMeta}\n${message.text}` };
+    const userMsg: Message = { role: "user", content: `${channelMeta}\n${text}` };
     this.sessionMessages.push(userMsg);
     await this.sessionStore.append(userMsg, { channel: message.channel });
 
@@ -692,115 +694,23 @@ export class MainAgent {
   // ── System prompt ──
 
   private _buildSystemPrompt(): string {
-    const lines: string[] = [
-      `You are ${this.persona.name}, ${this.persona.role}.`,
-      "",
-      `Personality: ${this.persona.personality.join(", ")}.`,
-      `Speaking style: ${this.persona.style}.`,
-      `Core values: ${this.persona.values.join(", ")}.`,
-    ];
-
-    if (this.persona.background) {
-      lines.push("", `Background: ${this.persona.background}`);
-    }
-
-    // Inner monologue explanation
-    lines.push("", [
-      "## How You Think",
-      "",
-      "Your text output is your INNER MONOLOGUE — private thinking that",
-      "the user NEVER sees. No matter what you write in text, the user",
-      "cannot read it. It is only visible to you.",
-      "",
-      "The ONLY way to communicate with the user is by calling the reply() tool.",
-      "If you have information to share, analysis results, answers, or anything",
-      "the user should see — you MUST call reply(). Otherwise it is lost.",
-      "",
-      "Available tool calls:",
-      "- reply(): the ONLY way the user hears you — ALWAYS call this when you have something to say",
-      "- spawn_subagent(): delegate complex work to a specialized background subagent",
-      "- Other tools: gather information for your thinking",
-    ].join("\n"));
-
-    // Decision guidelines
-    lines.push("", [
-      "## When to Reply vs Spawn",
-      "",
-      "Reply directly (via reply tool) when:",
-      "- Simple conversation, greetings, opinions, follow-ups",
-      "- You can answer from session context or memory",
-      "- A quick tool call is enough (time, memory lookup)",
-      "",
-      "Spawn a subagent when:",
-      "- You need file I/O, shell commands, or web requests",
-      "- The work requires multiple steps",
-      "- You're unsure — err on the side of spawning",
-      "",
-      "After calling spawn_subagent, the subagent runs in the background.",
-      "You will receive the result automatically when it completes.",
-      "Do NOT poll with task_replay — just wait for the result to arrive.",
-      "",
-      "On task completion:",
-      "- You will receive the result in your session",
-      "- Think about it, then ALWAYS call reply() to inform the user",
-      "- Never just think about the result without calling reply()",
-    ].join("\n"));
-
-    // Subagent type metadata (loaded from SUBAGENT.md files)
+    // Get subagent metadata for prompt
     const subagentMetadata = this.subagentRegistry.getMetadataForPrompt();
-    if (subagentMetadata) {
-      lines.push("", subagentMetadata);
-    }
 
-    // Channel-specific reply guidelines
-    lines.push("", [
-      "## Channels and reply()",
-      "",
-      "Each user message starts with a metadata line showing its source channel:",
-      "  [channel: <type> | id: <channelId> | thread: <replyTo>]",
-      "",
-      "Fields:",
-      "- type: the channel type (cli, telegram, slack, sms, web)",
-      "- id: the unique channel instance identifier",
-      "- thread: (optional) thread or conversation ID within the channel",
-      "",
-      "When calling reply(), pass these values back:",
-      "- channelType: the channel type from the metadata",
-      "- channelId: the channel id from the metadata",
-      "- replyTo: the thread id from the metadata (if present)",
-      "",
-      "Style guidelines per channel type:",
-      "- cli: Terminal session. Detailed responses, code blocks welcome. No character limit.",
-      "- telegram: Markdown formatting. Concise but informative. Split very long messages.",
-      "- sms: Extremely concise. Keep under 160 characters.",
-      "- slack: Markdown formatting. Use threads for long discussions.",
-      "- web: Rich formatting and links supported.",
-      "",
-      "If the channel type is unknown, keep your response clear and readable.",
-    ].join("\n"));
-
-    // Session history / compact info
-    lines.push("", [
-      "## Session History",
-      "",
-      "Your conversation history may have been compacted to stay within context limits.",
-      "If you see a system message starting with a summary, the full previous conversation",
-      "is archived. You can read it with session_archive_read(file) if you need more detail.",
-      "The archive filename is in the compact metadata.",
-    ].join("\n"));
-
-    // Skill metadata injection
+    // Get skill metadata with budget
     const contextWindow = getContextWindowSize(
       this.models.getModelId("default"),
       this.settings.llm.contextWindow,
     );
-    const skillBudget = Math.max(Math.floor(contextWindow * 0.02 * 4), 16_000); // 2% in chars, min 16K
+    const skillBudget = Math.max(Math.floor(contextWindow * 0.02 * 4), 16_000);
     const skillMetadata = this.skillRegistry.getMetadataForPrompt(skillBudget);
-    if (skillMetadata) {
-      lines.push("", skillMetadata);
-    }
 
-    return lines.join("\n");
+    return buildSystemPrompt({
+      mode: "main",
+      persona: this.persona,
+      subagentMetadata: subagentMetadata || undefined,
+      skillMetadata: skillMetadata || undefined,
+    });
   }
 
   private _getLastChannel() {
