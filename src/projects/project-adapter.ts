@@ -31,10 +31,11 @@ type WorkerInbound =
   | { type: "llm_error"; requestId: string; error: string };
 
 const WORKER_URL = new URL("./project-worker.ts", import.meta.url).href;
-const SHUTDOWN_TIMEOUT_MS = 30_000;
 
 export class ProjectAdapter implements ChannelAdapter {
   readonly type = "project";
+  /** Timeout (ms) for graceful Worker shutdown before force-terminate. */
+  shutdownTimeoutMs = 30_000;
   private workers = new Map<string, Worker>();
   private agentSend: ((msg: InboundMessage) => void) | null = null;
   private models: ModelRegistry | null = null;
@@ -162,7 +163,7 @@ export class ProjectAdapter implements ChannelAdapter {
         worker.addEventListener("close", () => resolve(true));
       }),
       new Promise<boolean>((resolve) =>
-        setTimeout(() => resolve(false), SHUTDOWN_TIMEOUT_MS),
+        setTimeout(() => resolve(false), this.shutdownTimeoutMs),
       ),
     ]);
 
