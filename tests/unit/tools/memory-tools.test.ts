@@ -281,14 +281,76 @@ describe("memory tools", () => {
     it("should return written path and size", async () => {
       const context = { taskId: "t1", memoryDir: testDir };
       const result = await memory_write.execute(
-        { path: "facts/test.md", content: "12345" },
+        { path: "facts/user.md", content: "12345" },
         context,
       );
 
       expect(result.success).toBe(true);
       const data = result.result as { path: string; size: number };
-      expect(data.path).toBe("facts/test.md");
+      expect(data.path).toBe("facts/user.md");
       expect(data.size).toBe(5);
+    });
+
+    it("rejects write to non-allowed fact file", async () => {
+      await mkdir(`${testDir}/facts`, { recursive: true });
+
+      const result = await memory_write.execute(
+        { path: "facts/configuration.md", content: "# Config\n> Summary: config stuff" },
+        { taskId: "test", memoryDir: testDir },
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("not allowed");
+    });
+
+    it("allows write to user.md in facts", async () => {
+      await mkdir(`${testDir}/facts`, { recursive: true });
+
+      const result = await memory_write.execute(
+        { path: "facts/user.md", content: "# User\n> Summary: test user" },
+        { taskId: "test", memoryDir: testDir },
+      );
+
+      expect(result.success).toBe(true);
+    });
+
+    it("allows write to memory.md in facts", async () => {
+      await mkdir(`${testDir}/facts`, { recursive: true });
+
+      const result = await memory_write.execute(
+        { path: "facts/memory.md", content: "# Memory\n> Summary: learned things" },
+        { taskId: "test", memoryDir: testDir },
+      );
+
+      expect(result.success).toBe(true);
+    });
+
+    it("allows write to episodes (no allowlist restriction)", async () => {
+      await mkdir(`${testDir}/episodes`, { recursive: true });
+
+      const result = await memory_write.execute(
+        { path: "episodes/2026-02.md", content: "# Feb 2026\n> Summary: events" },
+        { taskId: "test", memoryDir: testDir },
+      );
+
+      expect(result.success).toBe(true);
+    });
+
+    it("rejects write when facts budget would exceed 15KB", async () => {
+      await mkdir(`${testDir}/facts`, { recursive: true });
+
+      // Write a large user.md first (14KB)
+      const largeContent = "# User\n> Summary: big\n\n" + "x".repeat(14_000);
+      await Bun.write(`${testDir}/facts/user.md`, largeContent);
+
+      // Try to write memory.md that would push total over 15KB
+      const result = await memory_write.execute(
+        { path: "facts/memory.md", content: "# Memory\n> Summary: test\n\n" + "y".repeat(2_000) },
+        { taskId: "test", memoryDir: testDir },
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("15KB");
     });
   });
 
@@ -346,6 +408,19 @@ describe("memory tools", () => {
 
       expect(result.success).toBe(false);
       expect(result.error).toContain("escapes memory directory");
+    });
+
+    it("rejects patch to non-allowed fact file", async () => {
+      await mkdir(`${testDir}/facts`, { recursive: true });
+      await Bun.write(`${testDir}/facts/config.md`, "# Config\nold text");
+
+      const result = await memory_patch.execute(
+        { path: "facts/config.md", old_str: "old text", new_str: "new text" },
+        { taskId: "test", memoryDir: testDir },
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("not allowed");
     });
   });
 

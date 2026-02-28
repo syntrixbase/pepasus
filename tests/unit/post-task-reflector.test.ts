@@ -58,13 +58,31 @@ describe("shouldReflect", () => {
     expect(shouldReflect(ctx)).toBe(true);
   });
 
-  test("returns true for single-iteration task with long response", () => {
-    const ctx = createTaskContext({ inputText: "explain" });
+  test("returns false for zero tool calls with single iteration", () => {
+    const ctx = createTaskContext({ inputText: "hello" });
+    ctx.iteration = 1;
+    ctx.actionsDone = [];
+    ctx.finalResult = { response: "Hi there!" };
+    expect(shouldReflect(ctx)).toBe(false);
+  });
+
+  test("returns false for single-iteration task with result under 500 chars", () => {
+    const ctx = createTaskContext({ inputText: "what time?" });
     ctx.iteration = 1;
     ctx.actionsDone = [
       { stepIndex: 0, actionType: "respond", actionInput: {}, success: true, startedAt: Date.now() },
     ];
     ctx.finalResult = { response: "A".repeat(300) };
+    expect(shouldReflect(ctx)).toBe(false);
+  });
+
+  test("returns true for single-iteration task with result over 500 chars", () => {
+    const ctx = createTaskContext({ inputText: "explain" });
+    ctx.iteration = 1;
+    ctx.actionsDone = [
+      { stepIndex: 0, actionType: "respond", actionInput: {}, success: true, startedAt: Date.now() },
+    ];
+    ctx.finalResult = { response: "A".repeat(600) };
     expect(shouldReflect(ctx)).toBe(true);
   });
 
@@ -126,7 +144,7 @@ describe("PostTaskReflector", () => {
               id: "tc1",
               name: "memory_write",
               arguments: {
-                path: "facts/learned.md",
+                path: "facts/memory.md",
                 content: "# Learned\n> Summary: test\n\n- Something new",
               },
             }],
@@ -152,7 +170,7 @@ describe("PostTaskReflector", () => {
     expect(result.toolCallsCount).toBe(1);
 
     // Verify file was actually written
-    const content = await Bun.file(`${testMemoryDir}/facts/learned.md`).text();
+    const content = await Bun.file(`${testMemoryDir}/facts/memory.md`).text();
     expect(content).toContain("Something new");
   });
 
@@ -238,6 +256,92 @@ describe("PostTaskReflector", () => {
     expect(capturedMessages[0]!.content).toContain("search for papers");
     expect(capturedMessages[1]!.content).toBe("search for papers");
     expect(capturedMessages[2]!.content).toBe("Found 3 papers on AI agents.");
+  });
+
+  test("system prompt includes persona identity", async () => {
+    await mkdir(testMemoryDir, { recursive: true });
+
+    let capturedSystem = "";
+    const model: LanguageModel = {
+      provider: "test", modelId: "test",
+      async generate(options: { system?: string }): Promise<GenerateTextResult> {
+        capturedSystem = options.system ?? "";
+        return {
+          text: "Reviewed.",
+          finishReason: "stop",
+          usage: { promptTokens: 10, completionTokens: 10 },
+        };
+      },
+    };
+
+    const reflector = new PostTaskReflector(createReflectionDeps(model));
+    const ctx = createTaskContext({ inputText: "task" });
+    ctx.iteration = 2;
+    ctx.finalResult = { response: "Done" };
+
+    await reflector.run(ctx, [], []);
+
+    expect(capturedSystem).toContain("TestBot");
+    expect(capturedSystem).toContain("test assistant");
+  });
+
+  test("system prompt enforces fact file naming (user.md and memory.md only)", async () => {
+    await mkdir(testMemoryDir, { recursive: true });
+
+    let capturedSystem = "";
+    const model: LanguageModel = {
+      provider: "test", modelId: "test",
+      async generate(options: { system?: string }): Promise<GenerateTextResult> {
+        capturedSystem = options.system ?? "";
+        return {
+          text: "Reviewed.",
+          finishReason: "stop",
+          usage: { promptTokens: 10, completionTokens: 10 },
+        };
+      },
+    };
+
+    const reflector = new PostTaskReflector(createReflectionDeps(model));
+    const ctx = createTaskContext({ inputText: "task" });
+    ctx.iteration = 2;
+    ctx.finalResult = { response: "Done" };
+
+    await reflector.run(ctx, [], []);
+
+    expect(capturedSystem).toContain("user.md");
+    expect(capturedSystem).toContain("memory.md");
+    expect(capturedSystem).toContain("Do NOT create");
+  });
+
+  test("system prompt includes quality guidelines", async () => {
+    await mkdir(testMemoryDir, { recursive: true });
+
+    let capturedSystem = "";
+    const model: LanguageModel = {
+      provider: "test", modelId: "test",
+      async generate(options: { system?: string }): Promise<GenerateTextResult> {
+        capturedSystem = options.system ?? "";
+        return {
+          text: "Reviewed.",
+          finishReason: "stop",
+          usage: { promptTokens: 10, completionTokens: 10 },
+        };
+      },
+    };
+
+    const reflector = new PostTaskReflector(createReflectionDeps(model));
+    const ctx = createTaskContext({ inputText: "task" });
+    ctx.iteration = 2;
+    ctx.finalResult = { response: "Done" };
+
+    await reflector.run(ctx, [], []);
+
+    // Worth recording
+    expect(capturedSystem).toContain("social relationships");
+    expect(capturedSystem).toContain("important dates");
+    // NOT worth recording
+    expect(capturedSystem).toContain("NOT Worth Recording");
+    expect(capturedSystem).toContain("re-retrieved");
   });
 
   test("max rounds returns graceful result", async () => {

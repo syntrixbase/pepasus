@@ -19,13 +19,20 @@ const MAX_REFLECTION_ROUNDS = 5;
 
 /** Determine if a completed task is worth reflecting on. */
 export function shouldReflect(context: TaskContext): boolean {
+  // Skip: zero tool calls with single iteration (pure conversation, no work done)
+  if (context.iteration <= 1 && context.actionsDone.length === 0) {
+    return false;
+  }
+
+  // Skip: trivial tasks (single iteration, few actions, short result)
   if (context.iteration <= 1 && context.actionsDone.length <= 1) {
     const responseLen =
       typeof context.finalResult === "object" && context.finalResult !== null
         ? JSON.stringify(context.finalResult).length
         : 0;
-    if (responseLen < 200) return false;
+    if (responseLen < 500) return false;
   }
+
   return true;
 }
 
@@ -103,8 +110,14 @@ export class PostTaskReflector {
     existingFacts: Array<{ path: string; content: string }>,
     episodeIndex: Array<{ path: string; summary: string }>,
   ): string {
+    const { persona } = this.deps;
     const sections: string[] = [
-      "You are reviewing a completed task to extract long-term learnings.",
+      // Persona identity — aligns reflector judgment with agent character
+      `You are ${persona.name}, ${persona.role}.`,
+      `Personality: ${persona.personality.join(", ")}.`,
+      `Values: ${persona.values.join(", ")}.`,
+      "",
+      "You are reviewing a completed task to decide what to remember long-term.",
       "You have memory tools: memory_read, memory_write, memory_patch, memory_append.",
       "",
       "## Goal",
@@ -112,22 +125,27 @@ export class PostTaskReflector {
       "Decide what is worth remembering. If nothing, just respond with a brief",
       "assessment — do NOT force writes.",
       "",
-      "## Facts (facts/*.md) — persistent truths",
+      "## Fact Files (facts/) — only two allowed files",
+      "",
+      "You may ONLY write to these two fact files:",
+      "- facts/user.md — About the user: identity, preferences, social relationships,",
+      "  important dates (birthdays, anniversaries), recurring habits (weekly meetings)",
+      "- facts/memory.md — About experience: insights learned from interactions,",
+      "  patterns discovered, non-obvious knowledge accumulated over time",
+      "",
+      "Do NOT create any other fact files. Only user.md and memory.md are allowed.",
       "",
       "Use memory_write to create or update fact files.",
       "Fact files are REPLACED entirely on write. To update an existing file:",
       "read it first with memory_read, merge your additions, write back COMPLETE content.",
       "Use memory_patch for small changes to existing files.",
       "",
+      "Total facts budget: 15KB across all fact files. Be concise.",
+      "",
       "File format:",
       "  # <Title>",
       "  > Summary: <ultra-concise, under 10 words>",
       "  - Key: value",
-      "",
-      "Worth recording:",
-      "- User preferences, identity, work style",
-      "- Project conventions, tech stack, constraints",
-      "- System knowledge (API limits, file permissions, etc.)",
       "",
       "## Episodes (episodes/YYYY-MM.md) — experience summaries",
       "",
@@ -141,15 +159,20 @@ export class PostTaskReflector {
       "  - Details: <2-3 sentences>",
       "  - Lesson: <what was learned>",
       "",
-      "Worth recording:",
-      "- Non-trivial problems solved and their root cause",
-      "- Mistakes and what they taught",
-      "- Patterns or approaches that worked well",
+      "## Worth Recording",
+      "- User-stated personal information (name, preferences, work patterns)",
+      "- User's social relationships (colleagues, family, teams)",
+      "- Important dates and recurring events (birthdays, meetings, deadlines)",
+      "- Lessons learned from completing tasks (what worked, what didn't)",
+      "- User-specific preferences discovered through interaction",
+      "- Non-obvious patterns (e.g., user always asks for options before deciding)",
       "",
-      "## Do NOT Record",
-      "- Trivial Q&A with no lasting value",
-      "- Information already in existing facts (check below)",
+      "## NOT Worth Recording",
+      "- Information that can be re-retrieved (web results, API responses)",
+      "- Generic knowledge the LLM already has",
       "- Routine operations with no new insight",
+      "- Trivial Q&A with no lasting value",
+      "- Duplicates of information already in existing facts",
     ];
 
     if (existingFacts.length > 0) {
