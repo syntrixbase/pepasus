@@ -203,6 +203,17 @@ describe("SubagentRegistry", () => {
     expect(reg.get("explore")!.tools).toEqual(["read_file", "web_search"]);
   });
 
+  test("later builtin overrides earlier builtin", () => {
+    const reg = new SubagentRegistry();
+    reg.registerMany([
+      makeDef("explore", ["read_file"], "builtin"),
+    ]);
+    reg.registerMany([
+      makeDef("explore", ["read_file", "web_search"], "builtin"),
+    ]);
+    expect(reg.get("explore")!.tools).toEqual(["read_file", "web_search"]);
+  });
+
   test("getToolNames resolves * to all task tools", () => {
     const reg = new SubagentRegistry();
     reg.registerMany([makeDef("general")]);
