@@ -12,12 +12,14 @@ import { getLogger } from "./logger.ts";
 
 const logger = getLogger("codex_oauth");
 
-// ── OAuth endpoints (from OpenAI OIDC discovery) ──
-const AUTHORIZE_URL = "https://auth.openai.com/authorize";
-const TOKEN_URL = "https://auth0.openai.com/oauth/token";
-const CALLBACK_PORT = 18199;
+// ── OAuth constants (from pi-ai / OpenAI Codex CLI) ──
+const CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
+const AUTHORIZE_URL = "https://auth.openai.com/oauth/authorize";
+const TOKEN_URL = "https://auth.openai.com/oauth/token";
+const CALLBACK_PORT = 1455;
 const CALLBACK_PATH = "/auth/callback";
-const REDIRECT_URI = `http://127.0.0.1:${CALLBACK_PORT}${CALLBACK_PATH}`;
+const REDIRECT_URI = `http://localhost:${CALLBACK_PORT}${CALLBACK_PATH}`;
+const SCOPE = "openid profile email offline_access";
 
 // Token refresh buffer: refresh 5 minutes before expiry
 const REFRESH_BUFFER_MS = 5 * 60 * 1000;
@@ -32,9 +34,6 @@ export interface CodexCredentials {
 
 /** Configuration for Codex OAuth. */
 export interface CodexOAuthConfig {
-  clientId: string;
-  audience?: string;
-  scope?: string;
   dataDir: string;
 }
 
@@ -90,7 +89,7 @@ export async function refreshToken(
 
   const body = new URLSearchParams({
     grant_type: "refresh_token",
-    client_id: config.clientId,
+    client_id: CLIENT_ID,
     refresh_token: creds.refreshToken,
   });
 
@@ -179,14 +178,13 @@ export async function loginCodexOAuth(
   // Build authorize URL
   const params = new URLSearchParams({
     response_type: "code",
-    client_id: config.clientId,
+    client_id: CLIENT_ID,
     redirect_uri: REDIRECT_URI,
     code_challenge: challenge,
     code_challenge_method: "S256",
     state,
+    scope: SCOPE,
   });
-  if (config.audience) params.set("audience", config.audience);
-  if (config.scope) params.set("scope", config.scope);
 
   const authorizeUrl = `${AUTHORIZE_URL}?${params.toString()}`;
 
@@ -196,7 +194,7 @@ export async function loginCodexOAuth(
   // Exchange code for tokens
   const tokenBody = new URLSearchParams({
     grant_type: "authorization_code",
-    client_id: config.clientId,
+    client_id: CLIENT_ID,
     code,
     redirect_uri: REDIRECT_URI,
     code_verifier: verifier,

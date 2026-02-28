@@ -84,12 +84,12 @@ llm:
   providers:
     codex:
       type: openai-codex
-      baseURL: https://chatgpt.com/backend-api  # default
+      baseURL: https://chatgpt.com/backend-api  # default, optional
   roles:
     subAgent: codex/gpt-5.3-codex
 ```
 
-No `apiKey` needed — OAuth provides the token. The `baseURL` defaults to `https://chatgpt.com/backend-api`.
+No `apiKey` or `clientId` needed — OAuth credentials and client_id are built-in. The `baseURL` defaults to `https://chatgpt.com/backend-api`.
 
 ## SSE Event Flow
 

@@ -27,7 +27,6 @@ import path from "node:path";
 import { SkillRegistry, loadAllSkills } from "../skills/index.ts";
 import { SubagentRegistry, loadAllSubagents } from "../subagents/index.ts";
 import { loginCodexOAuth, getValidCredentials } from "../infra/codex-oauth.ts";
-import type { CodexOAuthConfig } from "../infra/codex-oauth.ts";
 
 // Main Agent's curated tool set
 import { mainAgentTools } from "../tools/builtins/index.ts";
@@ -679,21 +678,7 @@ export class MainAgent {
 
     if (!codexProviderName) return; // No codex provider configured
 
-    const providerConfig = providers[codexProviderName]!;
-    const oauthConfig: CodexOAuthConfig = {
-      clientId: providerConfig.clientId ?? "",
-      audience: providerConfig.audience,
-      scope: providerConfig.scope,
-      dataDir: this.settings.dataDir,
-    };
-
-    if (!oauthConfig.clientId) {
-      logger.warn(
-        { provider: codexProviderName },
-        "codex_oauth_skipped_no_client_id",
-      );
-      return;
-    }
+    const oauthConfig = { dataDir: this.settings.dataDir };
 
     try {
       // Try stored credentials first
