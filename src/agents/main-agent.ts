@@ -10,7 +10,7 @@
 import type { Message } from "../infra/llm-types.ts";
 import { generateText } from "../infra/llm-utils.ts";
 import type { Persona } from "../identity/persona.ts";
-import { buildSystemPrompt } from "../identity/prompt.ts";
+import { buildSystemPrompt, formatSize } from "../identity/prompt.ts";
 import type { Settings } from "../infra/config.ts";
 import { sanitizeForPrompt } from "../infra/sanitize.ts";
 import { formatTimestamp, formatToolTimestamp } from "../infra/time.ts";
@@ -118,6 +118,9 @@ export class MainAgent {
   async start(): Promise<void> {
     // Load session history from disk
     this.sessionMessages = await this.sessionStore.load();
+
+    // Inject memory index so LLM knows what memory files are available
+    await this._injectMemoryIndex();
 
     // Authenticate Codex provider if configured (OAuth PKCE)
     await this._initCodexAuth();
@@ -672,6 +675,7 @@ export class MainAgent {
 
     // 3. Reset in-memory state
     this.sessionMessages = await this.sessionStore.load();
+    await this._injectMemoryIndex();
     this.lastPromptTokens = 0;
 
     logger.info({ archiveName }, "compact_completed");
@@ -747,6 +751,39 @@ export class MainAgent {
         "codex_auth_failed",
       );
       // Continue without Codex — other providers still work
+    }
+  }
+
+  // ── Memory index injection ──
+
+  /**
+   * Inject available memory files into the session so the LLM knows what
+   * long-term knowledge is available without needing to call memory_list first.
+   */
+  private async _injectMemoryIndex(): Promise<void> {
+    try {
+      const memoryDir = path.join(this.settings.dataDir, "memory");
+      const result = await this.toolExecutor.execute(
+        "memory_list",
+        {},
+        { taskId: "main-agent", memoryDir },
+      );
+      if (!result.success || !Array.isArray(result.result) || result.result.length === 0) return;
+
+      const entries = result.result as Array<{ path: string; summary: string; size: number }>;
+      const content = [
+        "[Available memory]",
+        ...entries.map((e) => `- ${e.path} (${formatSize(e.size)}): ${e.summary}`),
+        "",
+        "Use memory_read to load relevant files before responding.",
+      ].join("\n");
+
+      const msg: Message = { role: "system", content };
+      this.sessionMessages.push(msg);
+      await this.sessionStore.append(msg);
+      logger.debug({ count: entries.length }, "memory_index_injected");
+    } catch {
+      // Memory unavailable — continue without it
     }
   }
 
