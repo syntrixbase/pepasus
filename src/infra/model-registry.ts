@@ -9,6 +9,8 @@ import type { LanguageModel } from "./llm-types.ts";
 import type { LLMConfig } from "./config-schema.ts";
 import { createOpenAICompatibleModel } from "./openai-client.ts";
 import { createAnthropicCompatibleModel } from "./anthropic-client.ts";
+import { createCodexModel } from "./codex-client.ts";
+import type { CodexCredentials } from "./codex-oauth.ts";
 import { getLogger } from "./logger.ts";
 
 const logger = getLogger("model_registry");
@@ -19,10 +21,24 @@ export class ModelRegistry {
   private providers: LLMConfig["providers"];
   private roles: LLMConfig["roles"];
   private cache = new Map<string, LanguageModel>();
+  private codexCredentials: CodexCredentials | null = null;
+  private codexBaseURL: string = "https://chatgpt.com/backend-api";
 
   constructor(llmConfig: LLMConfig) {
     this.providers = llmConfig.providers;
     this.roles = llmConfig.roles;
+  }
+
+  /** Set Codex OAuth credentials and base URL (called after OAuth flow completes). */
+  setCodexCredentials(creds: CodexCredentials, baseURL?: string): void {
+    this.codexCredentials = creds;
+    if (baseURL) this.codexBaseURL = baseURL;
+    // Invalidate cached codex models so they pick up new tokens
+    for (const [key, model] of this.cache.entries()) {
+      if (model.provider === "openai-codex") {
+        this.cache.delete(key);
+      }
+    }
   }
 
   /** Get model for a role. Lazy-creates on first call. */
@@ -52,6 +68,24 @@ export class ModelRegistry {
 
     const providerName = spec.slice(0, slashIdx);
     const modelName = spec.slice(slashIdx + 1);
+
+    // Codex models use "codex/model-name" — no provider config needed
+    if (providerName === "codex") {
+      if (!this.codexCredentials) {
+        throw new Error(
+          `Codex model "${spec}" requires OAuth authentication. ` +
+          `Set codex.enabled: true in config to trigger the OAuth flow at startup.`,
+        );
+      }
+      return createCodexModel({
+        baseURL: this.codexBaseURL,
+        model: modelName,
+        accessToken: this.codexCredentials.accessToken,
+        accountId: this.codexCredentials.accountId,
+      });
+    }
+
+    // Standard providers
     const providerConfig = this.providers[providerName];
     if (!providerConfig) {
       throw new Error(`Provider "${providerName}" not found in llm.providers`);

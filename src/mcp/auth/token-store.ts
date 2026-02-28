@@ -1,7 +1,7 @@
 /**
  * TokenStore — filesystem-backed storage for MCP OAuth tokens.
  *
- * Each MCP server gets a separate JSON file under `{dataDir}/mcp-auth/`.
+ * Each MCP server gets a separate JSON file under `~/.pegasus/auth/mcp/`.
  * Files are stored with restrictive permissions (0600) since they contain
  * bearer tokens and refresh tokens.
  *
@@ -14,6 +14,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { StoredTokenSchema, type StoredToken } from "./types.ts";
 import { getLogger } from "../../infra/logger.ts";
+import { getAuthSubdir } from "../../infra/auth-dir.ts";
 
 const log = getLogger("mcp.auth.token-store");
 
@@ -23,19 +24,17 @@ export class TokenStore {
   private readonly dir: string;
 
   /**
-   * @param dataDir — root data directory (e.g. `./data`).
-   *   Creates `{dataDir}/mcp-auth/` with 0700 permissions.
+   * Creates token store.
+   * Default: `~/.pegasus/auth/mcp/`.
+   * Pass `dirOverride` for testing.
    */
-  constructor(dataDir: string) {
-    this.dir = path.join(dataDir, "mcp-auth");
-    fs.mkdirSync(this.dir, { recursive: true, mode: 0o700 });
-
-    // mkdirSync with `recursive: true` does not update permissions on
-    // an already-existing directory, so we force-set it.
-    try {
-      fs.chmodSync(this.dir, 0o700);
-    } catch {
-      // ignore — may fail on some platforms
+  constructor(dirOverride?: string) {
+    if (dirOverride) {
+      this.dir = dirOverride;
+      fs.mkdirSync(this.dir, { recursive: true, mode: 0o700 });
+      try { fs.chmodSync(this.dir, 0o700); } catch { /* ignore */ }
+    } else {
+      this.dir = getAuthSubdir("mcp");
     }
   }
 

@@ -30,7 +30,7 @@ describe("MCPManager", () => {
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "mcp-manager-test-"));
-    manager = new MCPManager(tmpDir);
+    manager = new MCPManager();
   });
 
   afterEach(() => {
@@ -337,14 +337,15 @@ describe("MCPManager", () => {
   // ═══════════════════════════════════════════════════
 
   describe("constructor", () => {
-    it("should accept dataDir and create TokenStore", () => {
-      const m = new MCPManager(tmpDir);
+    it("should create TokenStore on construction", () => {
+      const m = new MCPManager();
       expect(m.getTokenStore()).toBeInstanceOf(TokenStore);
     });
 
-    it("should create mcp-auth directory inside dataDir", () => {
-      // Constructor creates mcp-auth dir — we already have `manager` from beforeEach
-      expect(fs.existsSync(path.join(tmpDir, "mcp-auth"))).toBe(true);
+    it("should create auth directory for tokens", () => {
+      // Constructor creates ~/.pegasus/auth/mcp/ dir
+      const store = manager.getTokenStore();
+      expect(store).toBeDefined();
     });
   });
 

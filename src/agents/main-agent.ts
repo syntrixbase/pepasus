@@ -26,6 +26,7 @@ import type { ModelRegistry } from "../infra/model-registry.ts";
 import path from "node:path";
 import { SkillRegistry, loadAllSkills } from "../skills/index.ts";
 import { SubagentRegistry, loadAllSubagents } from "../subagents/index.ts";
+import { loginCodexOAuth, getValidCredentials } from "../infra/codex-oauth.ts";
 
 // Main Agent's curated tool set
 import { mainAgentTools } from "../tools/builtins/index.ts";
@@ -106,6 +107,9 @@ export class MainAgent {
     // Load session history from disk
     this.sessionMessages = await this.sessionStore.load();
 
+    // Authenticate Codex provider if configured (OAuth PKCE)
+    await this._initCodexAuth();
+
     // Register notification callback BEFORE agent.start()
     this.agent.onNotify((notification) => {
       this.queue.push({ kind: "task_notify", notification });
@@ -118,7 +122,7 @@ export class MainAgent {
     // Connect to MCP servers and register tools in both Agent and MainAgent
     const mcpConfigs = (this.settings.tools?.mcpServers ?? []) as MCPServerConfig[];
     if (mcpConfigs.length > 0) {
-      this.mcpManager = new MCPManager(this.settings.dataDir);
+      this.mcpManager = new MCPManager();
       await this.mcpManager.connectAll(mcpConfigs);
 
       // Register in Agent's tool registry (for task execution)
@@ -653,6 +657,40 @@ export class MainAgent {
    * to enable prefix caching. Channel-specific behavior is described as
    * reply() guidelines, not as "you are currently in X channel".
    */
+  // ── Codex OAuth ──
+
+  /**
+   * Initialize Codex OAuth if a codex provider is configured.
+   * Tries stored credentials first, falls back to interactive OAuth flow.
+   */
+  private async _initCodexAuth(): Promise<void> {
+    const codexConfig = this.settings.llm?.codex;
+    if (!codexConfig?.enabled) return;
+
+    try {
+      // Try stored credentials first
+      let creds = await getValidCredentials();
+
+      if (!creds) {
+        // No stored credentials or refresh failed → interactive login
+        logger.info("codex_oauth_login_required");
+        creds = await loginCodexOAuth();
+      }
+
+      // Set credentials on ModelRegistry so Codex models can be created
+      this.models.setCodexCredentials(creds, codexConfig.baseURL);
+      logger.info({ accountId: creds.accountId }, "codex_auth_ready");
+    } catch (err) {
+      logger.error(
+        { error: err instanceof Error ? err.message : String(err) },
+        "codex_auth_failed",
+      );
+      // Continue without Codex — other providers still work
+    }
+  }
+
+  // ── System prompt ──
+
   private _buildSystemPrompt(): string {
     const lines: string[] = [
       `You are ${this.persona.name}, ${this.persona.role}.`,

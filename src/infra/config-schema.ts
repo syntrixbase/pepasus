@@ -19,9 +19,16 @@ export const RolesConfigSchema = z.object({
   reflection: z.string().optional(),
 });
 
+export const CodexConfigSchema = z.object({
+  enabled: z.coerce.boolean().default(false),
+  baseURL: z.string().default("https://chatgpt.com/backend-api"),
+  model: z.string().default("gpt-5.3-codex"),
+});
+
 export const LLMConfigSchema = z.object({
   providers: z.record(z.string(), ProviderConfigSchema).default({}),
   roles: RolesConfigSchema.default({ default: "openai/gpt-4o-mini" }),
+  codex: CodexConfigSchema.default({}),
 
   // System-wide settings
   maxConcurrentCalls: z.coerce.number().int().positive().default(3),
@@ -155,6 +162,7 @@ export const SettingsSchema = z.object({
 });
 
 export type LLMConfig = z.infer<typeof LLMConfigSchema>;
+export type CodexConfig = z.infer<typeof CodexConfigSchema>;
 export type ProviderConfig = z.infer<typeof ProviderConfigSchema>;
 export type RolesConfig = z.infer<typeof RolesConfigSchema>;
 export type MemoryConfig = z.infer<typeof MemoryConfigSchema>;

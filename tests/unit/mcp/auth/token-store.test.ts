@@ -137,7 +137,7 @@ describe("TokenStore", () => {
       const store = new TokenStore(dir);
 
       // Write garbage to the expected file location
-      const filePath = path.join(dir, "mcp-auth", "corrupt.json");
+      const filePath = path.join(dir, "corrupt.json");
       fs.writeFileSync(filePath, "not-valid-json{{{", { mode: 0o600 });
 
       expect(store.load("corrupt")).toBeNull();
@@ -147,7 +147,7 @@ describe("TokenStore", () => {
       const dir = createTmpDir();
       const store = new TokenStore(dir);
 
-      const filePath = path.join(dir, "mcp-auth", "bad-schema.json");
+      const filePath = path.join(dir, "bad-schema.json");
       fs.writeFileSync(filePath, JSON.stringify({ foo: "bar" }), { mode: 0o600 });
 
       expect(store.load("bad-schema")).toBeNull();
@@ -163,7 +163,7 @@ describe("TokenStore", () => {
 
       store.save("perms-test", makeToken());
 
-      const filePath = path.join(dir, "mcp-auth", "perms-test.json");
+      const filePath = path.join(dir, "perms-test.json");
       const stats = fs.statSync(filePath);
       // 0o600 = owner read+write only
       expect(stats.mode & 0o777).toBe(0o600);
@@ -173,8 +173,7 @@ describe("TokenStore", () => {
       const dir = createTmpDir();
       new TokenStore(dir);
 
-      const authDir = path.join(dir, "mcp-auth");
-      const stats = fs.statSync(authDir);
+      const stats = fs.statSync(dir);
       expect(stats.mode & 0o777).toBe(0o700);
     });
   });
