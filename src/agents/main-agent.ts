@@ -13,6 +13,7 @@ import type { Persona } from "../identity/persona.ts";
 import { buildSystemPrompt } from "../identity/prompt.ts";
 import type { Settings } from "../infra/config.ts";
 import { sanitizeForPrompt } from "../infra/sanitize.ts";
+import { formatTimestamp, formatToolTimestamp } from "../infra/time.ts";
 import { getSettings } from "../infra/config.ts";
 import { getLogger } from "../infra/logger.ts";
 import { ToolRegistry } from "../tools/registry.ts";
@@ -288,7 +289,8 @@ export class MainAgent {
     }
 
     // Normal message: add to session with channel metadata for LLM visibility
-    const channelMeta = `[channel: ${message.channel.type} | id: ${message.channel.channelId}${message.channel.replyTo ? ` | thread: ${message.channel.replyTo}` : ""}]`;
+    const now = formatTimestamp(Date.now());
+    const channelMeta = `[${now} | channel: ${message.channel.type} | id: ${message.channel.channelId}${message.channel.replyTo ? ` | thread: ${message.channel.replyTo}` : ""}]`;
     const userMsg: Message = { role: "user", content: `${channelMeta}\n${text}` };
     this.sessionMessages.push(userMsg);
     await this.sessionStore.append(userMsg, { channel: message.channel });
@@ -454,11 +456,16 @@ export class MainAgent {
               sessionDir: `${this.settings.dataDir}/main`,
             },
           );
+          const rawContent = toolResult.success
+            ? JSON.stringify(toolResult.result)
+            : `Error: ${toolResult.error}`;
+          const tsPrefix = formatToolTimestamp(
+            toolResult.completedAt ?? Date.now(),
+            toolResult.durationMs,
+          );
           const toolMsg: Message = {
             role: "tool",
-            content: toolResult.success
-              ? JSON.stringify(toolResult.result)
-              : `Error: ${toolResult.error}`,
+            content: `${tsPrefix}\n${rawContent}`,
             toolCallId: tc.id,
           };
           this.sessionMessages.push(toolMsg);

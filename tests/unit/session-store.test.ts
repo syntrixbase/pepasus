@@ -24,8 +24,9 @@ describe("SessionStore", () => {
     const messages = await store.load();
     expect(messages).toHaveLength(2);
     expect(messages[0]!.role).toBe("user");
-    expect(messages[0]!.content).toBe("hello");
+    expect(messages[0]!.content).toContain("hello");
     expect(messages[1]!.role).toBe("assistant");
+    expect(messages[1]!.content).toBe("hi there"); // assistant not timestamped
   });
 
   it("should return empty array when no session exists", async () => {
@@ -89,7 +90,7 @@ describe("SessionStore", () => {
     // Verify round-trip — load only restores Message fields
     const messages = await store.load();
     expect(messages).toHaveLength(1);
-    expect(messages[0]!.content).toBe("with meta");
+    expect(messages[0]!.content).toContain("with meta");
   });
 
   describe("SessionStore.estimateTokens", () => {
@@ -124,6 +125,73 @@ describe("SessionStore", () => {
       const tokensContentOnly = await counter.count("thinking");
       expect(tokensWithTools).toBeGreaterThan(tokensContentOnly);
     }, 5_000);
+  });
+
+  describe("timestamp restoration on load", () => {
+    it("should restore timestamps into user message content on load", async () => {
+      await store.append({
+        role: "user",
+        content: "[channel: cli | id: main]\nhello",
+      });
+      const messages = await store.load();
+      expect(messages).toHaveLength(1);
+      expect(messages[0]!.content).toMatch(
+        /^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \| channel: cli/,
+      );
+    });
+
+    it("should not double-stamp messages that already have timestamps", async () => {
+      await store.append({
+        role: "user",
+        content: "[2026-02-28 14:30:00 | channel: cli | id: main]\nhello",
+      });
+      const messages = await store.load();
+      expect(messages).toHaveLength(1);
+      const content = messages[0]!.content;
+      const timestampMatches = content.match(
+        /\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/g,
+      );
+      expect(timestampMatches).toHaveLength(1);
+    });
+
+    it("should restore timestamps into tool result content on load", async () => {
+      await store.append({
+        role: "assistant",
+        content: "",
+        toolCalls: [{ id: "tc1", name: "current_time", arguments: {} }],
+      });
+      await store.append({
+        role: "tool",
+        content: '{"time":"now"}',
+        toolCallId: "tc1",
+      });
+      const messages = await store.load();
+      const toolMsg = messages.find((m) => m.role === "tool");
+      expect(toolMsg).toBeDefined();
+      expect(toolMsg!.content).toMatch(
+        /^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\]/,
+      );
+    });
+
+    it("should prepend timestamp to plain user messages", async () => {
+      await store.append({ role: "user", content: "hello" });
+      const messages = await store.load();
+      expect(messages[0]!.content).toMatch(
+        /^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\]\nhello$/,
+      );
+    });
+
+    it("should not add timestamps to assistant messages", async () => {
+      await store.append({ role: "assistant", content: "hi there" });
+      const messages = await store.load();
+      expect(messages[0]!.content).toBe("hi there");
+    });
+
+    it("should not add timestamps to system messages", async () => {
+      await store.compact("Summary text");
+      const messages = await store.load();
+      expect(messages[0]!.content).toBe("Summary text");
+    });
   });
 
   describe("unclosed tool call repair", () => {

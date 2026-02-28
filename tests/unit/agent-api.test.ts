@@ -1,11 +1,13 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { Agent } from "@pegasus/agents/agent.ts";
+import { Agent, context_pushToolResult } from "@pegasus/agents/agent.ts";
 import type { AgentDeps, TaskNotification } from "@pegasus/agents/agent.ts";
 import { EventType, createEvent } from "@pegasus/events/types.ts";
 import { TaskState } from "@pegasus/task/states.ts";
+import { createTaskContext } from "@pegasus/task/context.ts";
 import { SettingsSchema } from "@pegasus/infra/config.ts";
 import type { LanguageModel } from "@pegasus/infra/llm-types.ts";
 import type { Persona } from "@pegasus/identity/persona.ts";
+import type { ToolResult } from "@pegasus/tools/types.ts";
 import { rm } from "node:fs/promises";
 
 const testDataDir = "/tmp/pegasus-test-agent-api";
@@ -234,4 +236,66 @@ describe("Agent.resume", () => {
       await agent.stop();
     }
   }, 10_000);
+});
+
+describe("context_pushToolResult", () => {
+  test("prepends timestamp with duration to successful tool result", () => {
+    const context = createTaskContext({ id: "test-1" });
+
+    const toolResult: ToolResult = {
+      success: true,
+      result: { answer: 42 },
+      startedAt: 1709136600000,
+      completedAt: 1709136602300,
+      durationMs: 2300,
+    };
+
+    context_pushToolResult(context, "call_1", toolResult);
+
+    expect(context.messages).toHaveLength(1);
+    const msg = context.messages[0]!;
+    expect(msg.role).toBe("tool");
+    expect(msg.toolCallId).toBe("call_1");
+    // Should start with bracketed timestamp containing "took"
+    expect(msg.content).toMatch(/^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \| took 2\.3s\]/);
+    // Should contain the original JSON result after the timestamp line
+    expect(msg.content).toContain(JSON.stringify({ answer: 42 }));
+  });
+
+  test("prepends timestamp to error tool result", () => {
+    const context = createTaskContext({ id: "test-2" });
+
+    const toolResult: ToolResult = {
+      success: false,
+      error: "file not found",
+      startedAt: 1709136600000,
+      completedAt: 1709136600500,
+      durationMs: 500,
+    };
+
+    context_pushToolResult(context, "call_2", toolResult);
+
+    const msg = context.messages[0]!;
+    expect(msg.content).toMatch(/^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \| took 0\.5s\]/);
+    expect(msg.content).toContain("Error: file not found");
+  });
+
+  test("uses Date.now() fallback when completedAt is missing", () => {
+    const context = createTaskContext({ id: "test-3" });
+
+    const toolResult: ToolResult = {
+      success: true,
+      result: "ok",
+      startedAt: Date.now(),
+      // completedAt intentionally omitted
+      // durationMs intentionally omitted
+    };
+
+    context_pushToolResult(context, "call_3", toolResult);
+
+    const msg = context.messages[0]!;
+    // Should have timestamp without duration
+    expect(msg.content).toMatch(/^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\]/);
+    expect(msg.content).toContain('"ok"');
+  });
 });

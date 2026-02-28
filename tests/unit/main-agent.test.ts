@@ -1256,4 +1256,109 @@ describe("MainAgent", () => {
 
     await agent.stop();
   }, 10_000);
+
+  // ── Time awareness tests ──
+
+  it("should prepend timestamp to user messages", async () => {
+    let capturedMessages: Message[] = [];
+    const model: LanguageModel = {
+      provider: "test",
+      modelId: "test-model",
+      async generate(options: { messages?: Message[] }): Promise<GenerateTextResult> {
+        capturedMessages = options.messages ?? [];
+        return {
+          text: "thinking...",
+          finishReason: "stop",
+          usage: { promptTokens: 10, completionTokens: 10 },
+        };
+      },
+    };
+
+    const agent = new MainAgent({
+      models: createMockModelRegistry(model),
+      persona: testPersona,
+      settings: testSettings(),
+    });
+
+    await agent.start();
+    agent.onReply(() => {});
+
+    agent.send({ text: "hello", channel: { type: "cli", channelId: "test" } });
+    await Bun.sleep(300);
+
+    // Find the user message in captured messages
+    const userMsg = capturedMessages.find(
+      (m) => m.role === "user" && m.content.includes("hello"),
+    );
+    expect(userMsg).toBeDefined();
+    // Should start with [YYYY-MM-DD HH:MM:SS
+    expect(userMsg!.content).toMatch(/^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/);
+    // Should still contain channel metadata
+    expect(userMsg!.content).toContain("channel: cli");
+
+    await agent.stop();
+  }, 10_000);
+
+  it("should prepend timestamp to tool result messages", async () => {
+    let capturedMessages: Message[] = [];
+    let callCount = 0;
+    const model: LanguageModel = {
+      provider: "test",
+      modelId: "test-model",
+      async generate(options: {
+        messages?: Message[];
+      }): Promise<GenerateTextResult> {
+        callCount++;
+        capturedMessages = options.messages ?? [];
+        if (callCount === 1) {
+          // First call: LLM requests current_time tool
+          return {
+            text: "Let me check.",
+            finishReason: "tool_calls",
+            toolCalls: [
+              { id: "tc-time", name: "current_time", arguments: {} },
+            ],
+            usage: { promptTokens: 10, completionTokens: 10 },
+          };
+        }
+        // After tool result, reply
+        return {
+          text: "",
+          finishReason: "tool_calls",
+          toolCalls: [
+            {
+              id: "tc-reply",
+              name: "reply",
+              arguments: { text: "Done!", channelType: "cli", channelId: "test" },
+            },
+          ],
+          usage: { promptTokens: 20, completionTokens: 10 },
+        };
+      },
+    };
+
+    const agent = new MainAgent({
+      models: createMockModelRegistry(model),
+      persona: testPersona,
+      settings: testSettings(),
+    });
+
+    await agent.start();
+    agent.onReply(() => {});
+
+    agent.send({ text: "what time", channel: { type: "cli", channelId: "test" } });
+    await Bun.sleep(500);
+
+    // Find the tool result message for current_time (in the second LLM call messages)
+    const toolMsg = capturedMessages.find(
+      (m) => m.role === "tool" && m.toolCallId === "tc-time",
+    );
+    expect(toolMsg).toBeDefined();
+    // Should start with [YYYY-MM-DD
+    expect(toolMsg!.content).toMatch(/^\[\d{4}-\d{2}-\d{2}/);
+    // Should contain "took" duration
+    expect(toolMsg!.content).toMatch(/took \d+\.\d+s/);
+
+    await agent.stop();
+  }, 10_000);
 });
