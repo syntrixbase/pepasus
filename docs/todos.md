@@ -49,6 +49,19 @@ See `docs/architecture.md` and `docs/main-agent.md` for Pegasus's own design con
 **P3 — Alignment verification:**
 - [ ] Verify SUBAGENT.md content matches task-types.md design: Confirm explore/plan/general prompts include all designed constraints (e.g., "CONCISE RESULT: keep under 2000 chars", "READ ONLY", "NOTIFY: use notify() for progress").
 
+### Project System (Long-Lived Task Spaces)
+- [ ] PROJECT.md format: frontmatter (name, status, model, workdir, timestamps) + markdown body (goal, background, constraints)
+- [ ] Project directory structure: `data/projects/<name>/` with session/, memory/, skills/
+- [ ] ProjectAdapter: ChannelAdapter implementation using Bun Worker threads
+- [ ] Project Agent Worker: independent Agent instance (own EventBus, TaskFSM, cognitive pipeline) running in Worker thread
+- [ ] Project lifecycle FSM: created → active ⇄ suspended → completed → archived
+- [ ] Project discovery: scan `data/projects/*/PROJECT.md` on startup, resume active Projects
+- [ ] MainAgent project tools: create_project, list_projects, suspend_project, resume_project, complete_project, archive_project
+- [ ] Project memory isolation: scoped memory_* tools, independent facts/episodes per Project
+- [ ] Project skill loading: global skills + project-specific skills from `data/projects/<name>/skills/`
+- [ ] Project Agent can spawn_subagent for one-off sub-tasks
+- See `docs/project-system.md` for full design.
+
 ### Heartbeat & Scheduled Tasks
 - [ ] Heartbeat system: periodic poll mechanism where the system pings the Agent to check if anything needs attention. Agent responds with ack (no-op) or alert message. Useful for: monitoring long-running background work, periodic memory consolidation, proactive user updates.
 - [ ] Cron/scheduled tasks: time-based task triggers (reminders, periodic checks, scheduled reports). Integrate with EventBus as scheduled event sources.

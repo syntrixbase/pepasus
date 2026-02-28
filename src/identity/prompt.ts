@@ -33,6 +33,8 @@ export interface PromptOptions {
   subagentMetadata?: string;
   /** Main mode: skill metadata from SkillRegistry */
   skillMetadata?: string;
+  /** Main mode: active/suspended project metadata */
+  projectMetadata?: string;
 }
 
 // ── Section builders ──
@@ -204,6 +206,10 @@ export function buildSystemPrompt(options: PromptOptions): string {
 
     if (options.subagentMetadata) {
       lines.push("", options.subagentMetadata);
+    }
+
+    if (options.projectMetadata) {
+      lines.push("", "## Active Projects", "", options.projectMetadata);
     }
 
     lines.push("", ...buildChannelsSection());
