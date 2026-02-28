@@ -28,14 +28,14 @@ describe("task tools", () => {
         '{"taskId":"t1","date":"2026-02-25"}\n{"taskId":"t2","date":"2026-02-25"}\n',
       );
 
-      // Write minimal JSONL logs so we can extract inputText
+      // Write minimal JSONL logs so we can extract inputText and description
       await appendFile(
         `${testDir}/tasks/2026-02-25/t1.jsonl`,
-        '{"ts":1,"event":"TASK_CREATED","taskId":"t1","data":{"inputText":"hello","source":"user"}}\n',
+        '{"ts":1,"event":"TASK_CREATED","taskId":"t1","data":{"description":"Greeting task","inputText":"hello","source":"user"}}\n',
       );
       await appendFile(
         `${testDir}/tasks/2026-02-25/t2.jsonl`,
-        '{"ts":2,"event":"TASK_CREATED","taskId":"t2","data":{"inputText":"bye","source":"user"}}\n' +
+        '{"ts":2,"event":"TASK_CREATED","taskId":"t2","data":{"description":"Farewell task","inputText":"bye","source":"user"}}\n' +
           '{"ts":3,"event":"TASK_COMPLETED","taskId":"t2","data":{"finalResult":{},"iterations":1}}\n',
       );
 
@@ -48,14 +48,17 @@ describe("task tools", () => {
       expect(result.success).toBe(true);
       const tasks = result.result as Array<{
         taskId: string;
+        description: string;
         inputText: string;
         status: string;
       }>;
       expect(tasks).toHaveLength(2);
       expect(tasks[0]!.taskId).toBe("t1");
+      expect(tasks[0]!.description).toBe("Greeting task");
       expect(tasks[0]!.inputText).toBe("hello");
       expect(tasks[0]!.status).toBe("in_progress");
       expect(tasks[1]!.taskId).toBe("t2");
+      expect(tasks[1]!.description).toBe("Farewell task");
       expect(tasks[1]!.inputText).toBe("bye");
       expect(tasks[1]!.status).toBe("completed");
     }, 5000);

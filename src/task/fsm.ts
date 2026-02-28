@@ -89,6 +89,7 @@ export class TaskFSM {
     const task = new TaskFSM({
       context: createTaskContext({
         inputText: (event.payload["text"] as string) ?? "",
+        description: (event.payload["description"] as string) ?? "",
         inputMetadata: (event.payload["metadata"] as Record<string, unknown>) ?? {},
         source: event.source,
         taskType: (event.payload["taskType"] as string) ?? "general",

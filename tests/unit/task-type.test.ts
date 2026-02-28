@@ -30,6 +30,16 @@ describe("TaskContext taskType", () => {
     const ctx = createTaskContext({ taskType: "explore" });
     expect(ctx.taskType).toBe("explore");
   });
+
+  test("createTaskContext defaults description to empty string", () => {
+    const ctx = createTaskContext();
+    expect(ctx.description).toBe("");
+  });
+
+  test("createTaskContext accepts custom description", () => {
+    const ctx = createTaskContext({ description: "Search for weather data" });
+    expect(ctx.description).toBe("Search for weather data");
+  });
 });
 
 // ── SubagentLoader tests ──
@@ -117,6 +127,43 @@ describe("SubagentLoader", () => {
     const def = parseSubagentFile(join(dir, "SUBAGENT.md"), "bad", "builtin");
     expect(def).toBeNull();
     cleanup();
+  });
+
+  test("parseSubagentFile handles missing frontmatter", () => {
+    cleanup();
+    const dir = join(testDir, "nofm");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "SUBAGENT.md"), "Just a body without frontmatter.");
+
+    const def = parseSubagentFile(join(dir, "SUBAGENT.md"), "nofm", "builtin");
+    expect(def).not.toBeNull();
+    expect(def!.name).toBe("nofm");
+    expect(def!.prompt).toBe("Just a body without frontmatter.");
+    expect(def!.tools).toEqual(["*"]);
+    cleanup();
+  });
+
+  test("parseSubagentFile warns on missing description", () => {
+    cleanup();
+    const dir = join(testDir, "nodesc");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "SUBAGENT.md"), [
+      "---",
+      "name: nodesc",
+      'tools: "*"',
+      "---",
+      "Body.",
+    ].join("\n"));
+
+    const def = parseSubagentFile(join(dir, "SUBAGENT.md"), "nodesc", "builtin");
+    expect(def).not.toBeNull();
+    expect(def!.description).toBe("");
+    cleanup();
+  });
+
+  test("parseSubagentFile returns null for unreadable file", () => {
+    const def = parseSubagentFile("/tmp/nonexistent-file.md", "ghost", "builtin");
+    expect(def).toBeNull();
   });
 
   test("scanSubagentDir discovers all subagent directories", () => {

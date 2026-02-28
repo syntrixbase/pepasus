@@ -770,10 +770,10 @@ export class Agent {
   }
 
   /** Submit a task. Returns the taskId. */
-  async submit(text: string, source: string = "user", taskType?: string): Promise<string> {
+  async submit(text: string, source: string = "user", taskType?: string, description?: string): Promise<string> {
     const event = createEvent(EventType.MESSAGE_RECEIVED, {
       source,
-      payload: { text, taskType: taskType ?? "general" },
+      payload: { text, taskType: taskType ?? "general", description: description ?? "" },
     });
     await this.eventBus.emit(event);
 

@@ -15,10 +15,12 @@ export const spawn_subagent: Tool = {
     "Launch a background subagent for complex operations requiring file I/O, shell commands, web search, or multi-step work",
   category: ToolCategory.SYSTEM,
   parameters: z.object({
-    description: z.string().describe("What the subagent should accomplish"),
+    description: z.string().describe(
+      "Short label for this task (for your own reference when reviewing task list later)"
+    ),
     input: z
       .string()
-      .describe("The user's original request or detailed instructions"),
+      .describe("Detailed instructions for the subagent — include all necessary context, requirements, and constraints"),
     type: z
       .enum(["general", "explore", "plan"])
       .default("general")
