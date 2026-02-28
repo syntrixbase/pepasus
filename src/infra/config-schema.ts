@@ -7,7 +7,7 @@ import { MCPAuthConfigSchema } from "../mcp/auth/types.ts";
 
 // Provider-specific configuration
 export const ProviderConfigSchema = z.object({
-  type: z.enum(["openai", "anthropic", "openai-codex"]).optional(),
+  type: z.enum(["openai", "anthropic"]).optional(),
   apiKey: z.string().optional(),
   baseURL: z.string().optional(),
 });
@@ -135,6 +135,13 @@ export const ChannelsConfigSchema = z.object({
 export type SessionConfig = z.infer<typeof SessionConfigSchema>;
 export type TelegramConfig = z.infer<typeof TelegramConfigSchema>;
 export type ChannelsConfig = z.infer<typeof ChannelsConfigSchema>;
+export type CodexConfig = z.infer<typeof CodexConfigSchema>;
+
+export const CodexConfigSchema = z.object({
+  enabled: z.coerce.boolean().default(false),
+  baseURL: z.string().default("https://chatgpt.com/backend-api"),
+  model: z.string().default("gpt-5.3-codex"),
+});
 
 export const SettingsSchema = z.object({
   llm: LLMConfigSchema.default({}),
@@ -144,6 +151,7 @@ export const SettingsSchema = z.object({
   tools: ToolsConfigSchema.default({}),
   session: SessionConfigSchema.default({}),
   channels: ChannelsConfigSchema.default({}),
+  codex: CodexConfigSchema.default({}),
   logLevel: z.string().default("info"),
   dataDir: z.string({ required_error: "dataDir is required — set system.dataDir in config.yml or PEGASUS_DATA_DIR env var" }),
   // Log output destination

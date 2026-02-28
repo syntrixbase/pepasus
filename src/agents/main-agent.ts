@@ -664,19 +664,8 @@ export class MainAgent {
    * Tries stored credentials first, falls back to interactive OAuth flow.
    */
   private async _initCodexAuth(): Promise<void> {
-    // Find codex provider in config
-    const providers = this.settings.llm?.providers ?? {};
-    let codexProviderName: string | null = null;
-
-    for (const [name, config] of Object.entries(providers)) {
-      const type = config.type ?? name;
-      if (type === "openai-codex") {
-        codexProviderName = name;
-        break;
-      }
-    }
-
-    if (!codexProviderName) return; // No codex provider configured
+    const codexConfig = this.settings.codex;
+    if (!codexConfig?.enabled) return;
 
     const oauthConfig = { dataDir: this.settings.dataDir };
 
@@ -691,7 +680,7 @@ export class MainAgent {
       }
 
       // Set credentials on ModelRegistry so Codex models can be created
-      this.models.setCodexCredentials(creds);
+      this.models.setCodexCredentials(creds, codexConfig.baseURL);
       logger.info({ accountId: creds.accountId }, "codex_auth_ready");
     } catch (err) {
       logger.error(

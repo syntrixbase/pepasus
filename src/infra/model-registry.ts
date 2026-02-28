@@ -22,15 +22,17 @@ export class ModelRegistry {
   private roles: LLMConfig["roles"];
   private cache = new Map<string, LanguageModel>();
   private codexCredentials: CodexCredentials | null = null;
+  private codexBaseURL: string = "https://chatgpt.com/backend-api";
 
   constructor(llmConfig: LLMConfig) {
     this.providers = llmConfig.providers;
     this.roles = llmConfig.roles;
   }
 
-  /** Set Codex OAuth credentials (called after OAuth flow completes). */
-  setCodexCredentials(creds: CodexCredentials): void {
+  /** Set Codex OAuth credentials and base URL (called after OAuth flow completes). */
+  setCodexCredentials(creds: CodexCredentials, baseURL?: string): void {
     this.codexCredentials = creds;
+    if (baseURL) this.codexBaseURL = baseURL;
     // Invalidate cached codex models so they pick up new tokens
     for (const [key, model] of this.cache.entries()) {
       if (model.provider === "openai-codex") {
@@ -66,6 +68,24 @@ export class ModelRegistry {
 
     const providerName = spec.slice(0, slashIdx);
     const modelName = spec.slice(slashIdx + 1);
+
+    // Codex models use "codex/model-name" — no provider config needed
+    if (providerName === "codex") {
+      if (!this.codexCredentials) {
+        throw new Error(
+          `Codex model "${spec}" requires OAuth authentication. ` +
+          `Set codex.enabled: true in config to trigger the OAuth flow at startup.`,
+        );
+      }
+      return createCodexModel({
+        baseURL: this.codexBaseURL,
+        model: modelName,
+        accessToken: this.codexCredentials.accessToken,
+        accountId: this.codexCredentials.accountId,
+      });
+    }
+
+    // Standard providers
     const providerConfig = this.providers[providerName];
     if (!providerConfig) {
       throw new Error(`Provider "${providerName}" not found in llm.providers`);
@@ -86,33 +106,18 @@ export class ModelRegistry {
           baseURL: providerConfig.baseURL,
           model: modelName,
         });
-      case "openai-codex": {
-        if (!this.codexCredentials) {
-          throw new Error(
-            `Codex provider "${providerName}" requires OAuth authentication. ` +
-            `Run Pegasus with Codex configured to trigger the OAuth flow.`,
-          );
-        }
-        return createCodexModel({
-          baseURL: providerConfig.baseURL || "https://chatgpt.com/backend-api",
-          model: modelName,
-          accessToken: this.codexCredentials.accessToken,
-          accountId: this.codexCredentials.accountId,
-        });
-      }
     }
   }
 
   private _resolveType(
     name: string,
-    explicitType?: "openai" | "anthropic" | "openai-codex",
-  ): "openai" | "anthropic" | "openai-codex" {
+    explicitType?: "openai" | "anthropic",
+  ): "openai" | "anthropic" {
     if (explicitType) return explicitType;
     if (name === "openai") return "openai";
     if (name === "anthropic") return "anthropic";
-    if (name === "codex" || name === "openai-codex") return "openai-codex";
     throw new Error(
-      `Provider "${name}" requires explicit "type" field (openai, anthropic, or openai-codex)`,
+      `Provider "${name}" requires explicit "type" field (openai or anthropic)`,
     );
   }
 }
