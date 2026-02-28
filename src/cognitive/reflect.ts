@@ -19,13 +19,20 @@ const MAX_REFLECTION_ROUNDS = 5;
 
 /** Determine if a completed task is worth reflecting on. */
 export function shouldReflect(context: TaskContext): boolean {
+  // Skip: zero tool calls with single iteration (pure conversation, no work done)
+  if (context.iteration <= 1 && context.actionsDone.length === 0) {
+    return false;
+  }
+
+  // Skip: trivial tasks (single iteration, few actions, short result)
   if (context.iteration <= 1 && context.actionsDone.length <= 1) {
     const responseLen =
       typeof context.finalResult === "object" && context.finalResult !== null
         ? JSON.stringify(context.finalResult).length
         : 0;
-    if (responseLen < 200) return false;
+    if (responseLen < 500) return false;
   }
+
   return true;
 }
 

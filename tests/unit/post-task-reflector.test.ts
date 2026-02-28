@@ -58,13 +58,31 @@ describe("shouldReflect", () => {
     expect(shouldReflect(ctx)).toBe(true);
   });
 
-  test("returns true for single-iteration task with long response", () => {
-    const ctx = createTaskContext({ inputText: "explain" });
+  test("returns false for zero tool calls with single iteration", () => {
+    const ctx = createTaskContext({ inputText: "hello" });
+    ctx.iteration = 1;
+    ctx.actionsDone = [];
+    ctx.finalResult = { response: "Hi there!" };
+    expect(shouldReflect(ctx)).toBe(false);
+  });
+
+  test("returns false for single-iteration task with result under 500 chars", () => {
+    const ctx = createTaskContext({ inputText: "what time?" });
     ctx.iteration = 1;
     ctx.actionsDone = [
       { stepIndex: 0, actionType: "respond", actionInput: {}, success: true, startedAt: Date.now() },
     ];
     ctx.finalResult = { response: "A".repeat(300) };
+    expect(shouldReflect(ctx)).toBe(false);
+  });
+
+  test("returns true for single-iteration task with result over 500 chars", () => {
+    const ctx = createTaskContext({ inputText: "explain" });
+    ctx.iteration = 1;
+    ctx.actionsDone = [
+      { stepIndex: 0, actionType: "respond", actionInput: {}, success: true, startedAt: Date.now() },
+    ];
+    ctx.finalResult = { response: "A".repeat(600) };
     expect(shouldReflect(ctx)).toBe(true);
   });
 
