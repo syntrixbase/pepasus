@@ -12,6 +12,7 @@
  * (custom config path).
  */
 import { existsSync, readFileSync } from "fs";
+import os from "os";
 import yaml from "js-yaml";
 import { ConfigError } from "./errors.ts";
 import { getLogger } from "./logger.ts";
@@ -59,6 +60,7 @@ const DEFAULT_CONFIG = {
     logLevel: "info",
     logFormat: "json",
     nodeEnv: "development",
+    // authDir intentionally omitted — must be set in config.yml or env var
     // dataDir intentionally omitted — must be set in config.yml or env var
   },
 };
@@ -73,7 +75,7 @@ const DEFAULT_CONFIG = {
  */
 function interpolateEnvVars(obj: any): any {
   if (typeof obj === "string") {
-    return obj.replace(/\$\{([^}]+)\}/g, (_match, content) => {
+    let result: string | undefined = obj.replace(/\$\{([^}]+)\}/g, (_match, content) => {
       // Check for bash-style operators
       const operatorMatch = content.match(/^([^:]+)(:-|:=|:\?|:\+)(.*)$/);
 
@@ -109,9 +111,14 @@ function interpolateEnvVars(obj: any): any {
         }
       }
 
-      // Simple ${VAR} syntax (no operator)
       return process.env[content] || "";
     }) || undefined; // Empty string becomes undefined
+
+    // Resolve leading ~ to home directory
+    if (typeof result === "string" && result.startsWith("~/")) {
+      result = os.homedir() + result.slice(1);
+    }
+    return result;
   }
   if (Array.isArray(obj)) {
     return obj.map(interpolateEnvVars);
@@ -246,6 +253,7 @@ function configToSettings(config: any): Settings {
     channels: config.channels,
     logLevel: config.system?.logLevel,
     dataDir: config.system?.dataDir,
+    authDir: config.system?.authDir,
     logFormat: config.system?.logFormat,
     nodeEnv: config.system?.nodeEnv,
   });

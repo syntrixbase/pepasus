@@ -30,7 +30,7 @@ describe("MCPManager", () => {
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "mcp-manager-test-"));
-    manager = new MCPManager();
+    manager = new MCPManager(tmpDir);
   });
 
   afterEach(() => {
@@ -338,12 +338,12 @@ describe("MCPManager", () => {
 
   describe("constructor", () => {
     it("should create TokenStore on construction", () => {
-      const m = new MCPManager();
+      const m = new MCPManager(tmpDir);
       expect(m.getTokenStore()).toBeInstanceOf(TokenStore);
     });
 
     it("should create auth directory for tokens", () => {
-      // Constructor creates ~/.pegasus/auth/mcp/ dir
+      // Constructor creates the provided auth dir
       const store = manager.getTokenStore();
       expect(store).toBeDefined();
     });

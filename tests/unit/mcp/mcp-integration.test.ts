@@ -570,6 +570,7 @@ describe("MCP Integration", () => {
         settings: SettingsSchema.parse({
           dataDir: testDataDir,
           logLevel: "silent",
+          authDir: "/tmp/pegasus-test-auth",
         }),
       });
 
@@ -598,6 +599,7 @@ describe("MCP Integration", () => {
         settings: SettingsSchema.parse({
           dataDir: testDataDir,
           logLevel: "silent",
+          authDir: "/tmp/pegasus-test-auth",
         }),
       });
 
@@ -621,6 +623,7 @@ describe("MCP Integration", () => {
         settings: SettingsSchema.parse({
           dataDir: testDataDir,
           logLevel: "silent",
+          authDir: "/tmp/pegasus-test-auth",
         }),
       });
 

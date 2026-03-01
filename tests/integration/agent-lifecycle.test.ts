@@ -42,6 +42,7 @@ function testAgentDeps(): AgentDeps {
       agent: { maxActiveTasks: 10 },
       logLevel: "warn",
       dataDir: testDataDir,
+      authDir: "/tmp/pegasus-test-auth",
     }),
   };
 }
@@ -210,6 +211,7 @@ describe("Agent lifecycle", () => {
         agent: { maxActiveTasks: 10 },
         logLevel: "warn",
         dataDir: testDataDir,
+        authDir: "/tmp/pegasus-test-auth",
       }),
     });
     await agent.start();

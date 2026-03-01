@@ -29,7 +29,7 @@ import type { ModelRegistry } from "../infra/model-registry.ts";
 import path from "node:path";
 import { SkillRegistry, loadAllSkills } from "../skills/index.ts";
 import { SubagentRegistry, loadAllSubagents } from "../subagents/index.ts";
-import { loginCodexOAuth, getValidCredentials } from "../infra/codex-oauth.ts";
+import { loginDeviceCode, getValidCredentials, verifyToken } from "../infra/codex-oauth.ts";
 import { ProjectManager } from "../projects/manager.ts";
 import { ProjectAdapter } from "../projects/project-adapter.ts";
 
@@ -57,7 +57,7 @@ export class MainAgent {
   private models: ModelRegistry;
   private persona: Persona;
   private settings: Settings;
-  private agent: Agent; // Task execution engine
+  private agent!: Agent; // Task execution engine — initialized in start()
   private mcpManager: MCPManager | null = null;
   private tokenRefreshMonitor: TokenRefreshMonitor | null = null;
   private sessionStore: SessionStore;
@@ -76,6 +76,8 @@ export class MainAgent {
   private projectManager: ProjectManager;
   private projectAdapter: ProjectAdapter;
   private systemPrompt: string = "";
+  private _codexCredPath: string;
+  private _mcpAuthDir: string;
 
   constructor(deps: MainAgentDeps) {
     this.models = deps.models;
@@ -85,13 +87,10 @@ export class MainAgent {
     // Session persistence
     this.sessionStore = new SessionStore(this.settings.dataDir);
 
-    // Task execution engine (existing Agent) — pass sub-agent + reflection models
-    this.agent = new Agent({
-      model: deps.models.get("subAgent"),
-      reflectionModel: deps.models.get("reflection"),
-      persona: deps.persona,
-      settings: this.settings,
-    });
+    // Load Codex credentials synchronously BEFORE models.get()
+    // (device code login happens later in start() if needed)
+    this._codexCredPath = path.join(this.settings.authDir, "codex.json");
+    this._mcpAuthDir = path.join(this.settings.authDir, "mcp");
 
     // Main Agent's curated tool set
     this.toolRegistry = new ToolRegistry();
@@ -122,8 +121,25 @@ export class MainAgent {
     // Inject memory index so LLM knows what memory files are available
     await this._injectMemoryIndex();
 
-    // Authenticate Codex provider if configured (OAuth PKCE)
+    // Authenticate Codex provider if configured
     await this._initCodexAuth();
+
+    // Task execution engine — created AFTER codex auth so models.get() can resolve codex models
+    try {
+      this.agent = new Agent({
+        model: this.models.get("subAgent"),
+        reflectionModel: this.models.get("reflection"),
+        persona: this.persona,
+        settings: this.settings,
+      });
+    } catch (err) {
+      // If codex auth failed and default model is codex, this will throw.
+      // Re-throw with a clearer message.
+      throw new Error(
+        `Failed to create Agent: ${err instanceof Error ? err.message : String(err)}. ` +
+        `If using a Codex model, ensure codex.enabled is true and run the device code login to completion.`,
+      );
+    }
 
     // Register notification callback BEFORE agent.start()
     this.agent.onNotify((notification) => {
@@ -137,7 +153,7 @@ export class MainAgent {
     // Connect to MCP servers and register tools in both Agent and MainAgent
     const mcpConfigs = (this.settings.tools?.mcpServers ?? []) as MCPServerConfig[];
     if (mcpConfigs.length > 0) {
-      this.mcpManager = new MCPManager();
+      this.mcpManager = new MCPManager(this._mcpAuthDir);
       await this.mcpManager.connectAll(mcpConfigs);
 
       // Register in Agent's tool registry (for task execution)
@@ -297,8 +313,9 @@ export class MainAgent {
       } catch (err) {
         logger.error({ error: err }, "main_agent_process_error");
         if (item.kind === "message" && this.replyCallback) {
+          const errorMessage = this._classifyError(err);
           this.replyCallback({
-            text: "Sorry, I encountered an internal error. Please try again.",
+            text: errorMessage,
             channel: item.message.channel,
           });
         }
@@ -537,11 +554,10 @@ export class MainAgent {
     }
 
     // No tool calls — inner monologue only (user doesn't see this)
-    if (result.text) {
-      const assistantMsg: Message = { role: "assistant", content: result.text };
-      this.sessionMessages.push(assistantMsg);
-      await this.sessionStore.append(assistantMsg);
-    }
+    // Always append to session (even if empty) so LLM sees its own response
+    const assistantMsg: Message = { role: "assistant", content: result.text };
+    this.sessionMessages.push(assistantMsg);
+    await this.sessionStore.append(assistantMsg);
     // Done thinking for now. Next event will trigger new thinking.
   }
 
@@ -717,6 +733,33 @@ export class MainAgent {
 
   // ── Helpers ──
 
+  /** Classify an error into a user-facing message. */
+  private _classifyError(err: unknown): string {
+    const msg = err instanceof Error ? err.message : String(err);
+
+    // Auth errors — tell user to re-authenticate
+    if (msg.includes("401") || msg.includes("Unauthorized") || msg.includes("authentication")) {
+      return "Authentication expired. Please restart Pegasus to re-authenticate with Codex.";
+    }
+
+    // Rate limit
+    if (msg.includes("429") || msg.includes("rate limit") || msg.includes("Rate limit")) {
+      return "Rate limit reached. Please wait a moment and try again.";
+    }
+
+    // Codex-specific errors
+    if (msg.includes("Codex API error") || msg.includes("Codex response failed")) {
+      return `LLM error: ${msg}`;
+    }
+
+    // Generic LLM errors
+    if (msg.includes("LLM API error")) {
+      return `LLM error: ${msg}`;
+    }
+
+    return "Sorry, I encountered an internal error. Please try again.";
+  }
+
   /**
    * Build system prompt once. The prompt is stable across all LLM calls
    * to enable prefix caching. Channel-specific behavior is described as
@@ -725,25 +768,38 @@ export class MainAgent {
   // ── Codex OAuth ──
 
   /**
-   * Initialize Codex OAuth if a codex provider is configured.
-   * Tries stored credentials first, falls back to interactive OAuth flow.
+   * Async Codex auth — runs device code login if sync load didn't find credentials.
+   * Called from start() so it can do async operations (token refresh, interactive login).
    */
   private async _initCodexAuth(): Promise<void> {
     const codexConfig = this.settings.llm?.codex;
     if (!codexConfig?.enabled) return;
 
     try {
-      // Try stored credentials first
-      let creds = await getValidCredentials();
+      // Try loading/refreshing stored credentials
+      let creds = await getValidCredentials(this._codexCredPath);
+
+      // Verify token actually works against the API
+      if (creds) {
+        const valid = await verifyToken(
+          creds.accessToken,
+          creds.accountId,
+          codexConfig.baseURL,
+        );
+        if (!valid) {
+          logger.warn("codex_token_rejected: API rejected stored token, re-authenticating");
+          creds = null;
+        }
+      }
 
       if (!creds) {
-        // No stored credentials or refresh failed → interactive login
-        logger.info("codex_oauth_login_required");
-        creds = await loginCodexOAuth();
+        // No valid credentials → interactive device code login
+        logger.info("codex_device_code_login_required");
+        creds = await loginDeviceCode(this._codexCredPath);
       }
 
       // Set credentials on ModelRegistry so Codex models can be created
-      this.models.setCodexCredentials(creds, codexConfig.baseURL);
+      this.models.setCodexCredentials(creds, codexConfig.baseURL, this._codexCredPath);
       logger.info({ accountId: creds.accountId }, "codex_auth_ready");
     } catch (err) {
       logger.error(

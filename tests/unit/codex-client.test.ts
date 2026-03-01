@@ -47,10 +47,31 @@ function createMockServer(port: number): MockServer {
   };
 }
 
-function json(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json" },
+/**
+ * Build an SSE response from a CodexResponse-like object.
+ * Emits response.output_item.done for each output item,
+ * then response.completed with the full response.
+ */
+function sseResponse(resp: Record<string, unknown>): Response {
+  const output = (resp.output as Array<Record<string, unknown>>) ?? [];
+  const lines: string[] = [];
+
+  // Emit each output item
+  for (const item of output) {
+    lines.push(`event: response.output_item.done`);
+    lines.push(`data: ${JSON.stringify({ item })}`);
+    lines.push("");
+  }
+
+  // Emit response.completed
+  lines.push(`event: response.completed`);
+  lines.push(`data: ${JSON.stringify({ response: resp })}`);
+  lines.push("");
+  lines.push(""); // Trailing double-newline to terminate last SSE event
+
+  return new Response(lines.join("\n"), {
+    status: 200,
+    headers: { "content-type": "text/event-stream" },
   });
 }
 
@@ -257,7 +278,7 @@ describe("Codex client", () => {
       return createCodexModel({
         baseURL: mock.baseURL,
         model: "gpt-5.3-codex",
-        accessToken: "test-token",
+        getAccessToken: async () => "test-token",
         accountId: "acct-123",
       });
     }
@@ -269,7 +290,7 @@ describe("Codex client", () => {
     });
 
     it("generates text successfully (no tools)", async () => {
-      mock.setHandler(() => json(codexResponse()));
+      mock.setHandler(() => sseResponse(codexResponse()));
 
       const model = createModel();
       const result = await model.generate({ messages: simpleMessages });
@@ -282,7 +303,7 @@ describe("Codex client", () => {
     });
 
     it("sends correct request body structure", async () => {
-      mock.setHandler(() => json(codexResponse()));
+      mock.setHandler(() => sseResponse(codexResponse()));
 
       const model = createModel();
       await model.generate({ messages: simpleMessages });
@@ -290,13 +311,13 @@ describe("Codex client", () => {
       const body = mock.lastRequestBody();
       expect(body).toBeDefined();
       expect(body!["model"]).toBe("gpt-5.3-codex");
-      expect(body!["stream"]).toBe(false);
+      expect(body!["stream"]).toBe(true);
       expect(body!["store"]).toBe(false);
       expect(body!["input"]).toBeDefined();
     });
 
     it("sends system prompt as instructions field", async () => {
-      mock.setHandler(() => json(codexResponse()));
+      mock.setHandler(() => sseResponse(codexResponse()));
 
       const model = createModel();
       await model.generate({
@@ -309,7 +330,7 @@ describe("Codex client", () => {
     });
 
     it("does not include instructions when no system prompt", async () => {
-      mock.setHandler(() => json(codexResponse()));
+      mock.setHandler(() => sseResponse(codexResponse()));
 
       const model = createModel();
       await model.generate({ messages: simpleMessages });
@@ -319,7 +340,7 @@ describe("Codex client", () => {
     });
 
     it("sends tools in request body", async () => {
-      mock.setHandler(() => json(codexResponse()));
+      mock.setHandler(() => sseResponse(codexResponse()));
 
       const model = createModel();
       await model.generate({
@@ -337,7 +358,7 @@ describe("Codex client", () => {
     });
 
     it("does not send tools/tool_choice when not provided", async () => {
-      mock.setHandler(() => json(codexResponse()));
+      mock.setHandler(() => sseResponse(codexResponse()));
 
       const model = createModel();
       await model.generate({ messages: simpleMessages });
@@ -348,7 +369,7 @@ describe("Codex client", () => {
     });
 
     it("sends temperature and maxTokens", async () => {
-      mock.setHandler(() => json(codexResponse()));
+      mock.setHandler(() => sseResponse(codexResponse()));
 
       const model = createModel();
       await model.generate({
@@ -363,7 +384,7 @@ describe("Codex client", () => {
     });
 
     it("does not send temperature/maxTokens when not provided", async () => {
-      mock.setHandler(() => json(codexResponse()));
+      mock.setHandler(() => sseResponse(codexResponse()));
 
       const model = createModel();
       await model.generate({ messages: simpleMessages });
@@ -377,7 +398,7 @@ describe("Codex client", () => {
       let capturedHeaders: Headers | undefined;
       mock.setHandler((req) => {
         capturedHeaders = req.headers;
-        return json(codexResponse());
+        return sseResponse(codexResponse());
       });
 
       const model = createModel();
@@ -392,7 +413,7 @@ describe("Codex client", () => {
       let capturedUrl: string | undefined;
       mock.setHandler((req) => {
         capturedUrl = new URL(req.url).pathname;
-        return json(codexResponse());
+        return sseResponse(codexResponse());
       });
 
       const model = createModel();
@@ -403,7 +424,7 @@ describe("Codex client", () => {
 
     it("generates with tool calls in response", async () => {
       mock.setHandler(() =>
-        json(
+        sseResponse(
           codexResponse({
             output: [
               {
@@ -435,7 +456,7 @@ describe("Codex client", () => {
 
     it("handles mixed text and tool calls in response", async () => {
       mock.setHandler(() =>
-        json(
+        sseResponse(
           codexResponse({
             output: [
               {
@@ -465,7 +486,7 @@ describe("Codex client", () => {
 
     it("handles invalid JSON in function_call arguments", async () => {
       mock.setHandler(() =>
-        json(
+        sseResponse(
           codexResponse({
             output: [
               {
@@ -489,7 +510,7 @@ describe("Codex client", () => {
 
     it("handles multiple tool calls in response", async () => {
       mock.setHandler(() =>
-        json(
+        sseResponse(
           codexResponse({
             output: [
               {
@@ -521,7 +542,7 @@ describe("Codex client", () => {
 
     it("handles response with no usage data", async () => {
       mock.setHandler(() =>
-        json(codexResponse({ usage: undefined })),
+        sseResponse(codexResponse({ usage: undefined })),
       );
 
       const model = createModel();
@@ -543,14 +564,18 @@ describe("Codex client", () => {
     });
 
     it("throws on failed response status", async () => {
-      mock.setHandler(() =>
-        json(
-          codexResponse({
-            status: "failed",
-            error: { message: "Model overloaded" },
-          }),
-        ),
-      );
+      mock.setHandler(() => {
+        const lines = [
+          `event: response.failed`,
+          `data: ${JSON.stringify({ response: { id: "resp-fail", status: "failed", error: { message: "Model overloaded" } } })}`,
+          "",
+          "",
+        ];
+        return new Response(lines.join("\n"), {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        });
+      });
 
       const model = createModel();
       await expect(model.generate({ messages: simpleMessages })).rejects.toThrow(
@@ -559,9 +584,18 @@ describe("Codex client", () => {
     });
 
     it("throws on failed response with no error message", async () => {
-      mock.setHandler(() =>
-        json(codexResponse({ status: "failed", error: undefined })),
-      );
+      mock.setHandler(() => {
+        const lines = [
+          `event: response.failed`,
+          `data: ${JSON.stringify({ response: { id: "resp-fail", status: "failed" } })}`,
+          "",
+          "",
+        ];
+        return new Response(lines.join("\n"), {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        });
+      });
 
       const model = createModel();
       await expect(model.generate({ messages: simpleMessages })).rejects.toThrow(
@@ -573,7 +607,7 @@ describe("Codex client", () => {
       const model = createCodexModel({
         baseURL: "http://localhost:19999", // nothing listening
         model: "test",
-        accessToken: "tok",
+        getAccessToken: async () => "tok",
         accountId: "acct",
       });
 
@@ -581,7 +615,7 @@ describe("Codex client", () => {
     });
 
     it("handles empty output array", async () => {
-      mock.setHandler(() => json(codexResponse({ output: [] })));
+      mock.setHandler(() => sseResponse(codexResponse({ output: [] })));
 
       const model = createModel();
       const result = await model.generate({ messages: simpleMessages });

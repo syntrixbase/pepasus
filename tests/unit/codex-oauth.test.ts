@@ -1,9 +1,10 @@
 /**
- * Unit tests for Codex OAuth — credential storage, token refresh, PKCE helpers,
- * and the full OAuth login flow.
+ * Unit tests for Codex OAuth — credential storage, token refresh,
+ * device code login flow, and credential retrieval.
  *
- * Tests that interact with external services (OAuth flow, token endpoint)
- * use a local Bun.serve mock server and mock global fetch.
+ * Tests use a local Bun.serve mock server and mock global fetch
+ * to avoid any real network calls.
+ * All file I/O uses a temp directory — never touches ~/.pegasus/auth/.
  */
 import { describe, it, expect, afterEach, beforeAll, afterAll } from "bun:test";
 import {
@@ -11,13 +12,13 @@ import {
   saveCredentials,
   refreshToken,
   getValidCredentials,
-  loginCodexOAuth,
+  loginDeviceCode,
+  validateCredentials,
 } from "../../src/infra/codex-oauth.ts";
 import type { CodexCredentials } from "../../src/infra/codex-oauth.ts";
-import { rm, mkdir, rename } from "node:fs/promises";
-import { writeFileSync, existsSync } from "node:fs";
+import { rm, mkdir } from "node:fs/promises";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import * as os from "node:os";
 
 const testDir = "/tmp/pegasus-test-codex-oauth";
 const testFile = join(testDir, "codex.json");
@@ -78,12 +79,14 @@ function fakeJWT(payload: Record<string, unknown>): string {
   return `${header}.${body}.fake-signature`;
 }
 
-// ── Credential Storage Tests ────────────────────────
+// ── Tests ───────────────────────────────────────────
 
 describe("Codex OAuth", () => {
   afterEach(async () => {
     await rm(testDir, { recursive: true, force: true }).catch(() => {});
   });
+
+  // ── Credential Storage Tests ────────────────────────
 
   describe("credential storage", () => {
     it("should save and load credentials", async () => {
@@ -186,15 +189,16 @@ describe("Codex OAuth", () => {
 
     it("should refresh token successfully", () =>
       withMockedFetch(async () => {
-        const newAccessToken = fakeJWT({
-          "https://api.openai.com/auth": { user_id: "user-refreshed" },
+        const newIdToken = fakeJWT({
+          "https://api.openai.com/auth": { chatgpt_account_id: "acct-refreshed" },
         });
 
         mockServer.setHandler(() =>
           jsonResp({
-            access_token: newAccessToken,
+            access_token: "new-access-token",
             refresh_token: "new-refresh",
             expires_in: 3600,
+            id_token: newIdToken,
           }),
         );
 
@@ -206,21 +210,19 @@ describe("Codex OAuth", () => {
           accountId: "acct-old",
         };
 
-        const newCreds = await refreshToken(creds);
+        const newCreds = await refreshToken(creds, testFile);
 
-        expect(newCreds.accessToken).toBe(newAccessToken);
+        expect(newCreds.accessToken).toBe("new-access-token");
         expect(newCreds.refreshToken).toBe("new-refresh");
-        expect(newCreds.accountId).toBe("user-refreshed");
+        expect(newCreds.accountId).toBe("acct-refreshed");
         expect(newCreds.expiresAt).toBeGreaterThan(Date.now());
-      }));
+      }), 10000);
 
     it("should keep old refreshToken when new one not provided", () =>
       withMockedFetch(async () => {
-        const newAccessToken = fakeJWT({ sub: "user-sub" });
-
         mockServer.setHandler(() =>
           jsonResp({
-            access_token: newAccessToken,
+            access_token: "new-access",
             expires_in: 3600,
           }),
         );
@@ -233,9 +235,9 @@ describe("Codex OAuth", () => {
           accountId: "acct",
         };
 
-        const newCreds = await refreshToken(creds);
+        const newCreds = await refreshToken(creds, testFile);
         expect(newCreds.refreshToken).toBe("keep-this-refresh");
-      }));
+      }), 10000);
 
     it("should throw on token refresh failure", () =>
       withMockedFetch(async () => {
@@ -250,21 +252,22 @@ describe("Codex OAuth", () => {
           accountId: "acct",
         };
 
-        await expect(refreshToken(creds)).rejects.toThrow("Token refresh failed (400)");
-      }));
+        await expect(refreshToken(creds, testFile)).rejects.toThrow("Token refresh failed (400)");
+      }), 10000);
 
-    it("should extract accountId from sub claim when auth claim not present", () =>
+    it("should extract accountId from id_token chatgpt_account_id", () =>
       withMockedFetch(async () => {
-        const newAccessToken = fakeJWT({ sub: "user-from-sub" });
-
+        const newIdToken = fakeJWT({
+          "https://api.openai.com/auth": { chatgpt_account_id: "acct-from-id-token" },
+        });
         mockServer.setHandler(() =>
           jsonResp({
-            access_token: newAccessToken,
-            refresh_token: "new-ref",
+            access_token: "new-access",
+            refresh_token: "new-refresh",
             expires_in: 3600,
+            id_token: newIdToken,
           }),
         );
-
         await mkdir(testDir, { recursive: true });
         const creds: CodexCredentials = {
           accessToken: "old",
@@ -272,18 +275,15 @@ describe("Codex OAuth", () => {
           expiresAt: Date.now() - 1000,
           accountId: "old-acct",
         };
+        const newCreds = await refreshToken(creds, testFile);
+        expect(newCreds.accountId).toBe("acct-from-id-token");
+      }), 10000);
 
-        const newCreds = await refreshToken(creds);
-        expect(newCreds.accountId).toBe("user-from-sub");
-      }));
-
-    it("should keep old accountId when token has no extractable ID", () =>
+    it("should keep old accountId when no id_token provided", () =>
       withMockedFetch(async () => {
-        const newAccessToken = fakeJWT({ iss: "test" });
-
         mockServer.setHandler(() =>
           jsonResp({
-            access_token: newAccessToken,
+            access_token: "new-access",
             refresh_token: "new-ref",
             expires_in: 3600,
           }),
@@ -297,18 +297,43 @@ describe("Codex OAuth", () => {
           accountId: "keep-this-acct",
         };
 
-        const newCreds = await refreshToken(creds);
+        const newCreds = await refreshToken(creds, testFile);
         expect(newCreds.accountId).toBe("keep-this-acct");
-      }));
+      }), 10000);
 
-    it("should handle non-JWT access token gracefully", () =>
+    it("should keep old accountId when id_token has no chatgpt_account_id", () =>
+      withMockedFetch(async () => {
+        const idTokenNoAcct = fakeJWT({ sub: "user-sub-only" });
+        mockServer.setHandler(() =>
+          jsonResp({
+            access_token: "new-access",
+            refresh_token: "new-ref",
+            expires_in: 3600,
+            id_token: idTokenNoAcct,
+          }),
+        );
+
+        await mkdir(testDir, { recursive: true });
+        const creds: CodexCredentials = {
+          accessToken: "old",
+          refreshToken: "ref",
+          expiresAt: Date.now() - 1000,
+          accountId: "keep-this-acct",
+        };
+
+        const newCreds = await refreshToken(creds, testFile);
+        expect(newCreds.accountId).toBe("keep-this-acct");
+      }), 10000);
+
+    it("should handle non-JWT id_token gracefully", () =>
       withMockedFetch(async () => {
         // A token that is NOT a valid JWT (no dots) — triggers extractAccountId catch branch
         mockServer.setHandler(() =>
           jsonResp({
-            access_token: "not-a-jwt-token",
+            access_token: "new-access",
             refresh_token: "new-ref",
             expires_in: 3600,
+            id_token: "not-a-jwt-token",
           }),
         );
 
@@ -320,19 +345,20 @@ describe("Codex OAuth", () => {
           accountId: "fallback-acct",
         };
 
-        const newCreds = await refreshToken(creds);
-        // Falls back to old accountId since token can't be parsed
+        const newCreds = await refreshToken(creds, testFile);
+        // Falls back to old accountId since id_token can't be parsed
         expect(newCreds.accountId).toBe("fallback-acct");
-      }));
+      }), 10000);
 
-    it("should handle malformed JWT payload gracefully", () =>
+    it("should handle malformed JWT id_token payload gracefully", () =>
       withMockedFetch(async () => {
         // A token with 3 dots but invalid base64 payload — triggers extractAccountId catch
         mockServer.setHandler(() =>
           jsonResp({
-            access_token: "header.!!!invalid-base64!!!.signature",
+            access_token: "new-access",
             refresh_token: "new-ref",
             expires_in: 3600,
+            id_token: "header.!!!invalid-base64!!!.signature",
           }),
         );
 
@@ -344,96 +370,59 @@ describe("Codex OAuth", () => {
           accountId: "keep-acct",
         };
 
-        const newCreds = await refreshToken(creds);
+        const newCreds = await refreshToken(creds, testFile);
         expect(newCreds.accountId).toBe("keep-acct");
-      }));
+      }), 10000);
   });
 
   // ── getValidCredentials Tests ─────────────────────
 
   describe("getValidCredentials", () => {
-    const authDir = join(os.homedir(), ".pegasus", "auth");
-    const credsFile = join(authDir, "codex.json");
-    const backupFile = join(authDir, "codex.json.bak-test");
-
-    afterEach(async () => {
-      // Restore backup if it exists
-      if (existsSync(backupFile)) {
-        await rename(backupFile, credsFile);
-      }
-    });
-
     it("should return null when no credentials file exists", async () => {
-      // Backup existing file if present
-      if (existsSync(credsFile)) {
-        await rename(credsFile, backupFile);
-      }
-
-      const result = await getValidCredentials();
+      const result = await getValidCredentials("/tmp/nonexistent-xyz.json");
       expect(result).toBeNull();
-    });
+    }, 10000);
 
-    it("should return valid (non-expired) credentials without refresh", async () => {
-      // Backup existing file if present
-      if (existsSync(credsFile)) {
-        await rename(credsFile, backupFile);
-      }
-
-      await mkdir(authDir, { recursive: true });
+    it("should return valid credentials without refresh", async () => {
+      await mkdir(testDir, { recursive: true });
       const creds: CodexCredentials = {
         accessToken: "valid-token",
         refreshToken: "valid-refresh",
-        expiresAt: Date.now() + 3600000, // 1 hour from now
+        expiresAt: Date.now() + 3600000,
         accountId: "acct-valid",
       };
-      writeFileSync(credsFile, JSON.stringify(creds, null, 2), "utf-8");
-
-      try {
-        const result = await getValidCredentials();
-        expect(result).not.toBeNull();
-        expect(result!.accessToken).toBe("valid-token");
-        expect(result!.accountId).toBe("acct-valid");
-      } finally {
-        // Cleanup
-        await rm(credsFile, { force: true });
-      }
-    });
+      saveCredentials(creds, testFile);
+      const result = await getValidCredentials(testFile);
+      expect(result).not.toBeNull();
+      expect(result!.accessToken).toBe("valid-token");
+      expect(result!.accountId).toBe("acct-valid");
+    }, 10000);
 
     it("should return null when expired credentials fail to refresh", async () => {
-      // Backup existing file if present
-      if (existsSync(credsFile)) {
-        await rename(credsFile, backupFile);
-      }
-
-      await mkdir(authDir, { recursive: true });
-      const creds: CodexCredentials = {
-        accessToken: "expired-token",
-        refreshToken: "bad-refresh",
-        expiresAt: Date.now() - 1000, // already expired
-        accountId: "acct-expired",
-      };
-      writeFileSync(credsFile, JSON.stringify(creds, null, 2), "utf-8");
+      await mkdir(testDir, { recursive: true });
+      saveCredentials({
+        accessToken: "expired",
+        refreshToken: "bad",
+        expiresAt: Date.now() - 1000,
+        accountId: "acct",
+      }, testFile);
 
       // Mock fetch so refresh fails
       const originalFetch = globalThis.fetch;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (globalThis as any).fetch = async () => {
-        return new Response("invalid_grant", { status: 400 });
-      };
-
+      (globalThis as any).fetch = async () => new Response("fail", { status: 400 });
       try {
-        const result = await getValidCredentials();
+        const result = await getValidCredentials(testFile);
         expect(result).toBeNull();
       } finally {
         globalThis.fetch = originalFetch;
-        await rm(credsFile, { force: true });
       }
-    });
+    }, 10000);
   });
 
-  // ── loginCodexOAuth — full flow test ──────────────
+  // ── loginDeviceCode Tests ─────────────────────────
 
-  describe("loginCodexOAuth", () => {
+  describe("loginDeviceCode", () => {
     let mockServer: MockServer;
 
     beforeAll(() => {
@@ -444,266 +433,415 @@ describe("Codex OAuth", () => {
       mockServer.server.stop(true);
     });
 
-    it("should complete the full OAuth PKCE flow", async () => {
-      const newAccessToken = fakeJWT({
-        "https://api.openai.com/auth": { user_id: "user-oauth" },
+    // Ensure testDir exists for saveCredentials in loginDeviceCode
+    const ensureTestDir = async () => {
+      const { mkdir } = await import("node:fs/promises");
+      await mkdir(testDir, { recursive: true });
+    };
+
+    /**
+     * Helper: mock global fetch to redirect all auth.openai.com calls
+     * to the local mock server. Routes by URL path to simulate the
+     * 3-step device code flow.
+     */
+    function withDeviceMockedFetch(
+      handlers: {
+        onDeviceCode?: () => Response;
+        onDeviceToken?: () => Response;
+        onTokenExchange?: () => Response;
+      },
+      fn: () => Promise<void>,
+    ): Promise<void> {
+      const originalFetch = globalThis.fetch;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (globalThis as any).fetch = async (input: string | URL | Request, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+        if (url.includes("deviceauth/usercode") && handlers.onDeviceCode) {
+          return handlers.onDeviceCode();
+        }
+        if (url.includes("deviceauth/token") && handlers.onDeviceToken) {
+          return handlers.onDeviceToken();
+        }
+        if (url.includes("oauth/token") && handlers.onTokenExchange) {
+          return handlers.onTokenExchange();
+        }
+        return originalFetch(input, init);
+      };
+      return ensureTestDir().then(() => fn()).finally(() => {
+        globalThis.fetch = originalFetch;
+      });
+    }
+
+    it("should complete the full device code flow", () => {
+      // Step 2 (polling): first call returns 403 (pending), second returns success
+      let pollCount = 0;
+
+      const idToken = fakeJWT({
+        "https://api.openai.com/auth": { chatgpt_account_id: "acct-device" },
       });
 
-      mockServer.setHandler(() =>
-        jsonResp({
-          access_token: newAccessToken,
-          refresh_token: "oauth-refresh-token",
-          expires_in: 3600,
-        }),
+      return withDeviceMockedFetch(
+        {
+          onDeviceCode: () =>
+            jsonResp({
+              device_auth_id: "dev-auth-123",
+              user_code: "ABCD-1234",
+              interval: 1, // 1 second polling interval
+            }),
+          onDeviceToken: () => {
+            pollCount++;
+            if (pollCount <= 1) {
+              return new Response("pending", { status: 403 });
+            }
+            return jsonResp({
+              authorization_code: "auth-code-xyz",
+              code_verifier: "verifier-xyz",
+              code_challenge: "challenge-xyz",
+            });
+          },
+          onTokenExchange: () =>
+            jsonResp({
+              access_token: "device-access-token",
+              refresh_token: "device-refresh-token",
+              expires_in: 3600,
+              id_token: idToken,
+            }),
+        },
+        async () => {
+          const creds = await loginDeviceCode(testFile);
+
+          expect(creds.accessToken).toBe("device-access-token");
+          expect(creds.refreshToken).toBe("device-refresh-token");
+          expect(creds.accountId).toBe("acct-device");
+          expect(creds.expiresAt).toBeGreaterThan(Date.now());
+          // pollForToken should have been called at least twice
+          expect(pollCount).toBeGreaterThanOrEqual(2);
+        },
       );
+    }, 15000);
 
-      // Mock child_process.exec to capture the authorize URL instead of opening a browser
-      let capturedAuthorizeUrl = "";
-      const childProcess = require("child_process");
-      const originalExec = childProcess.exec;
-      childProcess.exec = (cmd: string) => {
-        // cmd is like: xdg-open "https://auth.openai.com/oauth/authorize?..."
-        const match = cmd.match(/"([^"]+)"/);
-        if (match) capturedAuthorizeUrl = match[1]!;
-      };
+    it("should throw when device code request fails", () =>
+      withDeviceMockedFetch(
+        {
+          onDeviceCode: () => new Response("server error", { status: 500 }),
+        },
+        async () => {
+          await expect(loginDeviceCode(testFile)).rejects.toThrow(
+            "Device code request failed (500)",
+          );
+        },
+      ), 10000);
 
-      // Mock global fetch to redirect token exchange to mock server
+    it("should throw when token exchange fails", () =>
+      withDeviceMockedFetch(
+        {
+          onDeviceCode: () =>
+            jsonResp({
+              device_auth_id: "dev-auth-fail",
+              user_code: "FAIL-0000",
+              interval: 1,
+            }),
+          onDeviceToken: () =>
+            jsonResp({
+              authorization_code: "auth-code-fail",
+              code_verifier: "verifier-fail",
+              code_challenge: "challenge-fail",
+            }),
+          onTokenExchange: () =>
+            new Response("invalid_grant", { status: 400 }),
+        },
+        async () => {
+          await expect(loginDeviceCode(testFile)).rejects.toThrow(
+            "Token exchange failed (400)",
+          );
+        },
+      ), 10000);
+
+    it("should handle empty accountId when id_token has no chatgpt_account_id", () => {
+      const idTokenNoAcct = fakeJWT({ sub: "user-only" });
+
+      return withDeviceMockedFetch(
+        {
+          onDeviceCode: () =>
+            jsonResp({
+              device_auth_id: "dev-auth-noid",
+              user_code: "NOID-0000",
+              interval: 1,
+            }),
+          onDeviceToken: () =>
+            jsonResp({
+              authorization_code: "auth-code-noid",
+              code_verifier: "verifier-noid",
+              code_challenge: "challenge-noid",
+            }),
+          onTokenExchange: () =>
+            jsonResp({
+              access_token: "access-noid",
+              refresh_token: "refresh-noid",
+              expires_in: 3600,
+              id_token: idTokenNoAcct,
+            }),
+        },
+        async () => {
+          const creds = await loginDeviceCode(testFile);
+          // extractAccountId returns null for missing chatgpt_account_id → ""
+          expect(creds.accountId).toBe("");
+        },
+      );
+    }, 10000);
+
+    it("should handle missing id_token in response", () =>
+      withDeviceMockedFetch(
+        {
+          onDeviceCode: () =>
+            jsonResp({
+              device_auth_id: "dev-auth-notok",
+              user_code: "NOTK-0000",
+              interval: 1,
+            }),
+          onDeviceToken: () =>
+            jsonResp({
+              authorization_code: "auth-code-notok",
+              code_verifier: "verifier-notok",
+              code_challenge: "challenge-notok",
+            }),
+          onTokenExchange: () =>
+            jsonResp({
+              access_token: "access-notok",
+              refresh_token: "refresh-notok",
+              expires_in: 3600,
+              // no id_token
+            }),
+        },
+        async () => {
+          const creds = await loginDeviceCode(testFile);
+          expect(creds.accountId).toBe("");
+        },
+      ), 10000);
+
+    it("should handle string interval from device code response", () =>
+      withDeviceMockedFetch(
+        {
+          onDeviceCode: () =>
+            jsonResp({
+              device_auth_id: "dev-auth-strint",
+              user_code: "STRI-0000",
+              interval: "1", // string instead of number
+            }),
+          onDeviceToken: () =>
+            jsonResp({
+              authorization_code: "auth-code-strint",
+              code_verifier: "verifier-strint",
+              code_challenge: "challenge-strint",
+            }),
+          onTokenExchange: () =>
+            jsonResp({
+              access_token: "access-strint",
+              refresh_token: "refresh-strint",
+              expires_in: 3600,
+            }),
+        },
+        async () => {
+          const creds = await loginDeviceCode(testFile);
+          expect(creds.accessToken).toBe("access-strint");
+        },
+      ), 10000);
+
+    it("should throw on unexpected polling status", () =>
+      withDeviceMockedFetch(
+        {
+          onDeviceCode: () =>
+            jsonResp({
+              device_auth_id: "dev-auth-unex",
+              user_code: "UNEX-0000",
+              interval: 1,
+            }),
+          onDeviceToken: () =>
+            new Response("unexpected error", { status: 500 }),
+        },
+        async () => {
+          await expect(loginDeviceCode(testFile)).rejects.toThrow(
+            "Device auth polling failed (500)",
+          );
+        },
+      ), 10000);
+  });
+
+  // ── verifyToken Tests ─────────────────────────────
+
+  describe("verifyToken", () => {
+    let mockServer: MockServer;
+
+    beforeAll(() => {
+      mockServer = createMockServer(18933);
+    });
+
+    afterAll(() => {
+      mockServer.server.stop(true);
+    });
+
+    function withMockedFetch(
+      handler: (url: string) => Response | null,
+      fn: () => Promise<void>,
+    ): Promise<void> {
       const originalFetch = globalThis.fetch;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (globalThis as any).fetch = async (input: string | URL | Request, init?: RequestInit) => {
         const url = typeof input === "string" ? input : input.toString();
-        if (url.includes("auth.openai.com/oauth/token")) {
-          return originalFetch(`${mockServer.baseURL}/oauth/token`, init);
-        }
+        const result = handler(url);
+        if (result) return result;
         return originalFetch(input, init);
       };
-
-      try {
-        // Start the OAuth flow (non-blocking — it will wait for callback)
-        const loginPromise = loginCodexOAuth();
-
-        // Wait a bit for the server to start and exec to be called
-        await new Promise((r) => setTimeout(r, 100));
-
-        // Extract state from the captured authorize URL
-        expect(capturedAuthorizeUrl).toContain("auth.openai.com/oauth/authorize");
-        const authorizeParams = new URL(capturedAuthorizeUrl).searchParams;
-        const state = authorizeParams.get("state");
-        expect(state).toBeTruthy();
-
-        // Simulate the OAuth callback hitting the local server
-        const callbackUrl = `http://localhost:1455/auth/callback?code=test-auth-code&state=${state}`;
-        const callbackResp = await originalFetch(callbackUrl);
-        expect(callbackResp.status).toBe(200);
-        const callbackHtml = await callbackResp.text();
-        expect(callbackHtml).toContain("Authentication Successful");
-
-        // Now the login should complete
-        const creds = await loginPromise;
-
-        expect(creds.accessToken).toBe(newAccessToken);
-        expect(creds.refreshToken).toBe("oauth-refresh-token");
-        expect(creds.accountId).toBe("user-oauth");
-        expect(creds.expiresAt).toBeGreaterThan(Date.now());
-      } finally {
-        childProcess.exec = originalExec;
+      return fn().finally(() => {
         globalThis.fetch = originalFetch;
-      }
-    }, 10000);
+      });
+    }
 
-    it("should handle OAuth error in callback", async () => {
-      const childProcess = require("child_process");
-      const originalExec = childProcess.exec;
-      childProcess.exec = () => {};
+    it("should return true for valid token (200 response)", () =>
+      withMockedFetch(
+        (url) => {
+          if (url.includes("wham/usage")) {
+            return new Response(JSON.stringify({ plan_type: "plus" }), {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            });
+          }
+          return null;
+        },
+        async () => {
+          const { verifyToken } = await import("../../src/infra/codex-oauth.ts");
+          const result = await verifyToken("valid-access-token", "acct-123", mockServer.baseURL);
+          expect(result).toBe(true);
+        },
+      ), 10000);
 
-      const originalFetch = globalThis.fetch;
+    it("should return false for invalid token (401 response)", () =>
+      withMockedFetch(
+        (url) => {
+          if (url.includes("wham/usage")) {
+            return new Response(
+              JSON.stringify({ detail: "Could not parse your authentication token." }),
+              { status: 401 },
+            );
+          }
+          return null;
+        },
+        async () => {
+          const { verifyToken } = await import("../../src/infra/codex-oauth.ts");
+          const result = await verifyToken("bad-token", "acct-123", mockServer.baseURL);
+          expect(result).toBe(false);
+        },
+      ), 10000);
 
-      try {
-        // Catch the rejection immediately by attaching .catch()
-        let caughtError: Error | undefined;
-        const loginPromise = loginCodexOAuth().catch((e) => {
-          caughtError = e;
-        });
+    it("should return false for expired token (403 response)", () =>
+      withMockedFetch(
+        (url) => {
+          if (url.includes("wham/usage")) {
+            return new Response("Forbidden", { status: 403 });
+          }
+          return null;
+        },
+        async () => {
+          const { verifyToken } = await import("../../src/infra/codex-oauth.ts");
+          const result = await verifyToken("expired-token", "acct-123", mockServer.baseURL);
+          expect(result).toBe(false);
+        },
+      ), 10000);
 
-        await new Promise((r) => setTimeout(r, 100));
+    it("should return false on network error", () =>
+      withMockedFetch(
+        (url) => {
+          if (url.includes("wham/usage")) {
+            throw new Error("Network error");
+          }
+          return null;
+        },
+        async () => {
+          const { verifyToken } = await import("../../src/infra/codex-oauth.ts");
+          const result = await verifyToken("any-token", "acct-123", "http://localhost:19999");
+          expect(result).toBe(false);
+        },
+      ), 10000);
+  });
 
-        // Simulate an error callback
-        const callbackUrl = `http://localhost:1455/auth/callback?error=access_denied`;
-        const callbackResp = await originalFetch(callbackUrl);
-        expect(callbackResp.status).toBe(200);
-        const callbackHtml = await callbackResp.text();
-        expect(callbackHtml).toContain("Authentication Failed");
+  // ── validateCredentials Tests ─────────────────────
 
-        await loginPromise;
-        expect(caughtError).toBeDefined();
-        expect(caughtError!.message).toContain("OAuth error: access_denied");
-      } finally {
-        childProcess.exec = originalExec;
-        globalThis.fetch = originalFetch;
-      }
-    }, 10000);
-
-    it("should return 404 for non-callback paths", async () => {
-      const childProcess = require("child_process");
-      const originalExec = childProcess.exec;
-      let capturedUrl = "";
-      childProcess.exec = (cmd: string) => {
-        const match = cmd.match(/"([^"]+)"/);
-        if (match) capturedUrl = match[1]!;
+  describe("validateCredentials", () => {
+    it("should return true for valid JWT with iss claim", () => {
+      const token = fakeJWT({ iss: "https://auth.openai.com/" });
+      const creds: CodexCredentials = {
+        accessToken: token,
+        refreshToken: "ref",
+        expiresAt: Date.now() + 3600000,
+        accountId: "acct",
       };
+      expect(validateCredentials(creds)).toBe(true);
+    });
 
-      const originalFetch = globalThis.fetch;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (globalThis as any).fetch = async (input: string | URL | Request, init?: RequestInit) => {
-        const url = typeof input === "string" ? input : input.toString();
-        if (url.includes("auth.openai.com/oauth/token")) {
-          return new Response(JSON.stringify({
-            access_token: fakeJWT({ sub: "u" }),
-            refresh_token: "ref",
-            expires_in: 3600,
-          }), { headers: { "content-type": "application/json" } });
-        }
-        return originalFetch(input, init);
+    it("should return true for valid JWT with auth claim instead of iss", () => {
+      const token = fakeJWT({
+        "https://api.openai.com/auth": { chatgpt_account_id: "acct-123" },
+      });
+      const creds: CodexCredentials = {
+        accessToken: token,
+        refreshToken: "ref",
+        expiresAt: Date.now() + 3600000,
+        accountId: "acct",
       };
+      expect(validateCredentials(creds)).toBe(true);
+    });
 
-      try {
-        const loginPromise = loginCodexOAuth();
-        await new Promise((r) => setTimeout(r, 100));
-
-        // Hit a wrong path — should get 404
-        const wrongPath = await originalFetch("http://localhost:1455/wrong-path");
-        expect(wrongPath.status).toBe(404);
-
-        // Now send the correct callback to complete the flow
-        const state = new URL(capturedUrl).searchParams.get("state");
-        await originalFetch(`http://localhost:1455/auth/callback?code=c&state=${state}`);
-        await loginPromise;
-      } finally {
-        childProcess.exec = originalExec;
-        globalThis.fetch = originalFetch;
-      }
-    }, 10000);
-
-    it("should return 400 for callback with state mismatch", async () => {
-      const childProcess = require("child_process");
-      const originalExec = childProcess.exec;
-      let capturedUrl = "";
-      childProcess.exec = (cmd: string) => {
-        const match = cmd.match(/"([^"]+)"/);
-        if (match) capturedUrl = match[1]!;
+    it("should return false for expired token", () => {
+      const token = fakeJWT({ iss: "https://auth.openai.com/" });
+      const creds: CodexCredentials = {
+        accessToken: token,
+        refreshToken: "ref",
+        expiresAt: Date.now() - 1000,
+        accountId: "acct",
       };
+      expect(validateCredentials(creds)).toBe(false);
+    });
 
-      const originalFetch = globalThis.fetch;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (globalThis as any).fetch = async (input: string | URL | Request, init?: RequestInit) => {
-        const url = typeof input === "string" ? input : input.toString();
-        if (url.includes("auth.openai.com/oauth/token")) {
-          return new Response(JSON.stringify({
-            access_token: fakeJWT({ sub: "u" }),
-            refresh_token: "ref",
-            expires_in: 3600,
-          }), { headers: { "content-type": "application/json" } });
-        }
-        return originalFetch(input, init);
+    it("should return false for non-JWT token (no dots)", () => {
+      const creds: CodexCredentials = {
+        accessToken: "plain-token-no-dots",
+        refreshToken: "ref",
+        expiresAt: Date.now() + 3600000,
+        accountId: "acct",
       };
+      expect(validateCredentials(creds)).toBe(false);
+    });
 
-      try {
-        const loginPromise = loginCodexOAuth();
-        await new Promise((r) => setTimeout(r, 100));
-
-        // Hit with wrong state — should get 400
-        const badState = await originalFetch(
-          "http://localhost:1455/auth/callback?code=c&state=wrong-state",
-        );
-        expect(badState.status).toBe(400);
-
-        // Complete the flow correctly
-        const state = new URL(capturedUrl).searchParams.get("state");
-        await originalFetch(`http://localhost:1455/auth/callback?code=c&state=${state}`);
-        await loginPromise;
-      } finally {
-        childProcess.exec = originalExec;
-        globalThis.fetch = originalFetch;
-      }
-    }, 10000);
-
-    it("should handle token exchange failure", async () => {
-      const childProcess = require("child_process");
-      const originalExec = childProcess.exec;
-      let capturedUrl = "";
-      childProcess.exec = (cmd: string) => {
-        const match = cmd.match(/"([^"]+)"/);
-        if (match) capturedUrl = match[1]!;
+    it("should return false for 2-part JWT (missing signature)", () => {
+      const header = Buffer.from(JSON.stringify({ alg: "RS256" })).toString("base64url");
+      const body = Buffer.from(JSON.stringify({ iss: "test" })).toString("base64url");
+      const creds: CodexCredentials = {
+        accessToken: `${header}.${body}`,
+        refreshToken: "ref",
+        expiresAt: Date.now() + 3600000,
+        accountId: "acct",
       };
+      expect(validateCredentials(creds)).toBe(false);
+    });
 
-      const originalFetch = globalThis.fetch;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (globalThis as any).fetch = async (input: string | URL | Request, init?: RequestInit) => {
-        const url = typeof input === "string" ? input : input.toString();
-        if (url.includes("auth.openai.com/oauth/token")) {
-          return new Response("invalid_grant", { status: 400 });
-        }
-        return originalFetch(input, init);
+    it("should return false for invalid base64 payload", () => {
+      const creds: CodexCredentials = {
+        accessToken: "header.!!!invalid-base64!!!.signature",
+        refreshToken: "ref",
+        expiresAt: Date.now() + 3600000,
+        accountId: "acct",
       };
+      expect(validateCredentials(creds)).toBe(false);
+    });
 
-      try {
-        let caughtError: Error | undefined;
-        const loginPromise = loginCodexOAuth().catch((e) => {
-          caughtError = e;
-        });
-        await new Promise((r) => setTimeout(r, 100));
-
-        const state = new URL(capturedUrl).searchParams.get("state");
-        await originalFetch(`http://localhost:1455/auth/callback?code=bad-code&state=${state}`);
-
-        await loginPromise;
-        expect(caughtError).toBeDefined();
-        expect(caughtError!.message).toContain("Token exchange failed (400)");
-      } finally {
-        childProcess.exec = originalExec;
-        globalThis.fetch = originalFetch;
-      }
-    }, 10000);
-
-    it("should extract empty accountId when JWT has no user info", async () => {
-      // Token with no sub or auth claims → extractAccountId returns null → accountId is ""
-      const tokenNoUser = fakeJWT({ iss: "openai", aud: "app" });
-
-      const childProcess = require("child_process");
-      const originalExec = childProcess.exec;
-      let capturedUrl = "";
-      childProcess.exec = (cmd: string) => {
-        const match = cmd.match(/"([^"]+)"/);
-        if (match) capturedUrl = match[1]!;
+    it("should return false when payload missing both iss and auth claim", () => {
+      const token = fakeJWT({ sub: "user-only", name: "test" });
+      const creds: CodexCredentials = {
+        accessToken: token,
+        refreshToken: "ref",
+        expiresAt: Date.now() + 3600000,
+        accountId: "acct",
       };
-
-      const originalFetch = globalThis.fetch;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (globalThis as any).fetch = async (input: string | URL | Request, init?: RequestInit) => {
-        const url = typeof input === "string" ? input : input.toString();
-        if (url.includes("auth.openai.com/oauth/token")) {
-          return new Response(JSON.stringify({
-            access_token: tokenNoUser,
-            refresh_token: "ref",
-            expires_in: 3600,
-          }), { headers: { "content-type": "application/json" } });
-        }
-        return originalFetch(input, init);
-      };
-
-      try {
-        const loginPromise = loginCodexOAuth();
-        await new Promise((r) => setTimeout(r, 100));
-
-        const state = new URL(capturedUrl).searchParams.get("state");
-        await originalFetch(`http://localhost:1455/auth/callback?code=c&state=${state}`);
-
-        const creds = await loginPromise;
-        expect(creds.accountId).toBe("");
-      } finally {
-        childProcess.exec = originalExec;
-        globalThis.fetch = originalFetch;
-      }
-    }, 10000);
+      expect(validateCredentials(creds)).toBe(false);
+    });
   });
 });

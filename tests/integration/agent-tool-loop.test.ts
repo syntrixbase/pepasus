@@ -22,6 +22,7 @@ function createToolTestSettings() {
     agent: { maxActiveTasks: 10 },
     logLevel: "warn",
     dataDir: testDataDir,
+    authDir: "/tmp/pegasus-test-auth",
   });
 }
 

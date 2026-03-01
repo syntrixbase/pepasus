@@ -34,8 +34,8 @@ export class MCPManager {
   private clients = new Map<string, Client>();
   private tokenStore: TokenStore;
 
-  constructor() {
-    this.tokenStore = new TokenStore();
+  constructor(mcpAuthDir: string) {
+    this.tokenStore = new TokenStore(mcpAuthDir);
   }
 
   /**

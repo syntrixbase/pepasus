@@ -63,7 +63,7 @@ describe("Config schemas", () => {
   });
 
   test("SettingsSchema applies nested defaults", () => {
-    const settings = SettingsSchema.parse({ dataDir: "/tmp/pegasus-test" });
+    const settings = SettingsSchema.parse({ dataDir: "/tmp/pegasus-test", authDir: "/tmp/pegasus-test-auth" });
     expect(settings.llm.roles.default).toBe("openai/gpt-4o-mini");
     expect(settings.agent.maxActiveTasks).toBe(5);
     expect(settings.logLevel).toBe("info");
@@ -73,17 +73,18 @@ describe("Config schemas", () => {
   });
 
   test("SettingsSchema accepts custom logFormat", () => {
-    const settings = SettingsSchema.parse({ dataDir: "/tmp/pegasus-test", logFormat: "line" });
+    const settings = SettingsSchema.parse({ dataDir: "/tmp/pegasus-test", authDir: "/tmp/pegasus-test-auth", logFormat: "line" });
     expect(settings.logFormat).toBe("line");
   });
 
   test("SettingsSchema rejects invalid logFormat", () => {
-    expect(() => SettingsSchema.parse({ dataDir: "/tmp/pegasus-test", logFormat: "xml" })).toThrow();
+    expect(() => SettingsSchema.parse({ dataDir: "/tmp/pegasus-test", authDir: "/tmp/pegasus-test-auth", logFormat: "xml" })).toThrow();
   });
 
   test("SettingsSchema coerces JSON string array for allowedPaths", () => {
     const settings = SettingsSchema.parse({
       dataDir: "/tmp/pegasus-test",
+      authDir: "/tmp/pegasus-test-auth",
       tools: { allowedPaths: '["./data", "/tmp"]' },
     });
     expect(settings.tools.allowedPaths).toEqual(["./data", "/tmp"]);
@@ -92,27 +93,40 @@ describe("Config schemas", () => {
   test("SettingsSchema passes through invalid JSON string for allowedPaths to Zod", () => {
     // Non-JSON string that's not "[]" — Zod will validate/reject it
     expect(() =>
-      SettingsSchema.parse({ dataDir: "/tmp/pegasus-test", tools: { allowedPaths: "not-json" } }),
+      SettingsSchema.parse({ dataDir: "/tmp/pegasus-test", authDir: "/tmp/pegasus-test-auth", tools: { allowedPaths: "not-json" } }),
     ).toThrow();
   });
 });
 
 describe("getSettings / setSettings", () => {
   beforeEach(() => {
-    // Reset singleton so each test starts fresh
     resetSettings();
   });
 
-  test("getSettings loads from env and returns valid Settings", () => {
+  test("getSettings throws if not initialized", () => {
+    expect(() => getSettings()).toThrow("Settings not initialized");
+  });
+
+  test("getSettings returns settings after setSettings", () => {
+    const custom = SettingsSchema.parse({
+      dataDir: "/tmp/test",
+      authDir: "/tmp/pegasus-test-auth",
+    });
+    setSettings(custom);
     const settings = getSettings();
     expect(settings.llm).toBeDefined();
     expect(settings.memory).toBeDefined();
     expect(settings.agent).toBeDefined();
     expect(settings.logLevel).toBeDefined();
-    expect(settings.dataDir).toBeDefined();
+    expect(settings.dataDir).toBe("/tmp/test");
   });
 
   test("getSettings returns same reference on repeated calls (singleton)", () => {
+    const custom = SettingsSchema.parse({
+      dataDir: "/tmp/test",
+      authDir: "/tmp/pegasus-test-auth",
+    });
+    setSettings(custom);
     const a = getSettings();
     const b = getSettings();
     expect(a).toBe(b);
@@ -122,6 +136,7 @@ describe("getSettings / setSettings", () => {
     const custom: Settings = SettingsSchema.parse({
       logLevel: "debug",
       dataDir: "/tmp/test",
+      authDir: "/tmp/pegasus-test-auth",
     });
     setSettings(custom);
     const result = getSettings();
@@ -129,29 +144,21 @@ describe("getSettings / setSettings", () => {
     expect(result.dataDir).toBe("/tmp/test");
   });
 
-  test("resetSettings forces reload from env on next getSettings call", () => {
-    // First load
-    const first = getSettings();
-    expect(first).toBeDefined();
-
-    // Override with custom
-    const custom = SettingsSchema.parse({ dataDir: "/tmp/pegasus-test", logLevel: "error" });
+  test("resetSettings clears singleton — next getSettings throws", () => {
+    const custom = SettingsSchema.parse({ dataDir: "/tmp/pegasus-test", authDir: "/tmp/pegasus-test-auth", logLevel: "error" });
     setSettings(custom);
     expect(getSettings().logLevel).toBe("error");
 
-    // Reset — next call should reload from env (defaults)
+    // Reset — next call should throw since singleton is cleared
     resetSettings();
-    const reloaded = getSettings();
-    // Should have reloaded (not the custom override)
-    expect(reloaded).not.toBe(custom);
-    expect(reloaded.llm.roles.default).toBeDefined(); // reloaded from config/defaults
+    expect(() => getSettings()).toThrow("Settings not initialized");
   });
 
-  test("loads default settings from schema defaults", () => {
-    // Reset and let it load from defaults (no config file, Zod defaults apply)
-    resetSettings();
-    const s = getSettings();
-    // Verify the full structure is populated
+  test("SettingsSchema.parse produces valid defaults", () => {
+    const s = SettingsSchema.parse({
+      dataDir: "/tmp/test",
+      authDir: "/tmp/pegasus-test-auth",
+    });
     expect(s.llm.roles.default).toBeDefined();
     expect(s.llm.maxConcurrentCalls).toBeGreaterThan(0);
     expect(s.llm.timeout).toBe(120);
