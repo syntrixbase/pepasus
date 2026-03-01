@@ -60,7 +60,7 @@ Tracked features, improvements, and ideas — what's done and what's next.
 ## Planned
 
 ### System Prompt — Remaining
-- [ ] Runtime metadata: one-line runtime info in system prompt (host, OS, model, timezone, workspace)
+- [x] Runtime metadata: one-line runtime info in system prompt (host, OS, model, timezone, workspace)
 - [ ] SUBAGENT.md verification: confirm explore/plan/general prompts match design constraints
 
 ### Skill System — Remaining

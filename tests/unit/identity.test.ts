@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { loadPersona, PersonaSchema } from "@pegasus/identity/persona.ts";
-import { buildSystemPrompt, formatSize } from "@pegasus/identity/prompt.ts";
+import { buildSystemPrompt, formatSize, buildRuntimeSection } from "@pegasus/identity/prompt.ts";
 import type { Persona } from "@pegasus/identity/persona.ts";
 import { writeFileSync, unlinkSync, mkdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
@@ -153,6 +153,19 @@ describe("buildSystemPrompt", () => {
   test("includes background when present", () => {
     const prompt = buildSystemPrompt({ mode: "main", persona: personaWithBg });
     expect(prompt).toContain("Expert in AI systems");
+  });
+
+  // Runtime metadata (both modes)
+  test("includes runtime metadata in main mode", () => {
+    const prompt = buildSystemPrompt({ mode: "main", persona });
+    expect(prompt).toContain("Runtime:");
+    expect(prompt).toContain(process.platform);
+    expect(prompt).toContain(process.arch);
+  });
+
+  test("includes runtime metadata in task mode", () => {
+    const prompt = buildSystemPrompt({ mode: "task", persona });
+    expect(prompt).toContain("Runtime:");
   });
 
   // Safety section (both modes)
@@ -383,5 +396,28 @@ describe("buildSystemPrompt - prompt structure", () => {
       subagentPrompt: "## Your Role\nYou are a research assistant.",
     });
     expect(prompt).not.toContain("You are a research assistant");
+  });
+});
+
+describe("buildRuntimeSection", () => {
+  test("returns a single line with runtime info", () => {
+    const lines = buildRuntimeSection();
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(/^Runtime:/);
+  });
+
+  test("includes platform, arch, hostname, timezone, date, cwd", () => {
+    const line = buildRuntimeSection()[0]!;
+    expect(line).toContain(process.platform);
+    expect(line).toContain(process.arch);
+    expect(line).toContain("tz:");
+    expect(line).toContain("date:");
+    expect(line).toContain("cwd:");
+  });
+
+  test("date is in YYYY-MM-DD format", () => {
+    const line = buildRuntimeSection()[0]!;
+    const dateMatch = line.match(/date: (\d{4}-\d{2}-\d{2})/);
+    expect(dateMatch).not.toBeNull();
   });
 });

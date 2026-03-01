@@ -8,6 +8,7 @@
  * Default mode is "task" for backward compatibility with Thinker callers.
  */
 import type { Persona } from "./persona.ts";
+import { hostname } from "node:os";
 
 /** Entry in the memory index injected into user messages (not system prompt). */
 export interface MemoryIndexEntry {
@@ -51,6 +52,18 @@ export function buildIdentitySection(persona: Persona): string[] {
     lines.push("", `Background: ${persona.background}`);
   }
   return lines;
+}
+
+export function buildRuntimeSection(): string[] {
+  const os = process.platform;
+  const arch = process.arch;
+  const host = hostname();
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const now = new Date().toISOString().slice(0, 10);
+  const cwd = process.cwd();
+  return [
+    `Runtime: ${os}/${arch} | host: ${host} | tz: ${tz} | date: ${now} | cwd: ${cwd}`,
+  ];
 }
 
 export function buildSafetySection(): string[] {
@@ -193,6 +206,9 @@ export function buildSystemPrompt(options: PromptOptions): string {
 
   // Identity (both modes)
   lines.push(...buildIdentitySection(persona));
+
+  // Runtime environment (both modes — one line)
+  lines.push("", ...buildRuntimeSection());
 
   // Safety (both modes)
   lines.push("", ...buildSafetySection());
