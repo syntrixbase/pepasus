@@ -235,6 +235,7 @@ export class MainAgent {
     // Set up ProjectAdapter
     this.projectAdapter.setModelRegistry(this.models);
     this.registerAdapter(this.projectAdapter);
+    await this.projectAdapter.start({ send: (msg) => this.send(msg) });
 
     // Resume active projects
     for (const project of this.projectManager.list("active")) {
