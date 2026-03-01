@@ -11,7 +11,7 @@ const TEST_DIR = "/tmp/pegasus-test-project-integration";
 
 /**
  * Create a mock ModelRegistry whose subAgent role returns a stub response.
- * The LLM proxy in ProjectAdapter uses `models.get("subAgent")` to serve
+ * The LLM proxy in ProjectAdapter uses `models.getForTier("balanced")` to serve
  * Worker LLM requests, so we pre-populate the cache for that model key.
  */
 function createMockModelRegistry(): ModelRegistry {
@@ -29,7 +29,8 @@ function createMockModelRegistry(): ModelRegistry {
 
   const llmConfig: LLMConfig = {
     providers: { test: { type: "openai", apiKey: "dummy", baseURL: undefined } },
-    roles: { default: "test/test-model", subAgent: "test/test-model", compact: undefined, reflection: undefined },
+    default: "test/test-model",
+    tiers: { balanced: "test/test-model" },
     codex: { enabled: false, baseURL: "https://example.com", model: "test" },
     copilot: { enabled: false },
     maxConcurrentCalls: 3,

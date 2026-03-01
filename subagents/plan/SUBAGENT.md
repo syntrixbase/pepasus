@@ -2,6 +2,7 @@
 name: plan
 description: "Planning and analysis agent. Use when you need to analyze a problem, read code, and produce a structured plan. Can read files and write to memory, but cannot modify code."
 tools: "current_time, get_env, read_file, list_files, get_file_info, grep_files, web_fetch, web_search, json_parse, base64_decode, memory_list, memory_read, memory_write, memory_append, task_list, task_replay, notify"
+model: balanced
 ---
 
 ## Your Role

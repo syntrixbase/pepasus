@@ -30,12 +30,14 @@ export class Thinker {
    * @param memoryIndex - Optional memory index (injected on first iteration)
    * @param overrideToolRegistry - Optional per-task-type tool registry (overrides instance default)
    * @param subagentPrompt - Optional subagent-specific prompt to append to system prompt
+   * @param overrideModel - Optional per-task-type model (overrides instance default)
    */
   async run(
     context: TaskContext,
     memoryIndex?: MemoryIndexEntry[],
     overrideToolRegistry?: ToolRegistry,
     subagentPrompt?: string,
+    overrideModel?: LanguageModel,
   ): Promise<Record<string, unknown>> {
     logger.info({ iteration: context.iteration, taskType: context.taskType }, "think_start");
 
@@ -72,7 +74,7 @@ export class Thinker {
     const tools = activeRegistry?.toLLMTools();
 
     const { text, toolCalls } = await generateText({
-      model: this.model,
+      model: overrideModel ?? this.model,
       system,
       messages,
       tools: tools?.length ? tools : undefined,

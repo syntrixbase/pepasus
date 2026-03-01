@@ -28,7 +28,7 @@ const logger = getLogger("config_loader");
 const DEFAULT_CONFIG = {
   llm: {
     providers: {},
-    roles: { default: "openai/gpt-4o-mini" },
+    default: "openai/gpt-4o-mini",
     maxConcurrentCalls: 3,
     timeout: 120,
   },

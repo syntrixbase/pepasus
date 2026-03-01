@@ -26,18 +26,18 @@
 llm:
   # OpenAI Codex integration (Responses API + OAuth)
   # When enabled, Pegasus runs OAuth login at startup to obtain Codex credentials.
-  # Use "codex/<model>" in role mapping, e.g. roles.subAgent: codex/gpt-5.3-codex
+  # Use "codex/<model>" in tier mapping, e.g. tiers.fast: codex/gpt-5.3-codex
   codex:
     enabled: ${CODEX_ENABLED:-false}
 
   # GitHub Copilot integration (OpenAI-compatible API + GitHub OAuth)
   # When enabled, Pegasus runs GitHub device code login at startup to obtain Copilot credentials.
-  # Use "copilot/<model>" in role mapping, e.g. roles.default: copilot/gpt-4o
+  # Use "copilot/<model>" in tier mapping, e.g. default: copilot/gpt-4o
   copilot:
     enabled: ${COPILOT_ENABLED:-false}
 
   # Provider configurations — each key becomes a provider name
-  # Used in roles as "providerName/modelName"
+  # Used in tiers/default as "providerName/modelName"
   providers:
     openai:
       apiKey: ${OPENAI_API_KEY}
@@ -64,41 +64,26 @@ llm:
       apiKey: dummy
       baseURL: ${OLLAMA_BASE_URL:-http://localhost:11434/v1}
 
-  # Role → model mapping
-  # Each role can be either a shorthand string or an object with extra options.
+  # Default model — used for MainAgent and as fallback for all tiers.
+  # Format: "provider/model" string or object { model, contextWindow?, apiType? }
+  default: ${LLM_DEFAULT_MODEL:-openai/gpt-4o}
+
+  # Tier → model mapping (all optional, fall back to default)
   #
-  # Shorthand (string):
-  #   roleName: provider/model
+  # Tiers define capability levels, not specific use cases.
+  # Subagents and skills declare which tier they need (fast/balanced/powerful).
+  # Internal tasks (compact, reflection, extract) use the "fast" tier.
   #
-  # Extended (object):
-  #   roleName:
-  #     model: provider/model            # required
-  #     contextWindow: 128000            # optional — override auto-detected context window size
-  #     apiType: openai                  # optional — override provider's SDK type (openai | anthropic)
-  #
-  # Roles without a value fall back to "default".
-  #
-  # Context window resolution priority:
-  #   Per-role contextWindow > Global llm.contextWindow > Auto-detect from model > 128k default
-  #
-  # Examples:
-  #   roles:
-  #     default: openai/gpt-4o                              # shorthand
-  #     subAgent:
-  #       model: myhost/claude-sonnet-4                     # custom provider
-  #       contextWindow: 200000                             # explicit context window
-  #       apiType: anthropic                                # override SDK type
-  #     compact: openai/gpt-4o-mini                         # shorthand
-  #     reflection:
-  #       model: openai/gpt-4o-mini
-  #       contextWindow: 16000                              # smaller window for cost savings
-  #     extract: openai/gpt-4o-mini                          # web_fetch AI extraction
-  roles:
-    default: ${LLM_DEFAULT_MODEL:-openai/gpt-4o}
-    subAgent: ${LLM_SUB_AGENT_MODEL:-}
-    compact: ${LLM_COMPACT_MODEL:-}
-    reflection: ${LLM_REFLECTION_MODEL:-}
-    extract: ${LLM_EXTRACT_MODEL:-}                          # small model for web_fetch content extraction
+  # Each tier can be a shorthand string or an object:
+  #   tierName: provider/model
+  #   tierName:
+  #     model: provider/model
+  #     contextWindow: 128000
+  #     apiType: openai
+  tiers:
+    fast: ${LLM_FAST_MODEL:-}                # explore subagent, compact, reflection, extract
+    balanced: ${LLM_BALANCED_MODEL:-}        # general subagent
+    powerful: ${LLM_POWERFUL_MODEL:-}        # plan subagent, complex reasoning
 
   # Concurrent request settings
   maxConcurrentCalls: ${LLM_MAX_CONCURRENT_CALLS:-3}

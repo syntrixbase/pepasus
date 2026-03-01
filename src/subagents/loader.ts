@@ -58,12 +58,16 @@ export function parseSubagentFile(
       logger.warn({ name, filePath }, "subagent_missing_description");
     }
 
+    // optional: can be tier name ("fast") or model spec ("openai/gpt-4o")
+    const model = fm.model;
+
     return {
       name,
       description: fm.description ?? "",
       tools,
       prompt: body,
       source,
+      model,
     };
   } catch (err) {
     logger.warn({ filePath, error: err }, "subagent_parse_error");

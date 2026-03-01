@@ -74,7 +74,7 @@ async function handleInit(projectPath: string, contextWindow?: number): Promise<
     }
 
     // 3. Create ProxyLanguageModel — LLM calls go to main thread
-    const defaultRole = settings.llm.roles.default;
+    const defaultRole = settings.llm.default;
     const defaultModelSpec = typeof defaultRole === "string" ? defaultRole : defaultRole.model;
     const modelId = projectDef.model ?? defaultModelSpec;
     proxyModel = new ProxyLanguageModel(

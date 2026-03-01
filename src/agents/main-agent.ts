@@ -140,12 +140,11 @@ export class MainAgent {
     // Authenticate Copilot provider if configured
     await this._initCopilotAuth();
 
-    // Task execution engine — created AFTER codex auth so models.get() can resolve codex models
+    // Task execution engine — created AFTER codex auth so models can resolve codex models
     try {
       this.agent = new Agent({
-        model: this.models.get("subAgent"),
-        reflectionModel: this.models.get("reflection"),
-        extractModel: this.models.get("extract"),
+        model: this.models.getForTier("balanced"),
+        modelRegistry: this.models,
         persona: this.persona,
         settings: this.settings,
       });
@@ -422,7 +421,7 @@ export class MainAgent {
     const tools = this.toolRegistry.toLLMTools();
 
     const result = await generateText({
-      model: this.models.get("default"),
+      model: this.models.getDefault(),
       system: this.systemPrompt,
       messages: this.sessionMessages,
       tools: tools.length ? tools : undefined,
@@ -667,8 +666,8 @@ export class MainAgent {
    */
   private async _checkAndCompact(): Promise<boolean> {
     const contextWindow = getContextWindowSize(
-      this.models.getModelId("default"),
-      this.models.getContextWindow("default") ?? this.settings.llm.contextWindow,
+      this.models.getDefaultModelId(),
+      this.models.getDefaultContextWindow() ?? this.settings.llm.contextWindow,
     );
     const threshold = this.settings.session?.compactThreshold ?? 0.8;
     const maxTokens = contextWindow * threshold;
@@ -740,7 +739,7 @@ export class MainAgent {
     ].join("\n");
 
     const result = await generateText({
-      model: this.models.get("compact"),
+      model: this.models.getForTier("fast"),
       system: systemPrompt,
       messages: this.sessionMessages,
     });
@@ -1011,8 +1010,8 @@ export class MainAgent {
 
     // Get skill metadata with budget
     const contextWindow = getContextWindowSize(
-      this.models.getModelId("default"),
-      this.models.getContextWindow("default") ?? this.settings.llm.contextWindow,
+      this.models.getDefaultModelId(),
+      this.models.getDefaultContextWindow() ?? this.settings.llm.contextWindow,
     );
     const skillBudget = Math.max(Math.floor(contextWindow * 0.02 * 4), 16_000);
     const skillMetadata = this.skillRegistry.getMetadataForPrompt(skillBudget);

@@ -60,6 +60,15 @@ export class SubagentRegistry {
   }
 
   /**
+   * Get the model field for a subagent type.
+   * Returns undefined if the subagent has no model declared or is unknown.
+   * Value can be a tier name ("fast") or a model spec ("openai/gpt-4o").
+   */
+  getModel(name: string): string | undefined {
+    return this.defs.get(name)?.model;
+  }
+
+  /**
    * Generate subagent metadata for MainAgent system prompt.
    * Lists available subagent types with their descriptions.
    */
