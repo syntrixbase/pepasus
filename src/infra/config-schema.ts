@@ -109,7 +109,8 @@ export const ToolsConfigSchema = z.object({
         .enum(["tavily", "google", "bing", "duckduckgo"])
         .optional(),
       apiKey: z.string().optional(),
-      maxResults: z.coerce.number().int().positive().default(10),
+      baseURL: z.string().optional(), // override API endpoint (for testing)
+      maxResults: z.coerce.number().int().positive().default(5),
     })
     .optional(),
   mcpServers: z.preprocess(
