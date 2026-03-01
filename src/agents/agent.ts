@@ -32,19 +32,13 @@ import type { SubagentRegistry } from "../subagents/index.ts";
 import type { MemoryIndexEntry } from "../identity/prompt.ts";
 import { TaskPersister } from "../task/persister.ts";
 import { getContextWindowSize } from "../session/context-windows.ts";
-import type { RoleValue } from "../infra/config-schema.ts";
+import type { ModelRegistry } from "../infra/model-registry.ts";
 import type { MCPManager, MCPServerConfig } from "../mcp/index.ts";
 import { wrapMCPTools } from "../mcp/index.ts";
 import path from "node:path";
 import { formatToolTimestamp } from "../infra/time.ts";
 
 const logger = getLogger("agent");
-
-/** Extract contextWindow from a RoleValue (string | object), returns undefined for strings. */
-function _getRoleContextWindow(role: RoleValue | undefined): number | undefined {
-  if (role == null || typeof role === "string") return undefined;
-  return role.contextWindow;
-}
 
 export type TaskNotification =
   | { type: "completed"; taskId: string; result: unknown }
@@ -125,9 +119,8 @@ class Semaphore {
 // ── Agent ────────────────────────────────────────────
 
 export interface AgentDeps {
-  model: LanguageModel;
-  reflectionModel?: LanguageModel;
-  extractModel?: LanguageModel;
+  model: LanguageModel;           // the default subagent model
+  modelRegistry?: ModelRegistry;  // for tier/model resolution (optional for backward compat)
   persona: Persona;
   settings?: Settings;
   subagentRegistry?: SubagentRegistry;
@@ -159,6 +152,7 @@ export class Agent {
   private notifyCallback: ((notification: TaskNotification) => void) | null = null;
   private subagentRegistry: SubagentRegistry | null = null;
   private extractModel: LanguageModel | null = null;
+  private modelRegistry: ModelRegistry | null = null;
 
   constructor(deps: AgentDeps) {
     this.settings = deps.settings ?? getSettings();
@@ -174,7 +168,10 @@ export class Agent {
     // Per-type registries for LLM tool visibility + execution validation
     this.typeToolRegistries = new Map();
     this.subagentRegistry = deps.subagentRegistry ?? null;
-    this.extractModel = deps.extractModel ?? null;
+    this.modelRegistry = deps.modelRegistry ?? null;
+
+    // Resolve extract model: prefer "fast" tier from registry, fallback to default model
+    this.extractModel = deps.modelRegistry?.getForTier("fast") ?? null;
     if (this.subagentRegistry) {
       // Build from SubagentRegistry definitions
       const allToolMap = new Map(allTaskTools.map((t) => [t.name, t]));
@@ -212,15 +209,17 @@ export class Agent {
     const reflectionToolRegistry = new ToolRegistry();
     reflectionToolRegistry.registerMany(reflectionTools);
 
+    // Resolve reflection model: prefer "fast" tier from registry, fallback to default model
+    const reflectionModel = deps.modelRegistry?.getForTier("fast") ?? deps.model;
     this.postReflector = new PostTaskReflector({
-      model: deps.reflectionModel ?? deps.model,
+      model: reflectionModel,
       persona: deps.persona,
       toolRegistry: reflectionToolRegistry,
       toolExecutor,
       memoryDir: path.join(this.settings.dataDir, "memory"),
       contextWindowSize: getContextWindowSize(
-        (deps.reflectionModel ?? deps.model).modelId,
-        _getRoleContextWindow(this.settings.llm.tiers.fast) ?? this.settings.llm.contextWindow,
+        reflectionModel.modelId,
+        deps.modelRegistry?.getContextWindowForTier("fast") ?? this.settings.llm.contextWindow,
       ),
     });
   }
@@ -466,8 +465,11 @@ export class Agent {
     // Get subagent-specific system prompt from registry
     const subagentPrompt = this.subagentRegistry?.getPrompt(task.context.taskType) ?? undefined;
 
+    // Resolve per-type model (from SUBAGENT.md model field or fallback to default)
+    const typeModel = this._resolveTypeModel(task.context.taskType);
+
     const reasoning = await this.llmSemaphore.use(() =>
-      this.thinker.run(task.context, memoryIndex, typeRegistry, subagentPrompt),
+      this.thinker.run(task.context, memoryIndex, typeRegistry, subagentPrompt, typeModel),
     );
     task.context.reasoning = reasoning;
 
@@ -700,6 +702,20 @@ export class Agent {
   // ═══════════════════════════════════════════════════
   // Helpers
   // ═══════════════════════════════════════════════════
+
+  /**
+   * Resolve the LLM model for a specific task type.
+   * Checks the subagent registry for a model declaration (tier name or model spec),
+   * then resolves via ModelRegistry. Falls back to the default subagent model.
+   */
+  private _resolveTypeModel(taskType: string): LanguageModel | undefined {
+    const modelSpec = this.subagentRegistry?.getModel(taskType);
+    if (modelSpec && this.modelRegistry) {
+      return this.modelRegistry.resolve(modelSpec);
+    }
+    // No per-type model → return undefined (Thinker uses its default)
+    return undefined;
+  }
 
   private _spawn(promise: Promise<void>, taskId?: string): void {
     const tracked = promise.catch(async (err) => {

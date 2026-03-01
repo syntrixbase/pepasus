@@ -169,37 +169,6 @@ export class ModelRegistry {
     return this._resolveTier(tier).contextWindow;
   }
 
-  // ── Legacy API (backward compat, will be removed in Task 4) ────
-
-  /** @deprecated Use getDefault() or getForTier() instead. */
-  get(role: string): LanguageModel {
-    if (role === "default") return this.getDefault();
-    // Map legacy role names to tiers or fall back to default
-    if (role === "fast" || role === "balanced" || role === "powerful") {
-      return this.getForTier(role as ModelTier);
-    }
-    // Legacy roles (subAgent, compact, reflection, extract) → default
-    return this.getDefault();
-  }
-
-  /** @deprecated Use getDefaultModelId() or getModelIdForTier() instead. */
-  getModelId(role?: string): string {
-    if (!role || role === "default") return this.getDefaultModelId();
-    if (role === "fast" || role === "balanced" || role === "powerful") {
-      return this.getModelIdForTier(role as ModelTier);
-    }
-    return this.getDefaultModelId();
-  }
-
-  /** @deprecated Use getDefaultContextWindow() or getContextWindowForTier() instead. */
-  getContextWindow(role?: string): number | undefined {
-    if (!role || role === "default") return this.getDefaultContextWindow();
-    if (role === "fast" || role === "balanced" || role === "powerful") {
-      return this.getContextWindowForTier(role as ModelTier);
-    }
-    return this.getDefaultContextWindow();
-  }
-
   // ── Internal resolution ────────────────────────────────────────
 
   /** Resolve the default spec. */

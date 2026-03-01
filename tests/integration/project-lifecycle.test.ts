@@ -11,7 +11,7 @@ const TEST_DIR = "/tmp/pegasus-test-project-integration";
 
 /**
  * Create a mock ModelRegistry whose subAgent role returns a stub response.
- * The LLM proxy in ProjectAdapter uses `models.get("subAgent")` to serve
+ * The LLM proxy in ProjectAdapter uses `models.getForTier("balanced")` to serve
  * Worker LLM requests, so we pre-populate the cache for that model key.
  */
 function createMockModelRegistry(): ModelRegistry {

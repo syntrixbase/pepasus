@@ -134,7 +134,7 @@ export class ProjectAdapter implements ChannelAdapter {
     this.workers.set(projectId, worker);
 
     // Initialize the Worker with the project path and resolved contextWindow
-    const contextWindow = this.models?.getContextWindow("subAgent");
+    const contextWindow = this.models?.getContextWindowForTier("balanced");
     const initMsg: WorkerInbound = {
       type: "init",
       projectPath,
@@ -213,7 +213,7 @@ export class ProjectAdapter implements ChannelAdapter {
     }
 
     try {
-      const model = this.models.get("subAgent");
+      const model = this.models.getForTier("balanced");
       const result = await model.generate(request.options);
 
       const responseMsg: WorkerInbound = {
