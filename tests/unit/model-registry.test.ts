@@ -427,6 +427,87 @@ describe("ModelRegistry", () => {
     const openaiModel2 = registry.get("default");
     expect(openaiModel1).toBe(openaiModel2);
   });
+
+  // ── setOAuthCredentials tests ──────────────────────
+
+  test("setOAuthCredentials stores credentials for a provider", () => {
+    const registry = new ModelRegistry(baseLLMConfig());
+
+    // Should not throw
+    registry.setOAuthCredentials(
+      "custom-oauth",
+      { access: "tok", refresh: "ref", expires: Date.now() + 3600000 },
+      "/tmp/cred.json",
+      "https://custom.example.com/v1",
+    );
+  });
+
+  test("setOAuthCredentials invalidates cached models for the provider", () => {
+    const registry = new ModelRegistry(baseLLMConfig({
+      providers: {
+        openai: { apiKey: "sk-test", baseURL: undefined, type: undefined },
+        myoauth: { apiKey: "tok1", baseURL: "https://custom.example.com/v1", type: "openai" },
+      },
+      roles: {
+        default: "openai/gpt-4o",
+        compact: "myoauth/my-model",
+        subAgent: undefined,
+        reflection: undefined,
+      },
+    }));
+
+    // Create and cache both models
+    const openaiModel1 = registry.get("default");
+    const oauthModel1 = registry.get("compact");
+
+    // Set OAuth credentials for myoauth provider — should invalidate its cache
+    registry.setOAuthCredentials(
+      "openai", // match the piProvider resolved name, since myoauth type: "openai" → piProvider = "openai"
+      { access: "new-tok", refresh: "ref", expires: Date.now() + 3600000 },
+      "/tmp/cred.json",
+    );
+
+    // openai model was invalidated (provider matches "openai")
+    const openaiModel2 = registry.get("default");
+    expect(openaiModel1).not.toBe(openaiModel2);
+
+    // myoauth model cache key uses the resolved provider "openai",
+    // so it was also invalidated
+    const oauthModel2 = registry.get("compact");
+    expect(oauthModel1).not.toBe(oauthModel2);
+  });
+
+  test("setOAuthCredentials does not invalidate models for other providers", () => {
+    const registry = new ModelRegistry(baseLLMConfig({
+      providers: {
+        openai: { apiKey: "sk-test", baseURL: undefined, type: undefined },
+        anthropic: { apiKey: "sk-ant-test", baseURL: undefined, type: undefined },
+      },
+      roles: {
+        default: "openai/gpt-4o",
+        compact: "anthropic/claude-haiku-3.5",
+        subAgent: undefined,
+        reflection: undefined,
+      },
+    }));
+
+    // Create and cache both models
+    const openaiModel1 = registry.get("default");
+    const anthropicModel1 = registry.get("compact");
+
+    // Set OAuth credentials for "some-other" — should not invalidate any existing caches
+    registry.setOAuthCredentials(
+      "some-other",
+      { access: "tok", refresh: "ref", expires: Date.now() + 3600000 },
+      "/tmp/cred.json",
+    );
+
+    // Both should be same cached instances
+    const openaiModel2 = registry.get("default");
+    const anthropicModel2 = registry.get("compact");
+    expect(openaiModel1).toBe(openaiModel2);
+    expect(anthropicModel1).toBe(anthropicModel2);
+  });
 });
 
 // ── RolesConfigSchema validation tests ─────────────

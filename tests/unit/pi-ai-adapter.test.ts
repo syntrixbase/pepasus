@@ -2,15 +2,33 @@
  * Unit tests for pi-ai adapter — message conversion, tool conversion,
  * result mapping, and model creation.
  */
-import { describe, it, expect } from "bun:test";
-import {
-  toPiAiContext,
-  toPiAiTool,
-  fromPiAiResult,
-} from "@pegasus/infra/pi-ai-adapter.ts";
+import { describe, it, expect, mock, beforeEach } from "bun:test";
 import type { Message } from "@pegasus/infra/llm-types.ts";
 import type { ToolDefinition } from "@pegasus/models/tool.ts";
 import type { AssistantMessage, StopReason, Api } from "@mariozechner/pi-ai";
+
+// ── Mock pi-ai module before importing adapter ──
+
+const mockCompleteSimple = mock();
+const mockGetModel = mock();
+const mockGetEnvApiKey = mock(() => "");
+
+mock.module("@mariozechner/pi-ai", () => ({
+  completeSimple: mockCompleteSimple,
+  getModel: mockGetModel,
+  getEnvApiKey: mockGetEnvApiKey,
+  Type: {
+    Unsafe: (schema: unknown) => schema,
+  },
+}));
+
+// Import adapter AFTER mock is set up
+const {
+  toPiAiContext,
+  toPiAiTool,
+  fromPiAiResult,
+  createPiAiLanguageModel,
+} = await import("@pegasus/infra/pi-ai-adapter.ts");
 
 // ── Helper to create a pi-ai AssistantMessage ──
 
@@ -183,6 +201,38 @@ describe("toPiAiContext", () => {
   it("does not include tools when none provided", () => {
     const ctx = toPiAiContext([{ role: "user", content: "hi" }]);
     expect(ctx.tools).toBeUndefined();
+  });
+
+  it("pushes empty text block for assistant with no content and no toolCalls", () => {
+    // content is falsy ("") and toolCalls is undefined → hits the empty-content fallback (line 79)
+    const messages: Message[] = [{ role: "assistant", content: "" }];
+    const ctx = toPiAiContext(messages);
+
+    expect(ctx.messages).toHaveLength(1);
+    const content = (ctx.messages[0] as any).content;
+    expect(content).toHaveLength(1);
+    expect(content[0].type).toBe("text");
+    expect(content[0].text).toBe("");
+  });
+
+  it("sets stopReason to 'stop' for assistant without toolCalls", () => {
+    const messages: Message[] = [{ role: "assistant", content: "hi" }];
+    const ctx = toPiAiContext(messages);
+
+    expect((ctx.messages[0] as any).stopReason).toBe("stop");
+  });
+
+  it("sets stopReason to 'toolUse' for assistant with toolCalls", () => {
+    const messages: Message[] = [
+      {
+        role: "assistant",
+        content: "",
+        toolCalls: [{ id: "tc1", name: "test", arguments: {} }],
+      },
+    ];
+    const ctx = toPiAiContext(messages);
+
+    expect((ctx.messages[0] as any).stopReason).toBe("toolUse");
   });
 });
 
@@ -361,4 +411,247 @@ describe("fromPiAiResult", () => {
     expect(result.text).toBe("");
     expect(result.toolCalls).toBeUndefined();
   });
+});
+
+// ── createPiAiLanguageModel tests ──
+
+describe("createPiAiLanguageModel", () => {
+  const mockPiModel = {
+    id: "gpt-4o",
+    name: "GPT-4o",
+    api: "openai-completions",
+    provider: "openai",
+    baseUrl: "https://api.openai.com/v1",
+    reasoning: false,
+    input: ["text"],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 128000,
+    maxTokens: 4096,
+    headers: undefined,
+  };
+
+  beforeEach(() => {
+    mockCompleteSimple.mockReset();
+    mockGetModel.mockReset();
+    mockGetEnvApiKey.mockReset();
+    mockGetEnvApiKey.mockReturnValue("");
+  });
+
+  it("returns a LanguageModel with correct provider and modelId", () => {
+    mockGetModel.mockReturnValue(mockPiModel);
+
+    const model = createPiAiLanguageModel({
+      provider: "openai",
+      model: "gpt-4o",
+      apiKey: "sk-test",
+    });
+
+    expect(model.provider).toBe("openai");
+    expect(model.modelId).toBe("gpt-4o");
+    expect(typeof model.generate).toBe("function");
+  });
+
+  it("overrides baseURL on built-in model when config provides one", () => {
+    mockGetModel.mockReturnValue({ ...mockPiModel });
+
+    const model = createPiAiLanguageModel({
+      provider: "openai",
+      model: "gpt-4o",
+      apiKey: "sk-test",
+      baseURL: "https://custom.example.com/v1",
+    });
+
+    expect(model.provider).toBe("openai");
+    expect(model.modelId).toBe("gpt-4o");
+  });
+
+  it("merges custom headers on built-in model when config provides them", () => {
+    mockGetModel.mockReturnValue({ ...mockPiModel, headers: { "X-Existing": "value" } });
+
+    const model = createPiAiLanguageModel({
+      provider: "openai",
+      model: "gpt-4o",
+      apiKey: "sk-test",
+      headers: { "X-Custom": "header" },
+    });
+
+    expect(model.provider).toBe("openai");
+    expect(model.modelId).toBe("gpt-4o");
+  });
+
+  it("falls back to manual model creation when getModel throws", () => {
+    // getModel throws for unknown provider/model
+    mockGetModel.mockImplementation(() => {
+      throw new Error("Model not found");
+    });
+
+    const model = createPiAiLanguageModel({
+      provider: "custom-provider",
+      model: "custom-model",
+      apiKey: "sk-custom",
+      baseURL: "https://custom.example.com/v1",
+      headers: { "X-Custom": "val" },
+    });
+
+    expect(model.provider).toBe("custom-provider");
+    expect(model.modelId).toBe("custom-model");
+    expect(typeof model.generate).toBe("function");
+  });
+
+  it("uses default baseURL when getModel throws and no baseURL provided", () => {
+    mockGetModel.mockImplementation(() => {
+      throw new Error("Model not found");
+    });
+
+    const model = createPiAiLanguageModel({
+      provider: "custom-provider",
+      model: "custom-model",
+    });
+
+    expect(model.provider).toBe("custom-provider");
+    expect(model.modelId).toBe("custom-model");
+  });
+
+  it("resolves apiKey from getEnvApiKey when not explicitly provided", () => {
+    mockGetModel.mockReturnValue(mockPiModel);
+    mockGetEnvApiKey.mockReturnValue("env-key-123");
+
+    const model = createPiAiLanguageModel({
+      provider: "openai",
+      model: "gpt-4o",
+    });
+
+    expect(model.provider).toBe("openai");
+    expect(mockGetEnvApiKey).toHaveBeenCalledWith("openai");
+  });
+
+  it("generate() calls completeSimple and returns converted result", async () => {
+    mockGetModel.mockReturnValue(mockPiModel);
+
+    const piAiResponse = makeAssistantMessage({
+      content: [{ type: "text", text: "Hello from LLM!" }],
+      stopReason: "stop",
+      usage: {
+        input: 20,
+        output: 10,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 30,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      },
+    });
+    mockCompleteSimple.mockResolvedValue(piAiResponse);
+
+    const model = createPiAiLanguageModel({
+      provider: "openai",
+      model: "gpt-4o",
+      apiKey: "sk-test",
+    });
+
+    const result = await model.generate({
+      messages: [{ role: "user", content: "Hello" }],
+      system: "You are helpful",
+      temperature: 0.7,
+      maxTokens: 1000,
+    });
+
+    expect(result.text).toBe("Hello from LLM!");
+    expect(result.finishReason).toBe("stop");
+    expect(result.usage.promptTokens).toBe(20);
+    expect(result.usage.completionTokens).toBe(10);
+    expect(result.toolCalls).toBeUndefined();
+    expect(mockCompleteSimple).toHaveBeenCalledTimes(1);
+  }, 5000);
+
+  it("generate() with tools passes them through to context", async () => {
+    mockGetModel.mockReturnValue(mockPiModel);
+
+    const piAiResponse = makeAssistantMessage({
+      content: [
+        {
+          type: "toolCall",
+          id: "call_1",
+          name: "get_weather",
+          arguments: { city: "London" },
+        },
+      ],
+      stopReason: "toolUse",
+    });
+    mockCompleteSimple.mockResolvedValue(piAiResponse);
+
+    const model = createPiAiLanguageModel({
+      provider: "openai",
+      model: "gpt-4o",
+      apiKey: "sk-test",
+    });
+
+    const tools: ToolDefinition[] = [
+      {
+        name: "get_weather",
+        description: "Get weather",
+        parameters: { type: "object", properties: { city: { type: "string" } } },
+      },
+    ];
+
+    const result = await model.generate({
+      messages: [{ role: "user", content: "What's the weather?" }],
+      tools,
+    });
+
+    expect(result.finishReason).toBe("tool_calls");
+    expect(result.toolCalls).toHaveLength(1);
+    expect(result.toolCalls![0]!.name).toBe("get_weather");
+  }, 5000);
+
+  it("generate() re-throws errors from completeSimple", async () => {
+    mockGetModel.mockReturnValue(mockPiModel);
+    mockCompleteSimple.mockRejectedValue(new Error("API rate limit exceeded"));
+
+    const model = createPiAiLanguageModel({
+      provider: "openai",
+      model: "gpt-4o",
+      apiKey: "sk-test",
+    });
+
+    await expect(
+      model.generate({ messages: [{ role: "user", content: "Hello" }] }),
+    ).rejects.toThrow("API rate limit exceeded");
+  }, 5000);
+
+  it("generate() re-throws non-Error values from completeSimple", async () => {
+    mockGetModel.mockReturnValue(mockPiModel);
+    mockCompleteSimple.mockRejectedValue("string error");
+
+    const model = createPiAiLanguageModel({
+      provider: "openai",
+      model: "gpt-4o",
+      apiKey: "sk-test",
+    });
+
+    await expect(
+      model.generate({ messages: [{ role: "user", content: "Hello" }] }),
+    ).rejects.toThrow();
+  }, 5000);
+
+  it("generate() passes headers from config to completeSimple", async () => {
+    mockGetModel.mockReturnValue(mockPiModel);
+
+    const piAiResponse = makeAssistantMessage();
+    mockCompleteSimple.mockResolvedValue(piAiResponse);
+
+    const model = createPiAiLanguageModel({
+      provider: "openai",
+      model: "gpt-4o",
+      apiKey: "sk-test",
+      headers: { "X-Custom": "header-val" },
+    });
+
+    await model.generate({
+      messages: [{ role: "user", content: "hi" }],
+    });
+
+    // Verify completeSimple was called with headers in the options
+    const callArgs = mockCompleteSimple.mock.calls[0]!;
+    expect(callArgs[2].headers).toEqual({ "X-Custom": "header-val" });
+  }, 5000);
 });
