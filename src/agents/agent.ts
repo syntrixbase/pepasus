@@ -32,12 +32,19 @@ import type { SubagentRegistry } from "../subagents/index.ts";
 import type { MemoryIndexEntry } from "../identity/prompt.ts";
 import { TaskPersister } from "../task/persister.ts";
 import { getContextWindowSize } from "../session/context-windows.ts";
+import type { RoleValue } from "../infra/config-schema.ts";
 import type { MCPManager, MCPServerConfig } from "../mcp/index.ts";
 import { wrapMCPTools } from "../mcp/index.ts";
 import path from "node:path";
 import { formatToolTimestamp } from "../infra/time.ts";
 
 const logger = getLogger("agent");
+
+/** Extract contextWindow from a RoleValue (string | object), returns undefined for strings. */
+function _getRoleContextWindow(role: RoleValue | undefined): number | undefined {
+  if (role == null || typeof role === "string") return undefined;
+  return role.contextWindow;
+}
 
 export type TaskNotification =
   | { type: "completed"; taskId: string; result: unknown }
@@ -198,7 +205,7 @@ export class Agent {
       memoryDir: path.join(this.settings.dataDir, "memory"),
       contextWindowSize: getContextWindowSize(
         (deps.reflectionModel ?? deps.model).modelId,
-        this.settings.llm.contextWindow,
+        _getRoleContextWindow(this.settings.llm.roles.reflection) ?? this.settings.llm.contextWindow,
       ),
     });
   }

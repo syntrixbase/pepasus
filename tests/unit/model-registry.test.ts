@@ -1,9 +1,11 @@
 /**
  * Tests for ModelRegistry — per-role model resolution with caching.
+ * Tests for RolesConfigSchema — role value union type validation.
  */
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { ModelRegistry } from "@pegasus/infra/model-registry.ts";
 import type { LLMConfig } from "@pegasus/infra/config-schema.ts";
+import { RolesConfigSchema } from "@pegasus/infra/config-schema.ts";
 import { writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
@@ -291,6 +293,138 @@ describe("ModelRegistry", () => {
     expect(registry.get("subAgent")).toBe(registry.get("compact"));
   });
 
+  // ── Per-role context window tests ────────────────
+
+  test("getContextWindow returns undefined for string role values", () => {
+    const registry = new ModelRegistry(baseLLMConfig());
+    expect(registry.getContextWindow("default")).toBeUndefined();
+    expect(registry.getContextWindow("subAgent")).toBeUndefined();
+    expect(registry.getContextWindow("compact")).toBeUndefined();
+    expect(registry.getContextWindow("reflection")).toBeUndefined();
+  });
+
+  test("getContextWindow returns configured value for object role values", () => {
+    const registry = new ModelRegistry(baseLLMConfig({
+      roles: {
+        default: "openai/gpt-4o",
+        subAgent: { model: "openai/gpt-4o-mini", contextWindow: 32_000 },
+        compact: "openai/gpt-4o-mini",
+        reflection: { model: "anthropic/claude-haiku-3.5", contextWindow: 16_000 },
+      },
+    }));
+    expect(registry.getContextWindow("default")).toBeUndefined();
+    expect(registry.getContextWindow("subAgent")).toBe(32_000);
+    expect(registry.getContextWindow("compact")).toBeUndefined();
+    expect(registry.getContextWindow("reflection")).toBe(16_000);
+  });
+
+  test("object role values work correctly with get() and getModelId()", () => {
+    const registry = new ModelRegistry(baseLLMConfig({
+      roles: {
+        default: { model: "openai/gpt-4o", contextWindow: 128_000 },
+        subAgent: { model: "openai/gpt-4o-mini", contextWindow: 32_000 },
+        compact: "openai/gpt-4o-mini",
+        reflection: undefined,
+      },
+    }));
+
+    // get() should resolve models correctly
+    expect(registry.get("default").modelId).toBe("gpt-4o");
+    expect(registry.get("subAgent").modelId).toBe("gpt-4o-mini");
+    expect(registry.get("compact").modelId).toBe("gpt-4o-mini");
+
+    // getModelId() should extract model name
+    expect(registry.getModelId("default")).toBe("gpt-4o");
+    expect(registry.getModelId("subAgent")).toBe("gpt-4o-mini");
+
+    // subAgent (object) and compact (string) with same model spec → same cached instance
+    expect(registry.get("subAgent")).toBe(registry.get("compact"));
+
+    // getContextWindow should return per-role values
+    expect(registry.getContextWindow("default")).toBe(128_000);
+    expect(registry.getContextWindow("subAgent")).toBe(32_000);
+    expect(registry.getContextWindow("compact")).toBeUndefined();
+    // reflection falls back to default
+    expect(registry.getContextWindow("reflection")).toBe(128_000);
+  });
+
+  test("object role without contextWindow returns undefined for getContextWindow", () => {
+    const registry = new ModelRegistry(baseLLMConfig({
+      roles: {
+        default: { model: "openai/gpt-4o" },
+        subAgent: undefined,
+        compact: undefined,
+        reflection: undefined,
+      },
+    }));
+    expect(registry.getContextWindow("default")).toBeUndefined();
+    expect(registry.get("default").modelId).toBe("gpt-4o");
+  });
+
+  // ── Per-role apiType tests ────────────────────────
+
+  test("apiType override creates model with correct provider type", () => {
+    const registry = new ModelRegistry(baseLLMConfig({
+      providers: {
+        openai: { apiKey: "sk-test", baseURL: undefined, type: undefined },
+        myhost: { apiKey: "key", baseURL: "http://localhost:8080/v1", type: "openai" },
+      },
+      roles: {
+        default: "openai/gpt-4o",
+        // myhost provider is type=openai, but this role overrides to anthropic
+        subAgent: { model: "myhost/claude-sonnet-4", apiType: "anthropic" },
+        compact: undefined,
+        reflection: undefined,
+      },
+    }));
+    const defaultModel = registry.get("default");
+    expect(defaultModel.provider).toBe("openai");
+
+    const subAgentModel = registry.get("subAgent");
+    expect(subAgentModel.provider).toBe("anthropic");
+    expect(subAgentModel.modelId).toBe("claude-sonnet-4");
+  });
+
+  test("same model spec with different apiType creates separate instances", () => {
+    const registry = new ModelRegistry(baseLLMConfig({
+      providers: {
+        openai: { apiKey: "sk-test", baseURL: undefined, type: undefined },
+        myhost: { apiKey: "key", baseURL: "http://localhost:8080/v1", type: "openai" },
+      },
+      roles: {
+        default: "myhost/my-model",                          // uses provider type (openai)
+        subAgent: { model: "myhost/my-model", apiType: "anthropic" },  // overrides to anthropic
+        compact: undefined,
+        reflection: undefined,
+      },
+    }));
+    const defaultModel = registry.get("default");
+    const subAgentModel = registry.get("subAgent");
+    // Same model spec but different apiType → different instances
+    expect(defaultModel).not.toBe(subAgentModel);
+    expect(defaultModel.provider).toBe("openai");
+    expect(subAgentModel.provider).toBe("anthropic");
+  });
+
+  test("apiType override with contextWindow works together", () => {
+    const registry = new ModelRegistry(baseLLMConfig({
+      providers: {
+        openai: { apiKey: "sk-test", baseURL: undefined, type: undefined },
+        myhost: { apiKey: "key", baseURL: "http://localhost:8080/v1", type: "openai" },
+      },
+      roles: {
+        default: "openai/gpt-4o",
+        subAgent: { model: "myhost/claude-sonnet-4", apiType: "anthropic", contextWindow: 200_000 },
+        compact: undefined,
+        reflection: undefined,
+      },
+    }));
+    const subAgent = registry.get("subAgent");
+    expect(subAgent.provider).toBe("anthropic");
+    expect(subAgent.modelId).toBe("claude-sonnet-4");
+    expect(registry.getContextWindow("subAgent")).toBe(200_000);
+  });
+
   // ── codex getAccessToken callback tests ──────────
 
   describe("codex getAccessToken callback", () => {
@@ -494,5 +628,91 @@ describe("ModelRegistry", () => {
     // OpenAI model should still be the same cached instance
     const openaiModel2 = registry.get("default");
     expect(openaiModel1).toBe(openaiModel2);
+  });
+});
+
+// ── RolesConfigSchema validation tests ─────────────
+
+describe("RolesConfigSchema", () => {
+  test("accepts all string role values (backward compatible)", () => {
+    const result = RolesConfigSchema.parse({
+      default: "openai/gpt-4o",
+      subAgent: "openai/gpt-4o-mini",
+      compact: "openai/gpt-4o-mini",
+      reflection: "anthropic/claude-haiku-3.5",
+    });
+    expect(result.default).toBe("openai/gpt-4o");
+    expect(result.subAgent).toBe("openai/gpt-4o-mini");
+  });
+
+  test("accepts object role values with contextWindow", () => {
+    const result = RolesConfigSchema.parse({
+      default: { model: "openai/gpt-4o", contextWindow: 128_000 },
+      subAgent: { model: "openai/gpt-4o-mini", contextWindow: 32_000 },
+    });
+    expect(result.default).toEqual({ model: "openai/gpt-4o", contextWindow: 128_000 });
+    expect(result.subAgent).toEqual({ model: "openai/gpt-4o-mini", contextWindow: 32_000 });
+  });
+
+  test("accepts object role values without contextWindow", () => {
+    const result = RolesConfigSchema.parse({
+      default: { model: "openai/gpt-4o" },
+    });
+    expect(result.default).toEqual({ model: "openai/gpt-4o" });
+  });
+
+  test("accepts mixed string and object role values", () => {
+    const result = RolesConfigSchema.parse({
+      default: "openai/gpt-4o",
+      subAgent: { model: "openai/gpt-4o-mini", contextWindow: 32_000 },
+      compact: "openai/gpt-4o-mini",
+      reflection: { model: "anthropic/claude-haiku-3.5", contextWindow: 16_000 },
+    });
+    expect(typeof result.default).toBe("string");
+    expect(typeof result.subAgent).toBe("object");
+    expect(typeof result.compact).toBe("string");
+    expect(typeof result.reflection).toBe("object");
+  });
+
+  test("coerces contextWindow string to number", () => {
+    const result = RolesConfigSchema.parse({
+      default: { model: "openai/gpt-4o", contextWindow: "128000" },
+    });
+    expect(result.default).toEqual({ model: "openai/gpt-4o", contextWindow: 128_000 });
+  });
+
+  test("rejects object role value without model field", () => {
+    expect(() => RolesConfigSchema.parse({
+      default: { contextWindow: 128_000 },
+    })).toThrow();
+  });
+
+  test("rejects negative contextWindow", () => {
+    expect(() => RolesConfigSchema.parse({
+      default: { model: "openai/gpt-4o", contextWindow: -1 },
+    })).toThrow();
+  });
+
+  test("accepts object role values with apiType", () => {
+    const result = RolesConfigSchema.parse({
+      default: "openai/gpt-4o",
+      subAgent: { model: "myhost/claude-sonnet-4", apiType: "anthropic" },
+    });
+    expect(result.subAgent).toEqual({ model: "myhost/claude-sonnet-4", apiType: "anthropic" });
+  });
+
+  test("accepts object role values with apiType and contextWindow", () => {
+    const result = RolesConfigSchema.parse({
+      default: { model: "openai/gpt-4o", contextWindow: 128_000, apiType: "openai" },
+      subAgent: { model: "myhost/claude-sonnet-4", contextWindow: 200_000, apiType: "anthropic" },
+    });
+    expect(result.default).toEqual({ model: "openai/gpt-4o", contextWindow: 128_000, apiType: "openai" });
+    expect(result.subAgent).toEqual({ model: "myhost/claude-sonnet-4", contextWindow: 200_000, apiType: "anthropic" });
+  });
+
+  test("rejects invalid apiType value", () => {
+    expect(() => RolesConfigSchema.parse({
+      default: { model: "openai/gpt-4o", apiType: "invalid" },
+    })).toThrow();
   });
 });

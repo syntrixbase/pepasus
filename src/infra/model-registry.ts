@@ -4,9 +4,13 @@
  * Maps role names (default, subAgent, compact, reflection) to "provider/model"
  * specs, and creates LanguageModel instances on first access. If a role has no
  * explicit spec, it falls back to the "default" role's spec.
+ *
+ * Role values support two forms:
+ * - Shorthand string: "provider/model"
+ * - Object: { model: "provider/model", contextWindow?: number, apiType?: "openai" | "anthropic" }
  */
 import type { LanguageModel } from "./llm-types.ts";
-import type { LLMConfig } from "./config-schema.ts";
+import type { LLMConfig, RoleValue } from "./config-schema.ts";
 import { createOpenAICompatibleModel } from "./openai-client.ts";
 import { createAnthropicCompatibleModel } from "./anthropic-client.ts";
 import { createCodexModel } from "./codex-client.ts";
@@ -17,6 +21,25 @@ import { getLogger } from "./logger.ts";
 const logger = getLogger("model_registry");
 
 export type ModelRole = "default" | "subAgent" | "compact" | "reflection";
+
+/** Normalized role value after resolving string | object union. */
+type ResolvedRole = {
+  model: string;
+  contextWindow?: number;
+  apiType?: "openai" | "anthropic";
+};
+
+/** Normalize a RoleValue (string | object) into a structured form. */
+function resolveRoleValue(value: RoleValue): ResolvedRole {
+  if (typeof value === "string") {
+    return { model: value };
+  }
+  return {
+    model: value.model,
+    contextWindow: value.contextWindow,
+    apiType: value.apiType,
+  };
+}
 
 export class ModelRegistry {
   private providers: LLMConfig["providers"];
@@ -58,24 +81,45 @@ export class ModelRegistry {
 
   /** Get model for a role. Lazy-creates on first call. */
   get(role: ModelRole): LanguageModel {
-    const spec = this.roles[role] ?? this.roles.default;
-    const cached = this.cache.get(spec);
+    const resolved = this._resolveRole(role);
+    // Cache key includes apiType override to avoid sharing instances
+    // when the same model spec uses different API types across roles.
+    const cacheKey = resolved.apiType
+      ? `${resolved.model}@${resolved.apiType}`
+      : resolved.model;
+    const cached = this.cache.get(cacheKey);
     if (cached) return cached;
 
-    const model = this._create(spec);
-    this.cache.set(spec, model);
-    logger.info({ role, spec }, "model_created");
+    const model = this._create(resolved.model, resolved.apiType);
+    this.cache.set(cacheKey, model);
+    logger.info({ role, spec: resolved.model, apiType: resolved.apiType }, "model_created");
     return model;
   }
 
   /** Get modelId for a role (for context window lookup). */
   getModelId(role: ModelRole): string {
-    const spec = this.roles[role] ?? this.roles.default;
-    const slashIdx = spec.indexOf("/");
-    return slashIdx === -1 ? spec : spec.slice(slashIdx + 1);
+    const resolved = this._resolveRole(role);
+    const slashIdx = resolved.model.indexOf("/");
+    return slashIdx === -1 ? resolved.model : resolved.model.slice(slashIdx + 1);
   }
 
-  private _create(spec: string): LanguageModel {
+  /** Get per-role contextWindow override (if configured). */
+  getContextWindow(role: ModelRole): number | undefined {
+    const resolved = this._resolveRole(role);
+    return resolved.contextWindow;
+  }
+
+  /** Resolve a role to its normalized form. */
+  private _resolveRole(role: ModelRole): ResolvedRole {
+    const value = this.roles[role] ?? this.roles.default;
+    return resolveRoleValue(value);
+  }
+
+  /**
+   * Create a LanguageModel from a "provider/model" spec.
+   * @param apiTypeOverride — per-role apiType that overrides provider-level type inference.
+   */
+  private _create(spec: string, apiTypeOverride?: "openai" | "anthropic"): LanguageModel {
     const slashIdx = spec.indexOf("/");
     if (slashIdx === -1) {
       throw new Error(`Invalid model spec "${spec}": expected "provider/model"`);
@@ -140,7 +184,8 @@ export class ModelRegistry {
       throw new Error(`Provider "${providerName}" not found in llm.providers`);
     }
 
-    const sdkType = this._resolveType(providerName, providerConfig.type);
+    // Per-role apiType overrides provider-level type
+    const sdkType = apiTypeOverride ?? this._resolveType(providerName, providerConfig.type);
 
     switch (sdkType) {
       case "openai":
