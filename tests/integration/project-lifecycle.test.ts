@@ -29,7 +29,8 @@ function createMockModelRegistry(): ModelRegistry {
 
   const llmConfig: LLMConfig = {
     providers: { test: { type: "openai", apiKey: "dummy", baseURL: undefined } },
-    roles: { default: "test/test-model", subAgent: "test/test-model", compact: undefined, reflection: undefined },
+    default: "test/test-model",
+    tiers: { balanced: "test/test-model" },
     codex: { enabled: false, baseURL: "https://example.com", model: "test" },
     copilot: { enabled: false },
     maxConcurrentCalls: 3,

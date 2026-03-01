@@ -2,6 +2,7 @@ import { describe, expect, test, beforeEach } from "bun:test";
 import {
   SettingsSchema,
   LLMConfigSchema,
+  TiersConfigSchema,
   MemoryConfigSchema,
   AgentConfigSchema,
   getSettings,
@@ -29,7 +30,7 @@ import type { Message, GenerateTextResult } from "@pegasus/infra/llm-types.ts";
 describe("Config schemas", () => {
   test("LLMConfigSchema applies defaults", () => {
     const config = LLMConfigSchema.parse({});
-    expect(config.roles.default).toBe("openai/gpt-4o-mini");
+    expect(config.default).toBe("openai/gpt-4o-mini");
     expect(config.maxConcurrentCalls).toBe(3);
     expect(config.timeout).toBe(120);
     expect(config.providers).toEqual({});
@@ -37,11 +38,11 @@ describe("Config schemas", () => {
 
   test("LLMConfigSchema accepts custom values", () => {
     const config = LLMConfigSchema.parse({
-      roles: { default: "openai/gpt-4" },
+      default: "openai/gpt-4",
       maxConcurrentCalls: "5",
       timeout: "60",
     });
-    expect(config.roles.default).toBe("openai/gpt-4");
+    expect(config.default).toBe("openai/gpt-4");
     expect(config.maxConcurrentCalls).toBe(5);
     expect(config.timeout).toBe(60);
   });
@@ -62,7 +63,7 @@ describe("Config schemas", () => {
 
   test("SettingsSchema applies nested defaults", () => {
     const settings = SettingsSchema.parse({ dataDir: "/tmp/pegasus-test", authDir: "/tmp/pegasus-test-auth" });
-    expect(settings.llm.roles.default).toBe("openai/gpt-4o-mini");
+    expect(settings.llm.default).toBe("openai/gpt-4o-mini");
     expect(settings.agent.maxActiveTasks).toBe(5);
     expect(settings.logLevel).toBe("info");
     expect(settings.dataDir).toBe("/tmp/pegasus-test");
@@ -93,6 +94,55 @@ describe("Config schemas", () => {
     expect(() =>
       SettingsSchema.parse({ dataDir: "/tmp/pegasus-test", authDir: "/tmp/pegasus-test-auth", tools: { allowedPaths: "not-json" } }),
     ).toThrow();
+  });
+});
+
+describe("TiersConfigSchema", () => {
+  test("defaults to empty object", () => {
+    const config = LLMConfigSchema.parse({});
+    expect(config.tiers).toEqual({});
+  });
+
+  test("accepts string shorthand for tiers", () => {
+    const result = TiersConfigSchema.parse({
+      fast: "openai/gpt-4o-mini",
+      balanced: "openai/gpt-4o",
+      powerful: "anthropic/claude-sonnet-4",
+    });
+    expect(result.fast).toBe("openai/gpt-4o-mini");
+    expect(result.balanced).toBe("openai/gpt-4o");
+    expect(result.powerful).toBe("anthropic/claude-sonnet-4");
+  });
+
+  test("accepts object form for tiers", () => {
+    const result = TiersConfigSchema.parse({
+      fast: { model: "openai/gpt-4o-mini", contextWindow: 16000 },
+      powerful: { model: "anthropic/claude-sonnet-4", apiType: "anthropic" },
+    });
+    expect(result.fast).toEqual({ model: "openai/gpt-4o-mini", contextWindow: 16000 });
+    expect(result.powerful).toEqual({ model: "anthropic/claude-sonnet-4", apiType: "anthropic" });
+    expect(result.balanced).toBeUndefined();
+  });
+
+  test("works with only some tiers specified", () => {
+    const result = TiersConfigSchema.parse({
+      fast: "openai/gpt-4o-mini",
+    });
+    expect(result.fast).toBe("openai/gpt-4o-mini");
+    expect(result.balanced).toBeUndefined();
+    expect(result.powerful).toBeUndefined();
+  });
+
+  test("LLMConfigSchema includes tiers and default", () => {
+    const config = LLMConfigSchema.parse({
+      default: "anthropic/claude-sonnet-4",
+      tiers: {
+        fast: "openai/gpt-4o-mini",
+      },
+    });
+    expect(config.default).toBe("anthropic/claude-sonnet-4");
+    expect(config.tiers.fast).toBe("openai/gpt-4o-mini");
+    expect(config.tiers.balanced).toBeUndefined();
   });
 });
 
@@ -157,7 +207,7 @@ describe("getSettings / setSettings", () => {
       dataDir: "/tmp/test",
       authDir: "/tmp/pegasus-test-auth",
     });
-    expect(s.llm.roles.default).toBeDefined();
+    expect(s.llm.default).toBeDefined();
     expect(s.llm.maxConcurrentCalls).toBeGreaterThan(0);
     expect(s.llm.timeout).toBe(120);
     expect(s.agent.maxActiveTasks).toBe(5);

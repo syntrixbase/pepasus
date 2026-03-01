@@ -1,13 +1,13 @@
 /**
  * Tests for ModelRegistry — per-role model resolution with caching.
- * Tests for RolesConfigSchema — role value union type validation.
+ * Tests for TiersConfigSchema — tier value union type validation.
  *
  * Updated for pi-ai adapter: all models are now created via createPiAiLanguageModel.
  */
 import { describe, expect, test } from "bun:test";
 import { ModelRegistry } from "@pegasus/infra/model-registry.ts";
 import type { LLMConfig } from "@pegasus/infra/config-schema.ts";
-import { RolesConfigSchema } from "@pegasus/infra/config-schema.ts";
+import { TiersConfigSchema } from "@pegasus/infra/config-schema.ts";
 
 function baseLLMConfig(overrides?: Partial<LLMConfig>): LLMConfig {
   return {
@@ -15,12 +15,8 @@ function baseLLMConfig(overrides?: Partial<LLMConfig>): LLMConfig {
       openai: { apiKey: "sk-test", baseURL: undefined, type: undefined },
       anthropic: { apiKey: "sk-ant-test", baseURL: undefined, type: undefined },
     },
-    roles: {
-      default: "openai/gpt-4o",
-      subAgent: undefined,
-      compact: undefined,
-      reflection: undefined,
-    },
+    default: "openai/gpt-4o",
+    tiers: {},
     maxConcurrentCalls: 3,
     timeout: 120,
     contextWindow: undefined,
@@ -38,79 +34,60 @@ describe("ModelRegistry", () => {
     expect(model.provider).toBe("openai");
   });
 
-  test('get("compact") falls back to default when not configured', () => {
+  test('get("fast") falls back to default when not configured', () => {
     const registry = new ModelRegistry(baseLLMConfig());
-    const compactModel = registry.get("compact");
+    const fastModel = registry.get("fast");
     const defaultModel = registry.get("default");
     // Same spec → same cached instance
-    expect(compactModel).toBe(defaultModel);
+    expect(fastModel).toBe(defaultModel);
   });
 
-  test('get("compact") returns role-specific model when configured', () => {
+  test('get("fast") returns tier-specific model when configured', () => {
     const registry = new ModelRegistry(baseLLMConfig({
-      roles: {
-        default: "openai/gpt-4o",
-        compact: "openai/gpt-4o-mini",
-        subAgent: undefined,
-        reflection: undefined,
+      tiers: {
+        fast: "openai/gpt-4o-mini",
       },
     }));
-    const compactModel = registry.get("compact");
+    const fastModel = registry.get("fast");
     const defaultModel = registry.get("default");
-    expect(compactModel.modelId).toBe("gpt-4o-mini");
+    expect(fastModel.modelId).toBe("gpt-4o-mini");
     expect(defaultModel.modelId).toBe("gpt-4o");
-    expect(compactModel).not.toBe(defaultModel);
+    expect(fastModel).not.toBe(defaultModel);
   });
 
   test("same spec returns same cached instance", () => {
     const registry = new ModelRegistry(baseLLMConfig({
-      roles: {
-        default: "openai/gpt-4o",
-        subAgent: "openai/gpt-4o", // same as default
-        compact: undefined,
-        reflection: undefined,
+      tiers: {
+        balanced: "openai/gpt-4o", // same as default
       },
     }));
     const defaultModel = registry.get("default");
-    const subAgentModel = registry.get("subAgent");
-    expect(defaultModel).toBe(subAgentModel);
+    const balancedModel = registry.get("balanced");
+    expect(defaultModel).toBe(balancedModel);
   });
 
   test('getModelId() extracts model name from "provider/model"', () => {
     const registry = new ModelRegistry(baseLLMConfig({
-      roles: {
-        default: "openai/gpt-4o",
-        compact: "anthropic/claude-haiku-3.5",
-        subAgent: undefined,
-        reflection: undefined,
+      tiers: {
+        fast: "anthropic/claude-haiku-3.5",
       },
     }));
     expect(registry.getModelId("default")).toBe("gpt-4o");
-    expect(registry.getModelId("compact")).toBe("claude-haiku-3.5");
-    // Unconfigured role falls back to default
-    expect(registry.getModelId("subAgent")).toBe("gpt-4o");
+    expect(registry.getModelId("fast")).toBe("claude-haiku-3.5");
+    // Unconfigured tier falls back to default
+    expect(registry.getModelId("balanced")).toBe("gpt-4o");
   });
 
   test("invalid spec (no slash) throws", () => {
     const registry = new ModelRegistry(baseLLMConfig({
-      roles: {
-        default: "gpt-4o", // no provider prefix
-        subAgent: undefined,
-        compact: undefined,
-        reflection: undefined,
-      },
+      default: "gpt-4o", // no provider prefix
     }));
     expect(() => registry.get("default")).toThrow('Invalid model spec "gpt-4o"');
   });
 
   test("unknown provider throws", () => {
     const registry = new ModelRegistry(baseLLMConfig({
-      roles: {
-        default: "unknown-provider/gpt-4o",
-        subAgent: undefined,
-        compact: undefined,
-        reflection: undefined,
-      },
+      default: "unknown-provider/gpt-4o",
     }));
     expect(() => registry.get("default")).toThrow('Provider "unknown-provider" not found');
   });
@@ -122,12 +99,7 @@ describe("ModelRegistry", () => {
         ...baseLLMConfig().providers,
         myhost: { apiKey: "key", baseURL: "http://localhost:8080/v1", type: "openai" },
       },
-      roles: {
-        default: "myhost/my-model",
-        subAgent: undefined,
-        compact: undefined,
-        reflection: undefined,
-      },
+      default: "myhost/my-model",
     });
     const model = registry.get("default");
     expect(model.modelId).toBe("my-model");
@@ -137,12 +109,7 @@ describe("ModelRegistry", () => {
 
   test("anthropic provider creates model with correct provider", () => {
     const registry = new ModelRegistry(baseLLMConfig({
-      roles: {
-        default: "anthropic/claude-sonnet-4",
-        subAgent: undefined,
-        compact: undefined,
-        reflection: undefined,
-      },
+      default: "anthropic/claude-sonnet-4",
     }));
     const model = registry.get("default");
     expect(model.modelId).toBe("claude-sonnet-4");
@@ -153,12 +120,7 @@ describe("ModelRegistry", () => {
 
   test("setCodexCredentials enables codex model creation", () => {
     const registry = new ModelRegistry(baseLLMConfig({
-      roles: {
-        default: "codex/gpt-5.3-codex",
-        subAgent: undefined,
-        compact: undefined,
-        reflection: undefined,
-      },
+      default: "codex/gpt-5.3-codex",
     }));
 
     // Without credentials, codex model throws
@@ -180,12 +142,7 @@ describe("ModelRegistry", () => {
 
   test("setCodexCredentials with custom baseURL", () => {
     const registry = new ModelRegistry(baseLLMConfig({
-      roles: {
-        default: "codex/gpt-5.3-codex",
-        subAgent: undefined,
-        compact: undefined,
-        reflection: undefined,
-      },
+      default: "codex/gpt-5.3-codex",
     }));
 
     registry.setCodexCredentials(
@@ -204,12 +161,7 @@ describe("ModelRegistry", () => {
 
   test("setCodexCredentials invalidates cached codex models", () => {
     const registry = new ModelRegistry(baseLLMConfig({
-      roles: {
-        default: "codex/gpt-5.3-codex",
-        subAgent: undefined,
-        compact: undefined,
-        reflection: undefined,
-      },
+      default: "codex/gpt-5.3-codex",
     }));
 
     // Set initial credentials and create model
@@ -236,11 +188,8 @@ describe("ModelRegistry", () => {
 
   test("setCodexCredentials does not invalidate non-codex cached models", () => {
     const registry = new ModelRegistry(baseLLMConfig({
-      roles: {
-        default: "openai/gpt-4o",
-        compact: "codex/gpt-5.3-codex",
-        subAgent: undefined,
-        reflection: undefined,
+      tiers: {
+        fast: "codex/gpt-5.3-codex",
       },
     }));
 
@@ -260,86 +209,78 @@ describe("ModelRegistry", () => {
     expect(openaiModel1).toBe(openaiModel2);
   });
 
-  test("all roles can be configured independently", () => {
+  test("all tiers can be configured independently", () => {
     const registry = new ModelRegistry(baseLLMConfig({
-      roles: {
-        default: "openai/gpt-4o",
-        subAgent: "openai/gpt-4o-mini",
-        compact: "openai/gpt-4o-mini",
-        reflection: "anthropic/claude-haiku-3.5",
+      tiers: {
+        fast: "openai/gpt-4o-mini",
+        balanced: "openai/gpt-4o-mini",
+        powerful: "anthropic/claude-haiku-3.5",
       },
     }));
     expect(registry.get("default").modelId).toBe("gpt-4o");
-    expect(registry.get("subAgent").modelId).toBe("gpt-4o-mini");
-    expect(registry.get("compact").modelId).toBe("gpt-4o-mini");
-    expect(registry.get("reflection").modelId).toBe("claude-haiku-3.5");
-    // subAgent and compact share same spec → same instance
-    expect(registry.get("subAgent")).toBe(registry.get("compact"));
+    expect(registry.get("fast").modelId).toBe("gpt-4o-mini");
+    expect(registry.get("balanced").modelId).toBe("gpt-4o-mini");
+    expect(registry.get("powerful").modelId).toBe("claude-haiku-3.5");
+    // fast and balanced share same spec → same instance
+    expect(registry.get("fast")).toBe(registry.get("balanced"));
   });
 
   // ── Per-role context window tests ────────────────
 
-  test("getContextWindow returns undefined for string role values", () => {
+  test("getContextWindow returns undefined for string tier values", () => {
     const registry = new ModelRegistry(baseLLMConfig());
     expect(registry.getContextWindow("default")).toBeUndefined();
-    expect(registry.getContextWindow("subAgent")).toBeUndefined();
-    expect(registry.getContextWindow("compact")).toBeUndefined();
-    expect(registry.getContextWindow("reflection")).toBeUndefined();
+    expect(registry.getContextWindow("fast")).toBeUndefined();
+    expect(registry.getContextWindow("balanced")).toBeUndefined();
+    expect(registry.getContextWindow("powerful")).toBeUndefined();
   });
 
-  test("getContextWindow returns configured value for object role values", () => {
+  test("getContextWindow returns configured value for object tier values", () => {
     const registry = new ModelRegistry(baseLLMConfig({
-      roles: {
-        default: "openai/gpt-4o",
-        subAgent: { model: "openai/gpt-4o-mini", contextWindow: 32_000 },
-        compact: "openai/gpt-4o-mini",
-        reflection: { model: "anthropic/claude-haiku-3.5", contextWindow: 16_000 },
+      tiers: {
+        fast: "openai/gpt-4o-mini",
+        balanced: { model: "openai/gpt-4o-mini", contextWindow: 32_000 },
+        powerful: { model: "anthropic/claude-haiku-3.5", contextWindow: 16_000 },
       },
     }));
     expect(registry.getContextWindow("default")).toBeUndefined();
-    expect(registry.getContextWindow("subAgent")).toBe(32_000);
-    expect(registry.getContextWindow("compact")).toBeUndefined();
-    expect(registry.getContextWindow("reflection")).toBe(16_000);
+    expect(registry.getContextWindow("balanced")).toBe(32_000);
+    expect(registry.getContextWindow("fast")).toBeUndefined();
+    expect(registry.getContextWindow("powerful")).toBe(16_000);
   });
 
-  test("object role values work correctly with get() and getModelId()", () => {
+  test("object tier values work correctly with get() and getModelId()", () => {
     const registry = new ModelRegistry(baseLLMConfig({
-      roles: {
-        default: { model: "openai/gpt-4o", contextWindow: 128_000 },
-        subAgent: { model: "openai/gpt-4o-mini", contextWindow: 32_000 },
-        compact: "openai/gpt-4o-mini",
-        reflection: undefined,
+      default: { model: "openai/gpt-4o", contextWindow: 128_000 },
+      tiers: {
+        fast: "openai/gpt-4o-mini",
+        balanced: { model: "openai/gpt-4o-mini", contextWindow: 32_000 },
       },
     }));
 
     // get() should resolve models correctly
     expect(registry.get("default").modelId).toBe("gpt-4o");
-    expect(registry.get("subAgent").modelId).toBe("gpt-4o-mini");
-    expect(registry.get("compact").modelId).toBe("gpt-4o-mini");
+    expect(registry.get("balanced").modelId).toBe("gpt-4o-mini");
+    expect(registry.get("fast").modelId).toBe("gpt-4o-mini");
 
     // getModelId() should extract model name
     expect(registry.getModelId("default")).toBe("gpt-4o");
-    expect(registry.getModelId("subAgent")).toBe("gpt-4o-mini");
+    expect(registry.getModelId("balanced")).toBe("gpt-4o-mini");
 
-    // subAgent (object) and compact (string) with same model spec → same cached instance
-    expect(registry.get("subAgent")).toBe(registry.get("compact"));
+    // balanced (object) and fast (string) with same model spec → same cached instance
+    expect(registry.get("balanced")).toBe(registry.get("fast"));
 
-    // getContextWindow should return per-role values
+    // getContextWindow should return per-tier values
     expect(registry.getContextWindow("default")).toBe(128_000);
-    expect(registry.getContextWindow("subAgent")).toBe(32_000);
-    expect(registry.getContextWindow("compact")).toBeUndefined();
-    // reflection falls back to default
-    expect(registry.getContextWindow("reflection")).toBe(128_000);
+    expect(registry.getContextWindow("balanced")).toBe(32_000);
+    expect(registry.getContextWindow("fast")).toBeUndefined();
+    // powerful falls back to default
+    expect(registry.getContextWindow("powerful")).toBe(128_000);
   });
 
-  test("object role without contextWindow returns undefined for getContextWindow", () => {
+  test("object tier without contextWindow returns undefined for getContextWindow", () => {
     const registry = new ModelRegistry(baseLLMConfig({
-      roles: {
-        default: { model: "openai/gpt-4o" },
-        subAgent: undefined,
-        compact: undefined,
-        reflection: undefined,
-      },
+      default: { model: "openai/gpt-4o" },
     }));
     expect(registry.getContextWindow("default")).toBeUndefined();
     expect(registry.get("default").modelId).toBe("gpt-4o");
@@ -349,12 +290,7 @@ describe("ModelRegistry", () => {
 
   test("setCopilotCredentials enables copilot model creation", () => {
     const registry = new ModelRegistry(baseLLMConfig({
-      roles: {
-        default: "copilot/gpt-4o",
-        subAgent: undefined,
-        compact: undefined,
-        reflection: undefined,
-      },
+      default: "copilot/gpt-4o",
     }));
 
     // Without credentials, copilot model throws
@@ -375,12 +311,7 @@ describe("ModelRegistry", () => {
 
   test("setCopilotCredentials invalidates cached copilot models", () => {
     const registry = new ModelRegistry(baseLLMConfig({
-      roles: {
-        default: "copilot/gpt-4o",
-        subAgent: undefined,
-        compact: undefined,
-        reflection: undefined,
-      },
+      default: "copilot/gpt-4o",
     }));
 
     // Set initial credentials and create model
@@ -405,11 +336,8 @@ describe("ModelRegistry", () => {
 
   test("setCopilotCredentials does not invalidate non-copilot cached models", () => {
     const registry = new ModelRegistry(baseLLMConfig({
-      roles: {
-        default: "openai/gpt-4o",
-        compact: "copilot/gpt-4o",
-        subAgent: undefined,
-        reflection: undefined,
+      tiers: {
+        fast: "copilot/gpt-4o",
       },
     }));
 
@@ -448,17 +376,14 @@ describe("ModelRegistry", () => {
         openai: { apiKey: "sk-test", baseURL: undefined, type: undefined },
         myoauth: { apiKey: "tok1", baseURL: "https://custom.example.com/v1", type: "openai" },
       },
-      roles: {
-        default: "openai/gpt-4o",
-        compact: "myoauth/my-model",
-        subAgent: undefined,
-        reflection: undefined,
+      tiers: {
+        fast: "myoauth/my-model",
       },
     }));
 
     // Create and cache both models
     const openaiModel1 = registry.get("default");
-    const oauthModel1 = registry.get("compact");
+    const oauthModel1 = registry.get("fast");
 
     // Set OAuth credentials for myoauth provider — should invalidate its cache
     registry.setOAuthCredentials(
@@ -473,7 +398,7 @@ describe("ModelRegistry", () => {
 
     // myoauth model cache key uses the resolved provider "openai",
     // so it was also invalidated
-    const oauthModel2 = registry.get("compact");
+    const oauthModel2 = registry.get("fast");
     expect(oauthModel1).not.toBe(oauthModel2);
   });
 
@@ -483,17 +408,14 @@ describe("ModelRegistry", () => {
         openai: { apiKey: "sk-test", baseURL: undefined, type: undefined },
         anthropic: { apiKey: "sk-ant-test", baseURL: undefined, type: undefined },
       },
-      roles: {
-        default: "openai/gpt-4o",
-        compact: "anthropic/claude-haiku-3.5",
-        subAgent: undefined,
-        reflection: undefined,
+      tiers: {
+        fast: "anthropic/claude-haiku-3.5",
       },
     }));
 
     // Create and cache both models
     const openaiModel1 = registry.get("default");
-    const anthropicModel1 = registry.get("compact");
+    const anthropicModel1 = registry.get("fast");
 
     // Set OAuth credentials for "some-other" — should not invalidate any existing caches
     registry.setOAuthCredentials(
@@ -504,94 +426,104 @@ describe("ModelRegistry", () => {
 
     // Both should be same cached instances
     const openaiModel2 = registry.get("default");
-    const anthropicModel2 = registry.get("compact");
+    const anthropicModel2 = registry.get("fast");
     expect(openaiModel1).toBe(openaiModel2);
     expect(anthropicModel1).toBe(anthropicModel2);
   });
 });
 
-// ── RolesConfigSchema validation tests ─────────────
+// ── TiersConfigSchema + RoleValueSchema validation tests ─────────────
 
-describe("RolesConfigSchema", () => {
-  test("accepts all string role values (backward compatible)", () => {
-    const result = RolesConfigSchema.parse({
-      default: "openai/gpt-4o",
-      subAgent: "openai/gpt-4o-mini",
-      compact: "openai/gpt-4o-mini",
-      reflection: "anthropic/claude-haiku-3.5",
+describe("TiersConfigSchema", () => {
+  test("accepts all string tier values", () => {
+    const result = TiersConfigSchema.parse({
+      fast: "openai/gpt-4o-mini",
+      balanced: "openai/gpt-4o",
+      powerful: "anthropic/claude-haiku-3.5",
     });
-    expect(result.default).toBe("openai/gpt-4o");
-    expect(result.subAgent).toBe("openai/gpt-4o-mini");
+    expect(result.fast).toBe("openai/gpt-4o-mini");
+    expect(result.balanced).toBe("openai/gpt-4o");
   });
 
-  test("accepts object role values with contextWindow", () => {
-    const result = RolesConfigSchema.parse({
-      default: { model: "openai/gpt-4o", contextWindow: 128_000 },
-      subAgent: { model: "openai/gpt-4o-mini", contextWindow: 32_000 },
+  test("accepts object tier values with contextWindow", () => {
+    const result = TiersConfigSchema.parse({
+      fast: { model: "openai/gpt-4o-mini", contextWindow: 32_000 },
+      powerful: { model: "openai/gpt-4o", contextWindow: 128_000 },
     });
-    expect(result.default).toEqual({ model: "openai/gpt-4o", contextWindow: 128_000 });
-    expect(result.subAgent).toEqual({ model: "openai/gpt-4o-mini", contextWindow: 32_000 });
+    expect(result.fast).toEqual({ model: "openai/gpt-4o-mini", contextWindow: 32_000 });
+    expect(result.powerful).toEqual({ model: "openai/gpt-4o", contextWindow: 128_000 });
   });
 
-  test("accepts object role values without contextWindow", () => {
-    const result = RolesConfigSchema.parse({
-      default: { model: "openai/gpt-4o" },
+  test("accepts object tier values without contextWindow", () => {
+    const result = TiersConfigSchema.parse({
+      fast: { model: "openai/gpt-4o" },
     });
-    expect(result.default).toEqual({ model: "openai/gpt-4o" });
+    expect(result.fast).toEqual({ model: "openai/gpt-4o" });
   });
 
-  test("accepts mixed string and object role values", () => {
-    const result = RolesConfigSchema.parse({
-      default: "openai/gpt-4o",
-      subAgent: { model: "openai/gpt-4o-mini", contextWindow: 32_000 },
-      compact: "openai/gpt-4o-mini",
-      reflection: { model: "anthropic/claude-haiku-3.5", contextWindow: 16_000 },
+  test("accepts mixed string and object tier values", () => {
+    const result = TiersConfigSchema.parse({
+      fast: "openai/gpt-4o-mini",
+      balanced: { model: "openai/gpt-4o", contextWindow: 128_000 },
+      powerful: { model: "anthropic/claude-haiku-3.5", contextWindow: 16_000 },
     });
-    expect(typeof result.default).toBe("string");
-    expect(typeof result.subAgent).toBe("object");
-    expect(typeof result.compact).toBe("string");
-    expect(typeof result.reflection).toBe("object");
+    expect(typeof result.fast).toBe("string");
+    expect(typeof result.balanced).toBe("object");
+    expect(typeof result.powerful).toBe("object");
   });
 
   test("coerces contextWindow string to number", () => {
-    const result = RolesConfigSchema.parse({
-      default: { model: "openai/gpt-4o", contextWindow: "128000" },
+    const result = TiersConfigSchema.parse({
+      fast: { model: "openai/gpt-4o", contextWindow: "128000" },
     });
-    expect(result.default).toEqual({ model: "openai/gpt-4o", contextWindow: 128_000 });
+    expect(result.fast).toEqual({ model: "openai/gpt-4o", contextWindow: 128_000 });
   });
 
-  test("rejects object role value without model field", () => {
-    expect(() => RolesConfigSchema.parse({
-      default: { contextWindow: 128_000 },
+  test("rejects object tier value without model field", () => {
+    expect(() => TiersConfigSchema.parse({
+      fast: { contextWindow: 128_000 },
     })).toThrow();
   });
 
   test("rejects negative contextWindow", () => {
-    expect(() => RolesConfigSchema.parse({
-      default: { model: "openai/gpt-4o", contextWindow: -1 },
+    expect(() => TiersConfigSchema.parse({
+      fast: { model: "openai/gpt-4o", contextWindow: -1 },
     })).toThrow();
   });
 
-  test("accepts object role values with apiType", () => {
-    const result = RolesConfigSchema.parse({
-      default: "openai/gpt-4o",
-      subAgent: { model: "myhost/claude-sonnet-4", apiType: "anthropic" },
+  test("accepts object tier values with apiType", () => {
+    const result = TiersConfigSchema.parse({
+      powerful: { model: "myhost/claude-sonnet-4", apiType: "anthropic" },
     });
-    expect(result.subAgent).toEqual({ model: "myhost/claude-sonnet-4", apiType: "anthropic" });
+    expect(result.powerful).toEqual({ model: "myhost/claude-sonnet-4", apiType: "anthropic" });
   });
 
-  test("accepts object role values with apiType and contextWindow", () => {
-    const result = RolesConfigSchema.parse({
-      default: { model: "openai/gpt-4o", contextWindow: 128_000, apiType: "openai" },
-      subAgent: { model: "myhost/claude-sonnet-4", contextWindow: 200_000, apiType: "anthropic" },
+  test("accepts object tier values with apiType and contextWindow", () => {
+    const result = TiersConfigSchema.parse({
+      fast: { model: "openai/gpt-4o", contextWindow: 128_000, apiType: "openai" },
+      powerful: { model: "myhost/claude-sonnet-4", contextWindow: 200_000, apiType: "anthropic" },
     });
-    expect(result.default).toEqual({ model: "openai/gpt-4o", contextWindow: 128_000, apiType: "openai" });
-    expect(result.subAgent).toEqual({ model: "myhost/claude-sonnet-4", contextWindow: 200_000, apiType: "anthropic" });
+    expect(result.fast).toEqual({ model: "openai/gpt-4o", contextWindow: 128_000, apiType: "openai" });
+    expect(result.powerful).toEqual({ model: "myhost/claude-sonnet-4", contextWindow: 200_000, apiType: "anthropic" });
   });
 
   test("rejects invalid apiType value", () => {
-    expect(() => RolesConfigSchema.parse({
-      default: { model: "openai/gpt-4o", apiType: "invalid" },
+    expect(() => TiersConfigSchema.parse({
+      fast: { model: "openai/gpt-4o", apiType: "invalid" },
     })).toThrow();
+  });
+
+  test("defaults to empty object", () => {
+    const result = TiersConfigSchema.parse(undefined);
+    expect(result).toEqual({});
+  });
+
+  test("all tier fields are optional", () => {
+    const result = TiersConfigSchema.parse({
+      fast: "openai/gpt-4o-mini",
+    });
+    expect(result.fast).toBe("openai/gpt-4o-mini");
+    expect(result.balanced).toBeUndefined();
+    expect(result.powerful).toBeUndefined();
   });
 });

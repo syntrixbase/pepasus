@@ -32,12 +32,8 @@ function createMockModelRegistry(model: LanguageModel): ModelRegistry {
     providers: {
       test: { type: "openai", apiKey: "dummy", baseURL: undefined },
     },
-    roles: {
-      default: "test/test-model",
-      subAgent: undefined,
-      compact: undefined,
-      reflection: undefined,
-    },
+    default: "test/test-model",
+    tiers: {},
     maxConcurrentCalls: 3,
     timeout: 120,
     contextWindow: undefined,

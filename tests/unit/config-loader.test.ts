@@ -54,7 +54,7 @@ describe("config-loader", () => {
 
       const settings = loadSettings();
 
-      expect(settings.llm.roles.default).toBe("openai/gpt-4o-mini");
+      expect(settings.llm.default).toBe("openai/gpt-4o-mini");
       expect(settings.llm.maxConcurrentCalls).toBe(3);
       expect(settings.llm.timeout).toBe(120);
       expect(settings.agent.maxActiveTasks).toBe(5);
@@ -72,8 +72,7 @@ describe("config-loader", () => {
     test("defaults are overridden by config file values", () => {
       const yamlContent = `
 llm:
-  roles:
-    default: anthropic/claude-sonnet-4
+  default: anthropic/claude-sonnet-4
   maxConcurrentCalls: 10
 system:
   dataDir: data
@@ -84,7 +83,7 @@ system:
       const settings = loadSettings();
 
       // Overridden by config file
-      expect(settings.llm.roles.default).toBe("anthropic/claude-sonnet-4");
+      expect(settings.llm.default).toBe("anthropic/claude-sonnet-4");
       expect(settings.llm.maxConcurrentCalls).toBe(10);
 
       // Retained from defaults
@@ -103,8 +102,7 @@ llm:
   providers:
     openai:
       apiKey: yaml-key
-  roles:
-    default: openai/gpt-4o
+  default: openai/gpt-4o
 system:
   dataDir: /tmp/test
   authDir: /tmp/pegasus-test-auth
@@ -114,7 +112,7 @@ system:
 
       const settings = loadSettings();
 
-      expect(settings.llm.roles.default).toBe("openai/gpt-4o");
+      expect(settings.llm.default).toBe("openai/gpt-4o");
       expect(settings.llm.providers.openai?.apiKey).toBe("yaml-key");
     });
 
@@ -124,16 +122,14 @@ llm:
   providers:
     openai:
       apiKey: config-key
-  roles:
-    default: openai/gpt-4o-mini
+  default: openai/gpt-4o-mini
 system:
   dataDir: /tmp/test
   authDir: /tmp/pegasus-test-auth
 `;
       const localConfig = `
 llm:
-  roles:
-    default: openai/gpt-4o
+  default: openai/gpt-4o
 `;
 
       writeFileSync("config.yaml", baseConfig);
@@ -142,7 +138,7 @@ llm:
       const settings = loadSettings();
 
       // local overrides base
-      expect(settings.llm.roles.default).toBe("openai/gpt-4o");
+      expect(settings.llm.default).toBe("openai/gpt-4o");
       // base value preserved
       expect(settings.llm.providers.openai?.apiKey).toBe("config-key");
     });
@@ -155,8 +151,7 @@ llm:
   providers:
     anthropic:
       apiKey: \${ANTHROPIC_API_KEY}
-  roles:
-    default: anthropic/claude-sonnet-4
+  default: anthropic/claude-sonnet-4
 system:
   dataDir: /tmp/test
   authDir: /tmp/pegasus-test-auth
@@ -167,7 +162,7 @@ system:
 
       const settings = loadSettings();
 
-      expect(settings.llm.roles.default).toBe("anthropic/claude-sonnet-4");
+      expect(settings.llm.default).toBe("anthropic/claude-sonnet-4");
       expect(settings.llm.providers.anthropic?.apiKey).toBe("test-yaml-key");
     });
 
@@ -180,8 +175,7 @@ llm:
   providers:
     openai:
       apiKey: base-key
-  roles:
-    default: openai/gpt-4o-mini
+  default: openai/gpt-4o-mini
   maxConcurrentCalls: 3
   timeout: 120
 agent:
@@ -197,8 +191,7 @@ llm:
   providers:
     anthropic:
       apiKey: local-key
-  roles:
-    default: anthropic/claude-sonnet-4
+  default: anthropic/claude-sonnet-4
   maxConcurrentCalls: 10
 `;
 
@@ -208,7 +201,7 @@ llm:
       const settings = loadSettings();
 
       // Overridden by local
-      expect(settings.llm.roles.default).toBe("anthropic/claude-sonnet-4");
+      expect(settings.llm.default).toBe("anthropic/claude-sonnet-4");
       expect(settings.llm.maxConcurrentCalls).toBe(10);
       expect(settings.llm.providers.anthropic?.apiKey).toBe("local-key");
 
@@ -228,8 +221,7 @@ llm:
       baseURL: https://api.openai.com/v1
     anthropic:
       apiKey: base-anthropic-key
-  roles:
-    default: openai/gpt-4o-mini
+  default: openai/gpt-4o-mini
 system:
   dataDir: /tmp/test
   authDir: /tmp/pegasus-test-auth
@@ -267,8 +259,7 @@ llm:
   providers:
     openai:
       apiKey: \${MISSING_KEY}
-  roles:
-    default: openai/gpt-4o-mini
+  default: openai/gpt-4o-mini
 system:
   dataDir: /tmp/test
   authDir: /tmp/pegasus-test-auth
@@ -291,8 +282,7 @@ llm:
   providers:
     openai:
       apiKey: \${OPENAI_API_KEY:-sk-default-key}
-  roles:
-    default: \${LLM_DEFAULT_MODEL:-openai/gpt-4o-mini}
+  default: \${LLM_DEFAULT_MODEL:-openai/gpt-4o-mini}
 system:
   dataDir: /tmp/test
   authDir: /tmp/pegasus-test-auth
@@ -303,7 +293,7 @@ system:
       const settings = loadSettings();
 
       expect(settings.llm.providers.openai?.apiKey).toBe("sk-default-key");
-      expect(settings.llm.roles.default).toBe("openai/gpt-4o-mini");
+      expect(settings.llm.default).toBe("openai/gpt-4o-mini");
     });
 
     test("${VAR:-default} uses env var when set", () => {
@@ -315,8 +305,7 @@ llm:
   providers:
     openai:
       apiKey: \${OPENAI_API_KEY:-sk-default-key}
-  roles:
-    default: \${LLM_DEFAULT_MODEL:-openai/gpt-4o-mini}
+  default: \${LLM_DEFAULT_MODEL:-openai/gpt-4o-mini}
 system:
   dataDir: /tmp/test
   authDir: /tmp/pegasus-test-auth
@@ -327,7 +316,7 @@ system:
       const settings = loadSettings();
 
       expect(settings.llm.providers.openai?.apiKey).toBe("env-key");
-      expect(settings.llm.roles.default).toBe("openai/gpt-4o");
+      expect(settings.llm.default).toBe("openai/gpt-4o");
     });
 
     test("supports ${VAR:=default} syntax to assign default", () => {
@@ -339,8 +328,7 @@ llm:
   providers:
     openai:
       apiKey: \${TEST_VAR:=assigned-default}
-  roles:
-    default: openai/gpt-4o-mini
+  default: openai/gpt-4o-mini
 system:
   dataDir: /tmp/test
   authDir: /tmp/pegasus-test-auth
@@ -365,8 +353,7 @@ llm:
   providers:
     openai:
       apiKey: \${REQUIRED_KEY:?API key is required}
-  roles:
-    default: openai/gpt-4o-mini
+  default: openai/gpt-4o-mini
 system:
   dataDir: /tmp/test
   authDir: /tmp/pegasus-test-auth
@@ -386,8 +373,7 @@ llm:
   providers:
     openai:
       apiKey: \${REQUIRED_KEY:?API key is required}
-  roles:
-    default: openai/gpt-4o-mini
+  default: openai/gpt-4o-mini
 system:
   dataDir: /tmp/test
   authDir: /tmp/pegasus-test-auth
@@ -409,8 +395,7 @@ llm:
   providers:
     openai:
       baseURL: \${USE_PROXY:+https://proxy.example.com/v1}
-  roles:
-    default: openai/gpt-4o-mini
+  default: openai/gpt-4o-mini
 system:
   dataDir: /tmp/test
   authDir: /tmp/pegasus-test-auth
@@ -432,8 +417,7 @@ llm:
   providers:
     openai:
       baseURL: \${USE_PROXY:+https://proxy.example.com/v1}
-  roles:
-    default: openai/gpt-4o-mini
+  default: openai/gpt-4o-mini
 system:
   dataDir: /tmp/test
   authDir: /tmp/pegasus-test-auth
@@ -455,8 +439,7 @@ llm:
   providers:
     openai:
       apiKey: test-key
-  roles:
-    default: openai/gpt-4o
+  default: openai/gpt-4o
   maxConcurrentCalls: 10
   timeout: 180
 agent:
@@ -490,16 +473,16 @@ system:
     });
 
     test("throws error when both config.yaml and config.yml exist", () => {
-      writeFileSync("config.yaml", "llm:\n  roles:\n    default: openai/gpt-4o\n");
-      writeFileSync("config.yml", "llm:\n  roles:\n    default: anthropic/claude-sonnet-4\n");
+      writeFileSync("config.yaml", "llm:\n  default: openai/gpt-4o\n");
+      writeFileSync("config.yml", "llm:\n  default: anthropic/claude-sonnet-4\n");
 
       expect(() => loadSettings()).toThrow(/Multiple base config files found.*config\.yaml.*config\.yml/);
     });
 
     test("throws error when both config.local.yaml and config.local.yml exist", () => {
-      writeFileSync("config.yaml", "llm:\n  roles:\n    default: openai/gpt-4o\n");
-      writeFileSync("config.local.yaml", "llm:\n  roles:\n    default: anthropic/claude-sonnet-4\n");
-      writeFileSync("config.local.yml", "llm:\n  roles:\n    default: openai/gpt-4o-mini\n");
+      writeFileSync("config.yaml", "llm:\n  default: openai/gpt-4o\n");
+      writeFileSync("config.local.yaml", "llm:\n  default: anthropic/claude-sonnet-4\n");
+      writeFileSync("config.local.yml", "llm:\n  default: openai/gpt-4o-mini\n");
 
       expect(() => loadSettings()).toThrow(/Multiple local config files found.*config\.local\.yaml.*config\.local\.yml/);
     });
@@ -512,8 +495,7 @@ llm:
   providers:
     openai:
       apiKey: yml-key
-  roles:
-    default: openai/gpt-4o
+  default: openai/gpt-4o
 system:
   dataDir: /tmp/test
   authDir: /tmp/pegasus-test-auth
@@ -523,29 +505,28 @@ system:
 
       const settings = loadSettings();
 
-      expect(settings.llm.roles.default).toBe("openai/gpt-4o");
+      expect(settings.llm.default).toBe("openai/gpt-4o");
       expect(settings.llm.providers.openai?.apiKey).toBe("yml-key");
     });
 
     test("loads config.local.yml when config.local.yaml does not exist", () => {
       resetSettings();
 
-      writeFileSync("config.yaml", "llm:\n  roles:\n    default: openai/gpt-4o\nsystem:\n  dataDir: /tmp/test\n  authDir: /tmp/pegasus-test-auth\n");
+      writeFileSync("config.yaml", "llm:\n  default: openai/gpt-4o\nsystem:\n  dataDir: /tmp/test\n  authDir: /tmp/pegasus-test-auth\n");
 
       const localContent = `
 llm:
   providers:
     anthropic:
       apiKey: local-yml-key
-  roles:
-    default: anthropic/claude-sonnet-4
+  default: anthropic/claude-sonnet-4
 `;
 
       writeFileSync("config.local.yml", localContent);
 
       const settings = loadSettings();
 
-      expect(settings.llm.roles.default).toBe("anthropic/claude-sonnet-4");
+      expect(settings.llm.default).toBe("anthropic/claude-sonnet-4");
       expect(settings.llm.providers.anthropic?.apiKey).toBe("local-yml-key");
     });
 
@@ -555,8 +536,7 @@ llm:
 
       const config = `
 llm:
-  roles:
-    default: openai/gpt-4o-mini
+  default: openai/gpt-4o-mini
 system:
   dataDir: /tmp/test
   logFormat: \${PEGASUS_LOG_FORMAT:-json}
@@ -576,8 +556,7 @@ system:
 
       const config = `
 llm:
-  roles:
-    default: openai/gpt-4o-mini
+  default: openai/gpt-4o-mini
 system:
   dataDir: /tmp/test
   logFormat: \${PEGASUS_LOG_FORMAT:-json}
@@ -602,8 +581,7 @@ llm:
   providers:
     openai:
       apiKey: \${TEST_ASSIGN_VAR:=fallback-value}
-  roles:
-    default: openai/gpt-4o-mini
+  default: openai/gpt-4o-mini
 system:
   dataDir: /tmp/test
   authDir: /tmp/pegasus-test-auth
@@ -624,8 +602,7 @@ system:
 
       const config = `
 llm:
-  roles:
-    default: openai/gpt-4o-mini
+  default: openai/gpt-4o-mini
 tools:
   allowedPaths:
     - \${ALLOWED_PATH}
@@ -654,8 +631,7 @@ llm:
   providers:
     openai:
       apiKey: custom-key
-  roles:
-    default: openai/gpt-4o
+  default: openai/gpt-4o
 system:
   dataDir: /tmp/test
   authDir: /tmp/pegasus-test-auth
@@ -666,7 +642,7 @@ system:
 
       const settings = loadSettings();
 
-      expect(settings.llm.roles.default).toBe("openai/gpt-4o");
+      expect(settings.llm.default).toBe("openai/gpt-4o");
       expect(settings.llm.providers.openai?.apiKey).toBe("custom-key");
     });
 
@@ -683,10 +659,10 @@ system:
       expect(settings.dataDir).toBe("/tmp/fallback");
     });
 
-    test("roles env var interpolation", () => {
+    test("tiers env var interpolation", () => {
       resetSettings();
       process.env.LLM_DEFAULT_MODEL = "anthropic/claude-sonnet-4";
-      process.env.LLM_COMPACT_MODEL = "openai/gpt-4o-mini";
+      process.env.LLM_FAST_MODEL = "openai/gpt-4o-mini";
 
       const config = `
 llm:
@@ -695,9 +671,9 @@ llm:
       apiKey: test-key
     anthropic:
       apiKey: test-key
-  roles:
-    default: \${LLM_DEFAULT_MODEL:-openai/gpt-4o}
-    compact: \${LLM_COMPACT_MODEL:-}
+  default: \${LLM_DEFAULT_MODEL:-openai/gpt-4o}
+  tiers:
+    fast: \${LLM_FAST_MODEL:-}
 system:
   dataDir: /tmp/test
   authDir: /tmp/pegasus-test-auth
@@ -707,11 +683,11 @@ system:
 
       const settings = loadSettings();
 
-      expect(settings.llm.roles.default).toBe("anthropic/claude-sonnet-4");
-      expect(settings.llm.roles.compact).toBe("openai/gpt-4o-mini");
+      expect(settings.llm.default).toBe("anthropic/claude-sonnet-4");
+      expect(settings.llm.tiers.fast).toBe("openai/gpt-4o-mini");
 
       delete process.env.LLM_DEFAULT_MODEL;
-      delete process.env.LLM_COMPACT_MODEL;
+      delete process.env.LLM_FAST_MODEL;
     });
   });
 
@@ -766,8 +742,7 @@ system:
 
       const config = `
 llm:
-  roles:
-    default: openai/gpt-4o-mini
+  default: openai/gpt-4o-mini
   contextWindow: 500000
 system:
   dataDir: /tmp/test
@@ -785,8 +760,7 @@ system:
 
       const config = `
 llm:
-  roles:
-    default: openai/gpt-4o-mini
+  default: openai/gpt-4o-mini
   contextWindow: \${LLM_CONTEXT_WINDOW}
 system:
   dataDir: /tmp/test
@@ -806,8 +780,7 @@ system:
 
       const config = `
 llm:
-  roles:
-    default: openai/gpt-4o-mini
+  default: openai/gpt-4o-mini
   contextWindow: \${LLM_CONTEXT_WINDOW:-}
 system:
   dataDir: /tmp/test
@@ -870,8 +843,7 @@ system:
 
       const config = `
 llm:
-  roles:
-    default: openai/gpt-4o-mini
+  default: openai/gpt-4o-mini
 channels:
   telegram:
     enabled: true
@@ -894,8 +866,7 @@ system:
 
       const config = `
 llm:
-  roles:
-    default: openai/gpt-4o-mini
+  default: openai/gpt-4o-mini
 channels:
   telegram:
     enabled: \${TELEGRAM_ENABLED:-false}
@@ -926,8 +897,7 @@ system:
       resetSettings();
       const config = `
 llm:
-  roles:
-    default: openai/gpt-4o-mini
+  default: openai/gpt-4o-mini
 system:
   dataDir: /tmp/test
   authDir: ~/.pegasus/auth
@@ -943,8 +913,7 @@ system:
       process.env.PEGASUS_AUTH_DIR = "/tmp/custom-auth";
       const config = `
 llm:
-  roles:
-    default: openai/gpt-4o-mini
+  default: openai/gpt-4o-mini
 system:
   dataDir: /tmp/test
   authDir: \${PEGASUS_AUTH_DIR:-~/.pegasus/auth}
@@ -960,8 +929,7 @@ system:
       delete process.env.PEGASUS_AUTH_DIR;
       const config = `
 llm:
-  roles:
-    default: openai/gpt-4o-mini
+  default: openai/gpt-4o-mini
 system:
   dataDir: /tmp/test
   authDir: \${PEGASUS_AUTH_DIR:-~/.pegasus/auth}

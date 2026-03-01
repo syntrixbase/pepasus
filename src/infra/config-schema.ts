@@ -35,13 +35,11 @@ export const RoleValueSchema = z.union([
   }),
 ]);
 
-export const RolesConfigSchema = z.object({
-  default: RoleValueSchema,               // required: "provider/model" or { model, contextWindow? }
-  subAgent: RoleValueSchema.optional(),
-  compact: RoleValueSchema.optional(),
-  reflection: RoleValueSchema.optional(),
-  extract: RoleValueSchema.optional(),
-});
+export const TiersConfigSchema = z.object({
+  fast: RoleValueSchema.optional(),
+  balanced: RoleValueSchema.optional(),
+  powerful: RoleValueSchema.optional(),
+}).default({});
 
 export const CodexConfigSchema = z.object({
   enabled: booleanFromString.default(false),
@@ -55,7 +53,8 @@ export const CopilotConfigSchema = z.object({
 
 export const LLMConfigSchema = z.object({
   providers: z.record(z.string(), ProviderConfigSchema).default({}),
-  roles: RolesConfigSchema.default({ default: "openai/gpt-4o-mini" }),
+  default: RoleValueSchema.default("openai/gpt-4o-mini"),
+  tiers: TiersConfigSchema,
   codex: CodexConfigSchema.default({}),
   copilot: CopilotConfigSchema.default({}),
 
@@ -197,7 +196,7 @@ export type CodexConfig = z.infer<typeof CodexConfigSchema>;
 export type CopilotConfig = z.infer<typeof CopilotConfigSchema>;
 export type ProviderConfig = z.infer<typeof ProviderConfigSchema>;
 export type RoleValue = z.infer<typeof RoleValueSchema>;
-export type RolesConfig = z.infer<typeof RolesConfigSchema>;
+export type TiersConfig = z.infer<typeof TiersConfigSchema>;
 export type MemoryConfig = z.infer<typeof MemoryConfigSchema>;
 export type AgentConfig = z.infer<typeof AgentConfigSchema>;
 export type IdentityConfig = z.infer<typeof IdentityConfigSchema>;

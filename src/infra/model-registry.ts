@@ -20,7 +20,9 @@ import { getLogger } from "./logger.ts";
 
 const logger = getLogger("model_registry");
 
-export type ModelRole = "default" | "subAgent" | "compact" | "reflection" | "extract";
+export type ModelRole = "default" | "fast" | "balanced" | "powerful"
+  // Legacy role names — fall back to default when not in tiers
+  | "subAgent" | "compact" | "reflection" | "extract";
 
 /** Normalized role value after resolving string | object union. */
 type ResolvedRole = {
@@ -50,15 +52,23 @@ interface OAuthProviderState {
   accountId?: string;
 }
 
+/** Legacy roles object built from new config shape for backward compatibility. */
+type LegacyRoles = { default: RoleValue; [key: string]: RoleValue | undefined };
+
 export class ModelRegistry {
   private providers: LLMConfig["providers"];
-  private roles: LLMConfig["roles"];
+  private roles: LegacyRoles;
   private cache = new Map<string, LanguageModel>();
   private oauthState = new Map<string, OAuthProviderState>();
 
   constructor(llmConfig: LLMConfig) {
     this.providers = llmConfig.providers;
-    this.roles = llmConfig.roles;
+    // Build legacy roles from new default + tiers config
+    // TODO(tier-models): Replace with tier-based API in Task 2
+    this.roles = {
+      default: llmConfig.default,
+      ...(llmConfig.tiers as Record<string, RoleValue | undefined>),
+    };
   }
 
   /** Set Codex OAuth credentials, base URL, and credential path for auto-refresh. */

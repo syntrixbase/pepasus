@@ -220,7 +220,7 @@ export class Agent {
       memoryDir: path.join(this.settings.dataDir, "memory"),
       contextWindowSize: getContextWindowSize(
         (deps.reflectionModel ?? deps.model).modelId,
-        _getRoleContextWindow(this.settings.llm.roles.reflection) ?? this.settings.llm.contextWindow,
+        _getRoleContextWindow(this.settings.llm.tiers.fast) ?? this.settings.llm.contextWindow,
       ),
     });
   }

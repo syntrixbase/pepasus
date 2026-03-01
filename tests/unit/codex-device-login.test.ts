@@ -44,7 +44,8 @@ function createMockModel(): LanguageModel {
 function createMockModelRegistry(model: LanguageModel): ModelRegistry {
   const llmConfig: LLMConfig = {
     providers: { test: { type: "openai", apiKey: "dummy", baseURL: undefined } },
-    roles: { default: "test/test-model", subAgent: undefined, compact: undefined, reflection: undefined },
+    default: "test/test-model",
+    tiers: {},
     codex: { enabled: false, baseURL: "https://chatgpt.com/backend-api", model: "gpt-5.3-codex" },
     copilot: { enabled: false },
     maxConcurrentCalls: 3,
@@ -77,7 +78,7 @@ describe("OAuth credential loading", () => {
     const settings = SettingsSchema.parse({
       llm: {
         providers: { test: { type: "openai", apiKey: "dummy" } },
-        roles: { default: "test/test-model" },
+        default: "test/test-model",
       },
       dataDir,
       authDir,
