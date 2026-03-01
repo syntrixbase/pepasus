@@ -114,6 +114,14 @@ export const sessionTools: Tool[] = [
   session_archive_read,
 ];
 
+// Background tools (meta tools for background execution)
+import * as backgroundToolsModule from "./background-tools.ts";
+const bg_run = backgroundToolsModule.bg_run;
+const bg_output = backgroundToolsModule.bg_output;
+const bg_stop = backgroundToolsModule.bg_stop;
+
+export { bg_run, bg_output, bg_stop };
+
 // Re-export all tools as arrays
 
 /** System tools available to Task System. */
@@ -160,6 +168,12 @@ export const taskTools: Tool[] = [
   task_replay,
 ];
 
+export const backgroundTools: Tool[] = [
+  bg_run,
+  bg_output,
+  bg_stop,
+];
+
 /** All tools for Task System (does NOT include spawn_subagent or reply — those are Main Agent only). */
 export const allTaskTools: Tool[] = [
   ...systemTools,
@@ -168,6 +182,7 @@ export const allTaskTools: Tool[] = [
   ...dataTools,
   ...memoryTools,
   ...taskTools,
+  ...backgroundTools,
   notify,
 ];
 

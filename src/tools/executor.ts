@@ -20,6 +20,7 @@ import {
 } from "./errors.ts";
 import { EventType as ET, createEvent } from "../events/types.ts";
 import { getLogger } from "../infra/logger.ts";
+import { MAX_TOOL_TIMEOUT } from "./background.ts";
 
 const logger = getLogger("tools.executor");
 
@@ -41,6 +42,7 @@ export class ToolExecutor {
     toolName: string,
     params: unknown,
     context: ToolContext,
+    options?: { timeout?: number },
   ): Promise<ToolResult> {
     const startedAt = Date.now();
 
@@ -68,11 +70,16 @@ export class ToolExecutor {
       // Validate parameters
       const validatedParams = (tool as { parameters: { parse: (p: unknown) => unknown } }).parameters.parse(params);
 
-      // Execute with timeout
+      // Execute with timeout (per-call override takes precedence, capped at MAX_TOOL_TIMEOUT)
+      const effectiveTimeout = options?.timeout
+        ? Math.min(options.timeout, MAX_TOOL_TIMEOUT)
+        : this.timeout;
+
       const result = await this.executeWithTimeout(
         tool as { execute: (params: unknown, context: ToolContext) => Promise<ToolResult>; name: string },
         validatedParams,
         context,
+        effectiveTimeout,
       );
 
       const durationMs = Date.now() - startedAt;
@@ -151,11 +158,12 @@ export class ToolExecutor {
     tool: { execute: (params: unknown, context: ToolContext) => Promise<ToolResult>; name: string },
     params: unknown,
     context: ToolContext,
+    timeout: number,
   ): Promise<ToolResult> {
     const resultPromise = tool.execute(params, context);
     let timerId: ReturnType<typeof setTimeout>;
     const timeoutPromise = new Promise<ToolResult>((_, reject) => {
-      timerId = setTimeout(() => reject(new ToolTimeoutError(tool.name, this.timeout)), this.timeout);
+      timerId = setTimeout(() => reject(new ToolTimeoutError(tool.name, timeout)), timeout);
     });
 
     try {

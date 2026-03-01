@@ -26,6 +26,7 @@ import { currentStep, markStepDone, prepareContextForResume } from "../task/cont
 import type { TaskContext } from "../task/context.ts";
 import { ToolRegistry } from "../tools/registry.ts";
 import { ToolExecutor } from "../tools/executor.ts";
+import { BackgroundTaskManager } from "../tools/background.ts";
 import type { ToolResult } from "../tools/types.ts";
 import { allBuiltInTools, reflectionTools, allTaskTools } from "../tools/builtins/index.ts";
 import type { SubagentRegistry } from "../subagents/index.ts";
@@ -153,6 +154,7 @@ export class Agent {
   private subagentRegistry: SubagentRegistry | null = null;
   private extractModel: LanguageModel | null = null;
   private modelRegistry: ModelRegistry | null = null;
+  private backgroundTaskManager: BackgroundTaskManager;
 
   constructor(deps: AgentDeps) {
     this.settings = deps.settings ?? getSettings();
@@ -197,6 +199,7 @@ export class Agent {
       (this.settings.tools?.timeout ?? 30) * 1000,
     );
     this.toolExecutor = toolExecutor;
+    this.backgroundTaskManager = new BackgroundTaskManager(toolExecutor);
 
     // Task persistence (side-effect: subscribes to EventBus)
     new TaskPersister(this.eventBus, this.taskRegistry, this.settings.dataDir);
@@ -558,7 +561,7 @@ export class Agent {
         const toolResult = await this.toolExecutor.execute(
           toolName,
           toolParams,
-          { taskId: task.context.id, memoryDir: path.join(this.settings.dataDir, "memory"), extractModel: this.extractModel ?? undefined },
+          { taskId: task.context.id, memoryDir: path.join(this.settings.dataDir, "memory"), extractModel: this.extractModel ?? undefined, backgroundManager: this.backgroundTaskManager },
         );
 
         // Push tool result message to context
