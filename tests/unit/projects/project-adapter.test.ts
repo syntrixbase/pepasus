@@ -78,7 +78,7 @@ describe("ProjectAdapter", () => {
   it("setModelRegistry should accept a ModelRegistry", () => {
     const adapter = new ProjectAdapter();
     // Just verify it doesn't throw — we pass a mock object
-    const mockRegistry = { get: () => ({}) } as any;
+    const mockRegistry = { get: () => ({}), getContextWindow: () => undefined } as any;
     adapter.setModelRegistry(mockRegistry);
     // No assertion needed — if it doesn't throw, it works
   });
@@ -143,7 +143,7 @@ describe("ProjectAdapter", () => {
         return stubResult;
       },
     };
-    const mockRegistry = { get: () => mockModel } as unknown as ModelRegistry;
+    const mockRegistry = { get: () => mockModel, getContextWindow: () => undefined } as unknown as ModelRegistry;
     adapter.setModelRegistry(mockRegistry);
 
     await adapter._handleLLMRequest("test-proj", {
@@ -177,7 +177,7 @@ describe("ProjectAdapter", () => {
         throw new Error("LLM service unavailable");
       },
     };
-    const mockRegistry = { get: () => mockModel } as unknown as ModelRegistry;
+    const mockRegistry = { get: () => mockModel, getContextWindow: () => undefined } as unknown as ModelRegistry;
     adapter.setModelRegistry(mockRegistry);
 
     await adapter._handleLLMRequest("test-proj", {
@@ -211,7 +211,7 @@ describe("ProjectAdapter", () => {
         throw "raw string error";
       },
     };
-    const mockRegistry = { get: () => mockModel } as unknown as ModelRegistry;
+    const mockRegistry = { get: () => mockModel, getContextWindow: () => undefined } as unknown as ModelRegistry;
     adapter.setModelRegistry(mockRegistry);
 
     await adapter._handleLLMRequest("test-proj", {
@@ -309,7 +309,7 @@ describe("ProjectAdapter — worker event handlers (mocked Worker)", () => {
           return stubResult;
         },
       };
-      const mockRegistry = { get: () => mockModel } as unknown as ModelRegistry;
+      const mockRegistry = { get: () => mockModel, getContextWindow: () => undefined } as unknown as ModelRegistry;
       adapter.setModelRegistry(mockRegistry);
 
       // startProject creates a FakeWorker and registers onmessage/onerror

@@ -660,7 +660,7 @@ export class MainAgent {
   private async _checkAndCompact(): Promise<boolean> {
     const contextWindow = getContextWindowSize(
       this.models.getModelId("default"),
-      this.settings.llm.contextWindow,
+      this.models.getContextWindow("default") ?? this.settings.llm.contextWindow,
     );
     const threshold = this.settings.session?.compactThreshold ?? 0.8;
     const maxTokens = contextWindow * threshold;
@@ -919,7 +919,7 @@ export class MainAgent {
     // Get skill metadata with budget
     const contextWindow = getContextWindowSize(
       this.models.getModelId("default"),
-      this.settings.llm.contextWindow,
+      this.models.getContextWindow("default") ?? this.settings.llm.contextWindow,
     );
     const skillBudget = Math.max(Math.floor(contextWindow * 0.02 * 4), 16_000);
     const skillMetadata = this.skillRegistry.getMetadataForPrompt(skillBudget);

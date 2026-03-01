@@ -64,8 +64,34 @@ llm:
       apiKey: dummy
       baseURL: ${OLLAMA_BASE_URL:-http://localhost:11434/v1}
 
-  # Role → model mapping (format: "provider/model")
-  # Roles without a value fall back to "default"
+  # Role → model mapping
+  # Each role can be either a shorthand string or an object with extra options.
+  #
+  # Shorthand (string):
+  #   roleName: provider/model
+  #
+  # Extended (object):
+  #   roleName:
+  #     model: provider/model            # required
+  #     contextWindow: 128000            # optional — override auto-detected context window size
+  #     apiType: openai                  # optional — override provider's SDK type (openai | anthropic)
+  #
+  # Roles without a value fall back to "default".
+  #
+  # Context window resolution priority:
+  #   Per-role contextWindow > Global llm.contextWindow > Auto-detect from model > 128k default
+  #
+  # Examples:
+  #   roles:
+  #     default: openai/gpt-4o                              # shorthand
+  #     subAgent:
+  #       model: myhost/claude-sonnet-4                     # custom provider
+  #       contextWindow: 200000                             # explicit context window
+  #       apiType: anthropic                                # override SDK type
+  #     compact: openai/gpt-4o-mini                         # shorthand
+  #     reflection:
+  #       model: openai/gpt-4o-mini
+  #       contextWindow: 16000                              # smaller window for cost savings
   roles:
     default: ${LLM_DEFAULT_MODEL:-openai/gpt-4o}
     subAgent: ${LLM_SUB_AGENT_MODEL:-}
@@ -76,7 +102,8 @@ llm:
   maxConcurrentCalls: ${LLM_MAX_CONCURRENT_CALLS:-3}
   timeout: ${LLM_TIMEOUT:-120}  # seconds
 
-  # Context window size (tokens). Auto-detected from model if not set.
+  # Global context window size (tokens). Auto-detected from model if not set.
+  # Acts as fallback when per-role contextWindow is not configured.
   # Override when using providers with different context limits (e.g. OpenRouter).
   contextWindow: ${LLM_CONTEXT_WINDOW:-}
 

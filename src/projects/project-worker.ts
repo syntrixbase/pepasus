@@ -32,7 +32,7 @@ self.onmessage = async (event: MessageEvent) => {
 
   switch (data.type) {
     case "init":
-      await handleInit(data.projectPath as string);
+      await handleInit(data.projectPath as string, data.contextWindow as number | undefined);
       break;
 
     case "message":
@@ -55,7 +55,7 @@ self.onmessage = async (event: MessageEvent) => {
 
 // ── Handlers ─────────────────────────────────────────
 
-async function handleInit(projectPath: string): Promise<void> {
+async function handleInit(projectPath: string, contextWindow?: number): Promise<void> {
   try {
     // 1. Load global settings
     const settings = getSettings();
@@ -74,7 +74,9 @@ async function handleInit(projectPath: string): Promise<void> {
     }
 
     // 3. Create ProxyLanguageModel — LLM calls go to main thread
-    const modelId = projectDef.model ?? settings.llm.roles.default;
+    const defaultRole = settings.llm.roles.default;
+    const defaultModelSpec = typeof defaultRole === "string" ? defaultRole : defaultRole.model;
+    const modelId = projectDef.model ?? defaultModelSpec;
     proxyModel = new ProxyLanguageModel(
       "proxy",
       modelId,
@@ -90,10 +92,13 @@ async function handleInit(projectPath: string): Promise<void> {
       values: ["accuracy", "efficiency"],
     };
 
-    // 5. Override settings: dataDir → projectPath
+    // 5. Override settings: dataDir → projectPath, inject contextWindow if provided
     const projectSettings: Settings = {
       ...settings,
       dataDir: projectPath,
+      ...(contextWindow != null && {
+        llm: { ...settings.llm, contextWindow },
+      }),
     };
 
     // 6. Create Agent

@@ -12,11 +12,21 @@ export const ProviderConfigSchema = z.object({
   baseURL: z.string().optional(),
 });
 
+// Role value: shorthand string "provider/model" or object { model, contextWindow?, apiType? }
+export const RoleValueSchema = z.union([
+  z.string(),
+  z.object({
+    model: z.string(),
+    contextWindow: z.coerce.number().int().positive().optional(),
+    apiType: z.enum(["openai", "anthropic"]).optional(),
+  }),
+]);
+
 export const RolesConfigSchema = z.object({
-  default: z.string(),                    // required: "provider/model"
-  subAgent: z.string().optional(),
-  compact: z.string().optional(),
-  reflection: z.string().optional(),
+  default: RoleValueSchema,               // required: "provider/model" or { model, contextWindow? }
+  subAgent: RoleValueSchema.optional(),
+  compact: RoleValueSchema.optional(),
+  reflection: RoleValueSchema.optional(),
 });
 
 export const CodexConfigSchema = z.object({
@@ -171,6 +181,7 @@ export type LLMConfig = z.infer<typeof LLMConfigSchema>;
 export type CodexConfig = z.infer<typeof CodexConfigSchema>;
 export type CopilotConfig = z.infer<typeof CopilotConfigSchema>;
 export type ProviderConfig = z.infer<typeof ProviderConfigSchema>;
+export type RoleValue = z.infer<typeof RoleValueSchema>;
 export type RolesConfig = z.infer<typeof RolesConfigSchema>;
 export type MemoryConfig = z.infer<typeof MemoryConfigSchema>;
 export type AgentConfig = z.infer<typeof AgentConfigSchema>;

@@ -24,7 +24,7 @@ type WorkerOutbound =
 
 /** Messages sent from Main thread → Worker. */
 type WorkerInbound =
-  | { type: "init"; projectPath: string }
+  | { type: "init"; projectPath: string; contextWindow?: number }
   | { type: "message"; message: OutboundMessage }
   | { type: "shutdown" }
   | { type: "llm_response"; requestId: string; result: unknown }
@@ -133,8 +133,13 @@ export class ProjectAdapter implements ChannelAdapter {
 
     this.workers.set(projectId, worker);
 
-    // Initialize the Worker with the project path
-    const initMsg: WorkerInbound = { type: "init", projectPath };
+    // Initialize the Worker with the project path and resolved contextWindow
+    const contextWindow = this.models?.getContextWindow("subAgent");
+    const initMsg: WorkerInbound = {
+      type: "init",
+      projectPath,
+      ...(contextWindow != null && { contextWindow }),
+    };
     worker.postMessage(initMsg);
 
     logger.info({ projectId, projectPath }, "worker_started");
