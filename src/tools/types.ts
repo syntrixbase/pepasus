@@ -5,6 +5,7 @@
 import { z } from "zod";
 import path from "node:path";
 import type { LanguageModel } from "../infra/llm-types.ts";
+import type { BackgroundTaskManager } from "./background.ts";
 
 // ── ToolCategory ─────────────────────────────────────
 
@@ -65,6 +66,7 @@ export interface ToolContext {
   sessionDir?: string;
   projectManager?: unknown; // ProjectManager — used by project tools (loosely typed to avoid circular imports)
   extractModel?: LanguageModel; // Small model for content extraction (web_fetch)
+  backgroundManager?: BackgroundTaskManager; // Background task execution manager (bg_run/bg_output/bg_stop)
 }
 
 // ── ToolStats ─────────────────────────────────
