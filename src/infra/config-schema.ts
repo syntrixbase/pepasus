@@ -40,6 +40,7 @@ export const RolesConfigSchema = z.object({
   subAgent: RoleValueSchema.optional(),
   compact: RoleValueSchema.optional(),
   reflection: RoleValueSchema.optional(),
+  extract: RoleValueSchema.optional(),
 });
 
 export const CodexConfigSchema = z.object({

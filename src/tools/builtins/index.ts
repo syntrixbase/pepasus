@@ -32,8 +32,9 @@ const http_get = networkToolsModule.http_get;
 const http_post = networkToolsModule.http_post;
 const http_request = networkToolsModule.http_request;
 const web_search = networkToolsModule.web_search;
+const web_fetch = networkToolsModule.web_fetch;
 
-export { http_get, http_post, http_request, web_search };
+export { http_get, http_post, http_request, web_search, web_fetch };
 
 // Data tools
 import * as dataToolsModule from "./data-tools.ts";
@@ -135,9 +136,7 @@ export const fileTools: Tool[] = [
 ];
 
 export const networkTools: Tool[] = [
-  http_get,
-  http_post,
-  http_request,
+  web_fetch,
   web_search,
 ];
 
