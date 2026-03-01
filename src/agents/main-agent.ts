@@ -30,7 +30,6 @@ import path from "node:path";
 import { SkillRegistry, loadAllSkills } from "../skills/index.ts";
 import { SubagentRegistry, loadAllSubagents } from "../subagents/index.ts";
 import {
-  loginOpenAICodex,
   refreshOpenAICodexToken,
   loginGitHubCopilot,
   refreshGitHubCopilotToken,
@@ -38,6 +37,7 @@ import {
   type OAuthCredentials,
 } from "@mariozechner/pi-ai";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { loginCodexDeviceCode } from "../infra/codex-device-login.ts";
 import { ProjectManager } from "../projects/manager.ts";
 import { ProjectAdapter } from "../projects/project-adapter.ts";
 
@@ -786,7 +786,8 @@ export class MainAgent {
   /**
    * Async Codex auth — runs device code login if sync load didn't find credentials.
    * Called from start() so it can do async operations (token refresh, interactive login).
-   * Uses pi-ai's loginOpenAICodex and refreshOpenAICodexToken.
+   * Uses our own loginCodexDeviceCode (device code flow, headless-friendly)
+   * and pi-ai's refreshOpenAICodexToken for token refresh.
    */
   private async _initCodexAuth(): Promise<void> {
     const codexConfig = this.settings.llm?.codex;
@@ -812,22 +813,7 @@ export class MainAgent {
       if (!creds) {
         // No valid credentials → interactive device code login
         logger.info("codex_device_code_login_required");
-        creds = await loginOpenAICodex({
-          onAuth: (info) => {
-            console.log(`\nOpen ${info.url}`);
-            if (info.instructions) console.log(info.instructions);
-            console.log("(expires in 15 minutes)\n");
-          },
-          onPrompt: async (prompt) => {
-            console.log(prompt.message);
-            // In non-interactive mode, this will block. In CLI mode the user
-            // is expected to complete the browser flow.
-            return "";
-          },
-          onProgress: (message) => {
-            logger.info({ message }, "codex_login_progress");
-          },
-        });
+        creds = await loginCodexDeviceCode();
         this._saveOAuthCredentials(this._codexCredPath, creds);
       }
 
@@ -919,14 +905,36 @@ export class MainAgent {
 
   // ── OAuth credential file helpers ──
 
-  /** Load OAuth credentials from a JSON file. Returns null if not found or invalid. */
+  /** Load OAuth credentials from a JSON file. Returns null if not found or invalid.
+   *  Supports both pi-ai format { access, refresh, expires } and
+   *  old Pegasus format { accessToken, refreshToken, expiresAt, accountId }.
+   */
   private _loadOAuthCredentials(credPath: string): OAuthCredentials | null {
     if (!existsSync(credPath)) return null;
     try {
       const content = readFileSync(credPath, "utf-8");
-      const creds = JSON.parse(content) as OAuthCredentials;
-      if (!creds.access || !creds.refresh) return null;
-      return creds;
+      const raw = JSON.parse(content) as Record<string, unknown>;
+
+      // Support new pi-ai format: { access, refresh, expires }
+      if (typeof raw.access === "string" && typeof raw.refresh === "string") {
+        return raw as unknown as OAuthCredentials;
+      }
+
+      // Support old Pegasus format: { accessToken, refreshToken, expiresAt, accountId }
+      if (typeof raw.accessToken === "string" && typeof raw.refreshToken === "string") {
+        const converted: OAuthCredentials = {
+          access: raw.accessToken as string,
+          refresh: raw.refreshToken as string,
+          expires: (raw.expiresAt as number) ?? 0,
+        };
+        // Preserve accountId if present (Codex needs it)
+        if (raw.accountId) {
+          converted.accountId = raw.accountId;
+        }
+        return converted;
+      }
+
+      return null;
     } catch {
       return null;
     }
