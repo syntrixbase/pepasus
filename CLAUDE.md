@@ -56,6 +56,7 @@ When implementing new features:
 
 ## Documentation
 
-- `README.md` is the project entry point. See it for the full documentation map.
+- `README.md` is the project introduction (capabilities and features).
+- `docs/README.md` is the technical entry point. See it for architecture, project structure, and the full documentation map.
 - `docs/` — persistent system design docs: architecture decisions, the "Why" behind designs. Survives implementation.
 - `docs/plans/` — disposable implementation plans: step-by-step task lists, checklists. Gitignored. Delete after execution.
