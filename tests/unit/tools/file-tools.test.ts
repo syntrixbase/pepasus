@@ -21,21 +21,21 @@ describe("file tools", () => {
   });
 
   describe("read_file", () => {
-    it("should read file content", async () => {
+    it("should read file content with line numbers", async () => {
       const context = { taskId: "test-task-id" };
       const filePath = `${testDir}/test.txt`;
 
-      // Create test file
       await Bun.write(filePath, "test content");
 
       const result = await read_file.execute({ path: filePath }, context);
 
       expect(result.success).toBe(true);
-      expect((result.result as { content: string; size: number }).content).toBe("test content");
-      expect((result.result as { content: string; size: number }).size).toBeGreaterThan(0);
-
-      // Clean up this test's file
-      await rm(filePath, { force: true }).catch(() => {});
+      const r = result.result as { content: string; size: number; totalLines: number; linesReturned: number };
+      // Line-numbered format: "1\ttest content"
+      expect(r.content).toBe("1\ttest content");
+      expect(r.size).toBeGreaterThan(0);
+      expect(r.totalLines).toBe(1);
+      expect(r.linesReturned).toBe(1);
     });
 
     it("should fail on non-existent file", async () => {
@@ -56,7 +56,7 @@ describe("file tools", () => {
       expect(result.error).toContain("not in allowed paths");
     });
 
-    it("should read with offset and limit", async () => {
+    it("should read with offset and limit (line-numbered)", async () => {
       const context = { taskId: "test-task-id" };
       const filePath = `${testDir}/lines.txt`;
       const lines = ["line0", "line1", "line2", "line3", "line4"];
@@ -65,15 +65,15 @@ describe("file tools", () => {
       const result = await read_file.execute({ path: filePath, offset: 1, limit: 2 }, context);
 
       expect(result.success).toBe(true);
-      const r = result.result as { content: string; totalLines: number; offset: number; limit: number; truncated: boolean };
-      expect(r.content).toBe("line1\nline2");
+      const r = result.result as { content: string; totalLines: number; offset: number; linesReturned: number; truncated: boolean };
+      expect(r.content).toBe("2\tline1\n3\tline2");
       expect(r.totalLines).toBe(5);
       expect(r.offset).toBe(1);
-      expect(r.limit).toBe(2);
+      expect(r.linesReturned).toBe(2);
       expect(r.truncated).toBe(true);
     });
 
-    it("should read with offset only (to end)", async () => {
+    it("should read with offset only (to default max)", async () => {
       const context = { taskId: "test-task-id" };
       const filePath = `${testDir}/lines-offset.txt`;
       const lines = ["a", "b", "c", "d"];
@@ -83,7 +83,7 @@ describe("file tools", () => {
 
       expect(result.success).toBe(true);
       const r = result.result as { content: string; totalLines: number; offset: number; truncated: boolean };
-      expect(r.content).toBe("c\nd");
+      expect(r.content).toBe("3\tc\n4\td");
       expect(r.offset).toBe(2);
       expect(r.truncated).toBe(false);
     });
@@ -97,14 +97,14 @@ describe("file tools", () => {
       const result = await read_file.execute({ path: filePath, limit: 2 }, context);
 
       expect(result.success).toBe(true);
-      const r = result.result as { content: string; totalLines: number; offset: number; limit: number; truncated: boolean };
-      expect(r.content).toBe("x\ny");
+      const r = result.result as { content: string; totalLines: number; offset: number; linesReturned: number; truncated: boolean };
+      expect(r.content).toBe("1\tx\n2\ty");
       expect(r.offset).toBe(0);
-      expect(r.limit).toBe(2);
+      expect(r.linesReturned).toBe(2);
       expect(r.truncated).toBe(true);
     });
 
-    it("should return full content when no offset/limit (backward compatible)", async () => {
+    it("should always include totalLines and linesReturned", async () => {
       const context = { taskId: "test-task-id" };
       const filePath = `${testDir}/full.txt`;
       await Bun.write(filePath, "full content here");
@@ -112,10 +112,60 @@ describe("file tools", () => {
       const result = await read_file.execute({ path: filePath }, context);
 
       expect(result.success).toBe(true);
-      const r = result.result as { content: string; totalLines?: number };
-      expect(r.content).toBe("full content here");
-      // Should NOT have totalLines when no offset/limit
-      expect(r.totalLines).toBeUndefined();
+      const r = result.result as { content: string; totalLines: number; linesReturned: number; truncated: boolean };
+      expect(r.content).toBe("1\tfull content here");
+      expect(r.totalLines).toBe(1);
+      expect(r.linesReturned).toBe(1);
+      expect(r.truncated).toBe(false);
+    });
+
+    it("should default to 2000-line limit for large files", async () => {
+      const context = { taskId: "test-task-id" };
+      const filePath = `${testDir}/large.txt`;
+      // Create a file with 3000 lines
+      const lines = Array.from({ length: 3000 }, (_, i) => `line ${i}`);
+      await Bun.write(filePath, lines.join("\n"));
+
+      const result = await read_file.execute({ path: filePath }, context);
+
+      expect(result.success).toBe(true);
+      const r = result.result as { totalLines: number; linesReturned: number; truncated: boolean; notice: string };
+      expect(r.totalLines).toBe(3000);
+      expect(r.linesReturned).toBe(2000);
+      expect(r.truncated).toBe(true);
+      expect(r.notice).toContain("3000 lines");
+      expect(r.notice).toContain("offset and limit");
+    });
+
+    it("should truncate long lines at 2000 characters", async () => {
+      const context = { taskId: "test-task-id" };
+      const filePath = `${testDir}/longline.txt`;
+      const longLine = "x".repeat(3000);
+      await Bun.write(filePath, longLine);
+
+      const result = await read_file.execute({ path: filePath }, context);
+
+      expect(result.success).toBe(true);
+      const r = result.result as { content: string };
+      // "1\t" + 2000 chars + "…"
+      const content = r.content;
+      expect(content.startsWith("1\t")).toBe(true);
+      const lineContent = content.slice(2); // strip "1\t"
+      expect(lineContent.length).toBe(2001); // 2000 + "…"
+      expect(lineContent.endsWith("…")).toBe(true);
+    });
+
+    it("should not include notice when file fits within limit", async () => {
+      const context = { taskId: "test-task-id" };
+      const filePath = `${testDir}/small.txt`;
+      await Bun.write(filePath, "short\nfile");
+
+      const result = await read_file.execute({ path: filePath }, context);
+
+      expect(result.success).toBe(true);
+      const r = result.result as Record<string, unknown>;
+      expect(r.notice).toBeUndefined();
+      expect(r.truncated).toBe(false);
     });
 
     it("should return empty content when offset is beyond file length", async () => {

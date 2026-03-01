@@ -11,15 +11,21 @@ import { rm, readdir, access, stat as fsStat } from "node:fs/promises";
 
 // ── read_file ──────────────────────────────────
 
+/** Default max lines returned when no limit is specified. */
+const READ_FILE_DEFAULT_MAX_LINES = 2000;
+/** Max characters per line before truncation. */
+const READ_FILE_MAX_LINE_LENGTH = 2000;
+
 export const read_file: Tool = {
   name: "read_file",
-  description: "Read content of a file",
+  description: "Read content of a file. Returns line-numbered output (up to 2000 lines by default). "
+    + "Use offset and limit to paginate through large files.",
   category: "file" as ToolCategory,
   parameters: z.object({
     path: z.string().describe("File path to read"),
     encoding: z.string().optional().default("utf-8").describe("File encoding"),
     offset: z.coerce.number().int().min(0).optional().describe("Start reading from this line number (0-based)"),
-    limit: z.coerce.number().int().positive().optional().describe("Maximum number of lines to return"),
+    limit: z.coerce.number().int().positive().optional().describe("Maximum number of lines to return (default: 2000)"),
   }),
   async execute(params: unknown, context: ToolContext): Promise<ToolResult> {
     const startedAt = Date.now();
@@ -41,47 +47,51 @@ export const read_file: Tool = {
 
       // Read file
       const filePath = normalizePath(originalPath);
-      let content = await Bun.file(filePath).text();
-
-      // Get file stats
+      const raw = await Bun.file(filePath).text();
       const stat = await Bun.file(filePath).stat();
+      const allLines = raw.split("\n");
+      const totalLines = allLines.length;
 
-      // Apply offset/limit if provided
-      if (offset !== undefined || limit !== undefined) {
-        const lines = content.split("\n");
-        const totalLines = lines.length;
-        const startLine = offset ?? 0;
-        const endLine = limit !== undefined ? startLine + limit : totalLines;
-        const sliced = lines.slice(startLine, endLine);
-        const truncated = endLine < totalLines;
-        content = sliced.join("\n");
+      // Apply offset/limit — always enforce a default max
+      const startLine = offset ?? 0;
+      const effectiveLimit = limit ?? READ_FILE_DEFAULT_MAX_LINES;
+      const endLine = Math.min(startLine + effectiveLimit, totalLines);
+      const sliced = allLines.slice(startLine, endLine);
 
-        return {
-          success: true,
-          result: {
-            path: filePath,
-            content,
-            size: stat.size,
-            encoding,
-            totalLines,
-            offset: startLine,
-            limit: limit ?? null,
-            truncated,
-          },
-          startedAt,
-          completedAt: Date.now(),
-          durationMs: Date.now() - startedAt,
-        };
+      // Format: line-numbered output with per-line truncation
+      const formatted = sliced.map((line, i) => {
+        const lineNum = startLine + i + 1; // 1-based
+        const truncatedLine = line.length > READ_FILE_MAX_LINE_LENGTH
+          ? line.slice(0, READ_FILE_MAX_LINE_LENGTH) + "…"
+          : line;
+        return `${lineNum}\t${truncatedLine}`;
+      });
+
+      const content = formatted.join("\n");
+      const truncated = endLine < totalLines;
+
+      // Build result
+      const result: Record<string, unknown> = {
+        path: filePath,
+        content,
+        size: stat.size,
+        encoding,
+        totalLines,
+        linesReturned: sliced.length,
+        offset: startLine,
+        truncated,
+      };
+
+      // When truncated, append a notice guiding the LLM
+      if (truncated) {
+        result.notice = `File has ${totalLines} lines. `
+          + `Showing lines ${startLine + 1}-${endLine}. `
+          + `Use offset and limit to read other sections.`;
       }
 
       return {
         success: true,
-        result: {
-          path: filePath,
-          content,
-          size: stat.size,
-          encoding,
-        },
+        result,
         startedAt,
         completedAt: Date.now(),
         durationMs: Date.now() - startedAt,

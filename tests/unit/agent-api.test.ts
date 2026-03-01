@@ -299,4 +299,46 @@ describe("context_pushToolResult", () => {
     expect(msg.content).toMatch(/^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\]/);
     expect(msg.content).toContain('"ok"');
   });
+
+  test("truncates oversized tool results at 50k chars", () => {
+    const context = createTaskContext({ id: "test-trunc" });
+
+    // Create a result that exceeds 50k chars when JSON-stringified
+    const hugeContent = "x".repeat(60_000);
+    const toolResult: ToolResult = {
+      success: true,
+      result: { content: hugeContent },
+      startedAt: Date.now(),
+      completedAt: Date.now(),
+      durationMs: 10,
+    };
+
+    context_pushToolResult(context, "call_huge", toolResult);
+
+    const msg = context.messages[0]!;
+    // Should be truncated — total content must be under raw 50k + timestamp overhead
+    expect(msg.content.length).toBeLessThan(52_000);
+    expect(msg.content).toContain("[RESULT TRUNCATED");
+    expect(msg.content).toContain("50,000 chars");
+    expect(msg.content).toContain("more specific queries");
+  });
+
+  test("does not truncate tool results under 50k chars", () => {
+    const context = createTaskContext({ id: "test-no-trunc" });
+
+    const smallContent = "y".repeat(1_000);
+    const toolResult: ToolResult = {
+      success: true,
+      result: { content: smallContent },
+      startedAt: Date.now(),
+      completedAt: Date.now(),
+      durationMs: 5,
+    };
+
+    context_pushToolResult(context, "call_small", toolResult);
+
+    const msg = context.messages[0]!;
+    expect(msg.content).not.toContain("[RESULT TRUNCATED");
+    expect(msg.content).toContain(smallContent);
+  });
 });
