@@ -145,6 +145,7 @@ export class MainAgent {
       this.agent = new Agent({
         model: this.models.get("subAgent"),
         reflectionModel: this.models.get("reflection"),
+        extractModel: this.models.get("extract"),
         persona: this.persona,
         settings: this.settings,
       });

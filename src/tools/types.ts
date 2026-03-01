@@ -4,6 +4,7 @@
 
 import { z } from "zod";
 import path from "node:path";
+import type { LanguageModel } from "../infra/llm-types.ts";
 
 // ── ToolCategory ─────────────────────────────────────
 
@@ -63,6 +64,7 @@ export interface ToolContext {
   memoryDir?: string;
   sessionDir?: string;
   projectManager?: unknown; // ProjectManager — used by project tools (loosely typed to avoid circular imports)
+  extractModel?: LanguageModel; // Small model for content extraction (web_fetch)
 }
 
 // ── ToolStats ─────────────────────────────────

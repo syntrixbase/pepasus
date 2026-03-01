@@ -127,6 +127,7 @@ class Semaphore {
 export interface AgentDeps {
   model: LanguageModel;
   reflectionModel?: LanguageModel;
+  extractModel?: LanguageModel;
   persona: Persona;
   settings?: Settings;
   subagentRegistry?: SubagentRegistry;
@@ -157,6 +158,7 @@ export class Agent {
   private settings: Settings;
   private notifyCallback: ((notification: TaskNotification) => void) | null = null;
   private subagentRegistry: SubagentRegistry | null = null;
+  private extractModel: LanguageModel | null = null;
 
   constructor(deps: AgentDeps) {
     this.settings = deps.settings ?? getSettings();
@@ -172,6 +174,7 @@ export class Agent {
     // Per-type registries for LLM tool visibility + execution validation
     this.typeToolRegistries = new Map();
     this.subagentRegistry = deps.subagentRegistry ?? null;
+    this.extractModel = deps.extractModel ?? null;
     if (this.subagentRegistry) {
       // Build from SubagentRegistry definitions
       const allToolMap = new Map(allTaskTools.map((t) => [t.name, t]));
@@ -447,7 +450,7 @@ export class Agent {
         const memResult = await this.toolExecutor.execute(
           "memory_list",
           {},
-          { taskId: task.context.id, memoryDir: path.join(this.settings.dataDir, "memory") },
+          { taskId: task.context.id, memoryDir: path.join(this.settings.dataDir, "memory"), extractModel: this.extractModel ?? undefined },
         );
         if (memResult.success && Array.isArray(memResult.result)) {
           memoryIndex = memResult.result as MemoryIndexEntry[];
@@ -553,7 +556,7 @@ export class Agent {
         const toolResult = await this.toolExecutor.execute(
           toolName,
           toolParams,
-          { taskId: task.context.id, memoryDir: path.join(this.settings.dataDir, "memory") },
+          { taskId: task.context.id, memoryDir: path.join(this.settings.dataDir, "memory"), extractModel: this.extractModel ?? undefined },
         );
 
         // Push tool result message to context

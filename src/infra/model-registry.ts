@@ -20,7 +20,7 @@ import { getLogger } from "./logger.ts";
 
 const logger = getLogger("model_registry");
 
-export type ModelRole = "default" | "subAgent" | "compact" | "reflection";
+export type ModelRole = "default" | "subAgent" | "compact" | "reflection" | "extract";
 
 /** Normalized role value after resolving string | object union. */
 type ResolvedRole = {

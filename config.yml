@@ -92,11 +92,13 @@ llm:
   #     reflection:
   #       model: openai/gpt-4o-mini
   #       contextWindow: 16000                              # smaller window for cost savings
+  #     extract: openai/gpt-4o-mini                          # web_fetch AI extraction
   roles:
     default: ${LLM_DEFAULT_MODEL:-openai/gpt-4o}
     subAgent: ${LLM_SUB_AGENT_MODEL:-}
     compact: ${LLM_COMPACT_MODEL:-}
     reflection: ${LLM_REFLECTION_MODEL:-}
+    extract: ${LLM_EXTRACT_MODEL:-}                          # small model for web_fetch content extraction
 
   # Concurrent request settings
   maxConcurrentCalls: ${LLM_MAX_CONCURRENT_CALLS:-3}
