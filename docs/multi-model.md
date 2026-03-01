@@ -1,190 +1,149 @@
-# Multi-Model Support: Per-Role Model Configuration
+# Tier-Based Model Selection
 
 ## Why
 
-Single-model architecture wastes money and limits flexibility:
-- Compact (summarize history) doesn't need opus — flash/mini is fine
-- Reflection (extract memory) is fire-and-forget — cheapest model works
-- Sub-Agent tasks vary in complexity — some need strong models, some don't
-- Users may want MainAgent on Anthropic but sub-tasks on OpenAI
+Users shouldn't need to understand Pegasus's internal roles (compact, reflection, subAgent). Those are implementation details. Instead, the config exposes **tiers** — semantic capability levels that map to how powerful a model you want for each class of work:
 
-## Design
+| Tier | Intent | Typical use |
+|------|--------|-------------|
+| `fast` | Cheapest/fastest | Compaction, reflection, extract, explore subagent |
+| `balanced` | Good all-rounder | General/plan subagents, default subagent model |
+| `powerful` | Strongest available | Complex reasoning, future use |
 
-### Config Structure
+A single `default` model covers the MainAgent and acts as the fallback for any tier that isn't explicitly configured. This means a minimal config only needs one line.
 
-Two sections: `providers` (credentials + endpoint) and `roles` (who uses what).
+## Config Structure
 
 ```yaml
 llm:
-  # ── Provider credentials & endpoints ──
+  # ── Default model (required) ──
+  # Used for MainAgent conversation and as fallback for all tiers.
+  default: anthropic/claude-sonnet-4
+
+  # ── Tier overrides (all optional) ──
+  tiers:
+    fast: openai/gpt-4o-mini        # compact, reflection, extract, explore
+    balanced: openai/gpt-4o         # general/plan subagents
+    powerful: anthropic/claude-opus-4 # complex reasoning
+
+  # ── Provider credentials ──
   providers:
     openai:
       apiKey: ${OPENAI_API_KEY}
-      baseURL: ${OPENAI_BASE_URL:-}         # optional proxy/OpenRouter
     anthropic:
       apiKey: ${ANTHROPIC_API_KEY}
-      baseURL: ${ANTHROPIC_BASE_URL:-}      # optional
-    ollama:
-      type: openai                          # SDK protocol (required for custom names)
-      apiKey: dummy
-      baseURL: http://localhost:11434/v1
-    deepseek:
-      type: openai
-      apiKey: ${DEEPSEEK_API_KEY}
-      baseURL: https://api.deepseek.com/v1
-
-  # ── Role → provider/model ──
-  roles:
-    default: anthropic/claude-sonnet-4      # MainAgent conversation
-    subAgent: openai/gpt-4o-mini            # spawn_subagent child agents
-    compact: openai/gpt-4o-mini             # session summarization
-    reflection: openai/gpt-4o-mini          # post-task memory extraction
-
-  # Global settings
-  maxConcurrentCalls: 3
-  timeout: 120
-  contextWindow: ${LLM_CONTEXT_WINDOW:-}    # override auto-detection
 ```
 
-### Provider Type Resolution
-
-Each provider needs a `type` to determine which SDK to use. Resolution:
-
-| Provider key | `type` field | Resolved SDK |
-|-------------|-------------|--------------|
-| `openai` | (omitted) | openai — inferred from key name |
-| `anthropic` | (omitted) | anthropic — inferred from key name |
-| `ollama` | `openai` | openai — explicit type |
-| `deepseek` | `openai` | openai — explicit type |
-| `my-proxy` | `anthropic` | anthropic — explicit type |
-
-Rule: key `openai` → defaults to openai SDK; key `anthropic` → defaults to anthropic SDK; anything else → `type` is **required**.
-
-### Role Resolution
-
-`roles.default` is **required**. Other roles (`subAgent`, `compact`, `reflection`) fall back to `default` when omitted.
-
-```
-get("compact")
-  → roles.compact = "openai/gpt-4o-mini"
-  → split: provider="openai", model="gpt-4o-mini"
-  → providers.openai = { apiKey: "sk-...", type: "openai" }
-  → cache key = "openai/gpt-4o-mini"
-  → cache hit? return it : create client, cache, return
-```
-
-### Breaking Change: Old config format removed
-
-Old top-level `provider` / `model` fields are **removed**. Migration is straightforward:
+Each tier value can be a shorthand string (`"provider/model"`) or an object for advanced overrides:
 
 ```yaml
-# Before (v1)
-llm:
-  provider: openai
-  providers:
-    openai:
-      apiKey: ${OPENAI_API_KEY}
-      model: gpt-4o
-
-# After (v2)
-llm:
-  providers:
-    openai:
-      apiKey: ${OPENAI_API_KEY}
-  roles:
-    default: openai/gpt-4o
+tiers:
+  fast:
+    model: openai/gpt-4o-mini
+    contextWindow: 128000       # override auto-detection
+    apiType: openai             # force SDK type (rare)
 ```
 
-## Implementation: ModelRegistry
+## Tier Resolution
+
+When the system needs a model, resolution follows this chain:
+
+```
+SUBAGENT.md `model` field   (e.g. "fast" or "openai/gpt-4o")
+        ↓ (if set)
+  contains "/"? → direct model spec → create/cache
+  no "/"?       → treat as tier name
+        ↓
+  tiers[tierName]  (e.g. tiers.fast = "openai/gpt-4o-mini")
+        ↓ (if not set)
+  default          (e.g. "anthropic/claude-sonnet-4")
+        ↓
+  providers[providerName]  → credentials + baseURL
+        ↓
+  create LanguageModel instance (cached by spec)
+```
+
+Same `provider/model` string always returns the same cached instance.
+
+## Internal Tier Mapping
+
+Internal tasks map to tiers automatically — users don't configure these individually:
+
+| Internal task | Tier used | Rationale |
+|--------------|-----------|-----------|
+| MainAgent (`_think`) | `default` | Primary conversation model |
+| Compact (`_generateSummary`) | `fast` | Summarization is simple, cost-sensitive |
+| Reflection (post-task) | `fast` | Fire-and-forget memory extraction |
+| Extract (memory index) | `fast` | Cheap factual extraction |
+| Subagent (explore) | SUBAGENT.md `model` field → `fast` | Read-only research |
+| Subagent (general) | SUBAGENT.md `model` field → `balanced` | Full-capability worker |
+| Subagent (plan) | SUBAGENT.md `model` field → `balanced` | Analysis and planning |
+
+## ModelRegistry API
 
 ```typescript
-type ModelRole = "default" | "subAgent" | "compact" | "reflection";
+type ModelTier = "fast" | "balanced" | "powerful";
 
 class ModelRegistry {
-  private providers: Map<string, ProviderConfig>;  // from config
-  private roles: Map<ModelRole, string>;           // role → "provider/model"
-  private cache: Map<string, LanguageModel>;       // "provider/model" → instance
+  /** MainAgent model (from llm.default). */
+  getDefault(): LanguageModel;
 
-  constructor(settings: Settings) {}
+  /** Model for a tier. Falls back to default if not configured. */
+  getForTier(tier: ModelTier): LanguageModel;
 
-  /** Get model for a role. Lazy-creates on first call. */
-  get(role: ModelRole): LanguageModel;
+  /**
+   * Resolve a model spec or tier name.
+   * Contains "/" → direct model spec; otherwise → tier lookup.
+   */
+  resolve(modelOrTier: string): LanguageModel;
 
-  /** Get the modelId string for a role (for context window lookup). */
-  getModelId(role: ModelRole): string;
+  /** Model ID string for the default model. */
+  getDefaultModelId(): string;
+
+  /** Model ID string for a tier. */
+  getModelIdForTier(tier: ModelTier): string;
+
+  /** Context window override for the default model. */
+  getDefaultContextWindow(): number | undefined;
+
+  /** Context window override for a tier. */
+  getContextWindowForTier(tier: ModelTier): number | undefined;
 }
 ```
 
-### Lazy Creation
+## SUBAGENT.md Model Field
 
-Same `provider/model` string → same cached instance. If `roles.compact` and `roles.reflection` both point to `openai/gpt-4o-mini`, only one client is created.
+Each subagent type can declare its preferred tier or model in the frontmatter:
 
-## Injection Points
-
-| Location | Current | After |
-|----------|---------|-------|
-| `cli.ts` | `createModel(settings)` → single model | `new ModelRegistry(settings)` |
-| `MainAgent` constructor | `model: LanguageModel` | `models: ModelRegistry` |
-| `MainAgent._think()` | `this.model` | `this.models.get("default")` |
-| `MainAgent._generateSummary()` | `this.model` | `this.models.get("compact")` |
-| `MainAgent` → `new Agent(deps)` | passes `model` | passes `models.get("subAgent")` |
-| `Agent._runPostReflection()` | uses same model | `PostTaskReflector` gets `models.get("reflection")` |
-
-### Key Decision: Agent stays single-model internally
-
-Agent's cognitive stages (think/plan/act) share one model. Only reflection is separate because it runs outside the cognitive loop (fire-and-forget after task completion).
-
-## Config Schema Changes
-
-```typescript
-const ProviderConfigSchema = z.object({
-  type: z.enum(["openai", "anthropic"]).optional(),  // SDK type; inferred from key if omitted
-  apiKey: z.string().optional(),
-  baseURL: z.string().optional(),
-});
-
-const RolesConfigSchema = z.object({
-  default: z.string(),                    // required: "provider/model"
-  subAgent: z.string().optional(),        // falls back to default
-  compact: z.string().optional(),         // falls back to default
-  reflection: z.string().optional(),      // falls back to default
-});
-
-const LLMConfigSchema = z.object({
-  providers: z.record(z.string(), ProviderConfigSchema).default({}),
-  roles: RolesConfigSchema,
-  maxConcurrentCalls: z.coerce.number().int().positive().default(3),
-  timeout: z.coerce.number().int().positive().default(120),
-  contextWindow: z.coerce.number().int().positive().optional(),
-});
+```yaml
+---
+name: explore
+description: "Fast, read-only research agent..."
+tools: "read_file, list_files, ..."
+model: fast                        # tier name → resolved via tiers.fast
+---
 ```
 
-## File Changes
+The `model` field accepts:
+- **Tier name** (`fast`, `balanced`, `powerful`) — resolved via `ModelRegistry.resolve()`, falls back to `default`
+- **Direct model spec** (`openai/gpt-4o`) — used as-is, bypassing tier lookup
 
-| File | Change |
-|------|--------|
-| `src/infra/config-schema.ts` | Rewrite `LLMConfigSchema` with `ProviderConfigSchema` + `RolesConfigSchema` |
-| `src/infra/config-loader.ts` | Simplify `configToSettings` (remove old provider resolution logic) |
-| `src/infra/model-registry.ts` | **New** — `ModelRegistry` class with lazy creation + caching |
-| `src/cli.ts` | Replace `createModel()` with `new ModelRegistry(settings)` |
-| `src/agents/main-agent.ts` | Accept `ModelRegistry`, use role-based `get()` |
-| `src/agents/agent.ts` | Accept `model` + `reflectionModel` in constructor |
-| `config.yml` | Rewrite `llm` section with new structure |
-| Tests | New: `model-registry.test.ts`; Update: config-loader, main-agent, agent tests |
+If `model` is omitted, the subagent uses the Agent's default model (the one passed at construction, typically `tiers.balanced` or `default`).
 
-## Example Configs
+## Config Examples
 
-### Minimal (single provider)
+### Minimal (single model for everything)
+
 ```yaml
 llm:
   providers:
     openai:
       apiKey: ${OPENAI_API_KEY}
-  roles:
-    default: openai/gpt-4o
+  default: openai/gpt-4o
 ```
 
-### Cost-optimized (cross-provider)
+### Cost-optimized (cheap tiers, strong default)
+
 ```yaml
 llm:
   providers:
@@ -192,14 +151,14 @@ llm:
       apiKey: ${OPENAI_API_KEY}
     anthropic:
       apiKey: ${ANTHROPIC_API_KEY}
-  roles:
-    default: anthropic/claude-sonnet-4
-    subAgent: anthropic/claude-sonnet-4
-    compact: openai/gpt-4o-mini
-    reflection: openai/gpt-4o-mini
+  default: anthropic/claude-sonnet-4
+  tiers:
+    fast: openai/gpt-4o-mini
+    balanced: openai/gpt-4o
 ```
 
-### Local dev + cloud fallback
+### Local dev (Ollama for subagents, cloud for MainAgent)
+
 ```yaml
 llm:
   providers:
@@ -209,9 +168,8 @@ llm:
       type: openai
       apiKey: dummy
       baseURL: http://localhost:11434/v1
-  roles:
-    default: openai/gpt-4o
-    subAgent: ollama/llama3.2:latest
-    compact: ollama/llama3.2:latest
-    reflection: ollama/llama3.2:latest
+  default: openai/gpt-4o
+  tiers:
+    fast: ollama/llama3.2:latest
+    balanced: ollama/llama3.2:latest
 ```

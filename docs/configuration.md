@@ -37,7 +37,7 @@ Even in this mode, a `config.yml` file provides the structure; env vars are inje
 ```yaml
 llm:
   # Provider configurations — each key becomes a provider name.
-  # Referenced in roles as "providerName/modelName".
+  # Referenced in default/tiers as "providerName/modelName".
   providers:
     openai:
       apiKey: ${OPENAI_API_KEY}
@@ -53,13 +53,16 @@ llm:
       apiKey: dummy
       baseURL: ${OLLAMA_BASE_URL:-http://localhost:11434/v1}
 
-  # Role → model mapping (format: "provider/model")
-  # Roles without a value fall back to "default".
-  roles:
-    default: openai/gpt-4o-mini    # required
-    subAgent:                       # optional — falls back to default
-    compact:                        # optional — falls back to default
-    reflection:                     # optional — falls back to default
+  # Default model — used for MainAgent and as fallback for all tiers.
+  # Format: "provider/model" string or object { model, contextWindow?, apiType? }
+  default: openai/gpt-4o-mini
+
+  # Tier overrides (all optional — fall back to default)
+  # Tiers are capability levels: fast (cheap), balanced (general), powerful (complex).
+  tiers:
+    fast:                           # compact, reflection, extract, explore subagent
+    balanced:                       # general/plan subagents
+    powerful:                       # complex reasoning (future use)
 
   maxConcurrentCalls: 3   # max parallel LLM requests
   timeout: 120            # per-request timeout in seconds
@@ -152,8 +155,7 @@ llm:
   providers:
     openai:
       apiKey: ${OPENAI_API_KEY}
-  roles:
-    default: openai/gpt-4o-mini
+  default: openai/gpt-4o-mini
   timeout: 120
 ```
 
@@ -163,8 +165,9 @@ llm:
   providers:
     anthropic:
       apiKey: ${ANTHROPIC_API_KEY}
-  roles:
-    default: anthropic/claude-sonnet-4-20250514
+  default: anthropic/claude-sonnet-4-20250514
+  tiers:
+    fast: openai/gpt-4o-mini
   timeout: 180
 ```
 
@@ -176,8 +179,9 @@ llm:
       apiKey: ${OPENAI_API_KEY}
     anthropic:                                 # ← from local (added)
       apiKey: ${ANTHROPIC_API_KEY}
-  roles:
-    default: anthropic/claude-sonnet-4-20250514  # ← from local (overridden)
+  default: anthropic/claude-sonnet-4-20250514  # ← from local (overridden)
+  tiers:
+    fast: openai/gpt-4o-mini                   # ← from local (added)
   timeout: 180                                 # ← from local (overridden)
 ```
 
@@ -211,8 +215,7 @@ llm:
     anthropic:
       apiKey: ${ANTHROPIC_API_KEY}
 
-  roles:
-    default: ${LLM_DEFAULT_MODEL:-openai/gpt-4o-mini}
+  default: ${LLM_DEFAULT_MODEL:-openai/gpt-4o-mini}
 
 system:
   logLevel: ${PEGASUS_LOG_LEVEL:-info}
@@ -244,11 +247,11 @@ From highest to lowest:
 | `llm.providers.<name>.type` | `"openai"` \| `"anthropic"` | auto-detected from key | SDK to use for this provider |
 | `llm.providers.<name>.apiKey` | string | — | API key (supports interpolation) |
 | `llm.providers.<name>.baseURL` | string | — | Custom API endpoint |
-| `llm.roles` | object | see below | Maps logical roles to `"provider/model"` strings |
-| `llm.roles.default` | string | `"openai/gpt-4o-mini"` | **Required.** Default model for all roles |
-| `llm.roles.subAgent` | string | — | Model for sub-agent tasks (falls back to default) |
-| `llm.roles.compact` | string | — | Model for context compaction (falls back to default) |
-| `llm.roles.reflection` | string | — | Model for reflection steps (falls back to default) |
+| `llm.default` | string \| object | `"openai/gpt-4o-mini"` | **Required.** Default model for MainAgent and fallback for all tiers. String `"provider/model"` or object `{ model, contextWindow?, apiType? }` |
+| `llm.tiers` | object | `{}` | Maps tier names to model specs |
+| `llm.tiers.fast` | string \| object | — | Model for cheap/fast tasks: compact, reflection, extract, explore (falls back to default) |
+| `llm.tiers.balanced` | string \| object | — | Model for general subagent tasks (falls back to default) |
+| `llm.tiers.powerful` | string \| object | — | Model for complex reasoning tasks (falls back to default) |
 | `llm.maxConcurrentCalls` | number | `3` | Max parallel LLM requests |
 | `llm.timeout` | number | `120` | Per-request timeout in seconds |
 | `llm.contextWindow` | number | — | Context window size in tokens (auto-detected if omitted) |
@@ -276,20 +279,22 @@ llm:
       baseURL: https://api.z.ai/api/coding/paas/v4
 ```
 
-#### Role-Based Model Selection
+#### Tier-Based Model Selection
 
-Roles decouple _what_ the system does from _which model_ does it. Each role can point to a different provider/model combination:
+Tiers decouple _what capability level_ a task needs from _which model_ provides it. Each tier can point to a different provider/model combination:
 
 ```yaml
 llm:
-  roles:
-    default: anthropic/claude-sonnet-4-20250514
-    subAgent: openai/gpt-4o-mini       # cheaper model for sub-tasks
-    compact: openai/gpt-4o-mini        # fast model for compaction
-    reflection: anthropic/claude-sonnet-4-20250514  # strong model for reflection
+  default: anthropic/claude-sonnet-4-20250514   # MainAgent + fallback for all tiers
+  tiers:
+    fast: openai/gpt-4o-mini                    # compact, reflection, extract, explore
+    balanced: openai/gpt-4o                     # general/plan subagents
+    powerful: anthropic/claude-opus-4            # complex reasoning
 ```
 
-If a role is not set, it falls back to `default`.
+If a tier is not set, it falls back to `default`. Subagents declare their preferred tier in their SUBAGENT.md `model` field (see [Task Types](./task-types.md)).
+
+For the full design, see [Tier-Based Model Selection](./multi-model.md).
 
 ### Agent (`agent`)
 
@@ -379,10 +384,9 @@ llm:
       apiKey: dummy
       baseURL: http://localhost:11434/v1
 
-  roles:
-    default: openai/gpt-4o-mini
-    subAgent: openai/gpt-4o-mini
-    compact: openai/gpt-4o-mini
+  default: openai/gpt-4o-mini
+  tiers:
+    fast: openai/gpt-4o-mini
 
 system:
   logLevel: info
@@ -392,8 +396,7 @@ system:
 **config.local.yml** (personal, not committed):
 ```yaml
 llm:
-  roles:
-    default: ollama/llama3.2:latest
+  default: ollama/llama3.2:latest
 ```
 
 ### Example 2: Production
@@ -403,8 +406,7 @@ llm:
   providers:
     anthropic:
       apiKey: ${ANTHROPIC_API_KEY}
-  roles:
-    default: anthropic/claude-sonnet-4-20250514
+  default: anthropic/claude-sonnet-4-20250514
   maxConcurrentCalls: 10
   timeout: 180
 
@@ -429,8 +431,7 @@ llm:
       type: openai
       apiKey: dummy
       baseURL: http://localhost:11434/v1
-  roles:
-    default: ollama/qwen2.5:latest
+  default: ollama/qwen2.5:latest
 
 system:
   logLevel: debug
@@ -438,7 +439,7 @@ system:
   logFormat: line
 ```
 
-### Example 4: Role-Based Model Split
+### Example 4: Tier-Based Model Split
 
 ```yaml
 llm:
@@ -448,11 +449,11 @@ llm:
     openai:
       apiKey: ${OPENAI_API_KEY}
 
-  roles:
-    default: anthropic/claude-sonnet-4-20250514   # strong model for main tasks
-    subAgent: openai/gpt-4o-mini                  # cheap model for sub-tasks
-    compact: openai/gpt-4o-mini                   # fast model for compaction
-    reflection: anthropic/claude-sonnet-4-20250514 # strong model for reflection
+  default: anthropic/claude-sonnet-4-20250514   # strong model for MainAgent
+  tiers:
+    fast: openai/gpt-4o-mini                    # cheap model for compact/reflection
+    balanced: openai/gpt-4o                     # mid-tier for subagents
+    powerful: anthropic/claude-sonnet-4-20250514 # strong model for complex tasks
 
   contextWindow: 200000  # explicit override
 
@@ -472,8 +473,7 @@ llm:
   providers:
     openai:
       apiKey: ${OPENAI_API_KEY}  # reference, not a value
-  roles:
-    default: openai/gpt-4o-mini
+  default: openai/gpt-4o-mini
 
 system:
   dataDir: data

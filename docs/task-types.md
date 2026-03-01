@@ -26,6 +26,7 @@ data/subagents/           # user-created, runtime (overrides builtin)
 name: explore
 description: "Fast, read-only research agent. Use when you need to search, read, or gather information."
 tools: "read_file, list_files, http_get, web_search, notify, ..."
+model: fast              # optional: tier name or "provider/model"
 ---
 
 ## Your Role
@@ -39,6 +40,7 @@ Frontmatter fields:
 - `name`: subagent type name (must match directory name)
 - `description`: injected into MainAgent system prompt to help LLM choose the right type
 - `tools`: comma-separated tool names, or `"*"` for all task tools
+- `model`: _(optional)_ tier name (`fast`, `balanced`, `powerful`) or direct model spec (`openai/gpt-4o`). Resolved via `ModelRegistry.resolve()`. If omitted, the subagent uses the Agent's default model.
 
 Body: the system prompt appended to the base persona prompt when this subagent type runs.
 
