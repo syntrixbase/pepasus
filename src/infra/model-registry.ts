@@ -1,11 +1,11 @@
 /**
- * ModelRegistry — Per-role model resolution with lazy creation and caching.
+ * ModelRegistry — Tier-based model resolution with lazy creation and caching.
  *
- * Maps role names (default, subAgent, compact, reflection) to "provider/model"
- * specs, and creates LanguageModel instances on first access. If a role has no
- * explicit spec, it falls back to the "default" role's spec.
+ * Resolves models from a default spec and optional tier overrides (fast, balanced,
+ * powerful). Creates LanguageModel instances on first access and caches by spec.
+ * If a tier has no explicit spec, it falls back to the default spec.
  *
- * All LLM models are now created via the pi-ai adapter, which handles
+ * All LLM models are created via the pi-ai adapter, which handles
  * provider-specific protocol differences internally.
  *
  * Role values support two forms:
@@ -20,9 +20,7 @@ import { getLogger } from "./logger.ts";
 
 const logger = getLogger("model_registry");
 
-export type ModelRole = "default" | "fast" | "balanced" | "powerful"
-  // Legacy role names — fall back to default when not in tiers
-  | "subAgent" | "compact" | "reflection" | "extract";
+export type ModelTier = "fast" | "balanced" | "powerful";
 
 /** Normalized role value after resolving string | object union. */
 type ResolvedRole = {
@@ -52,23 +50,17 @@ interface OAuthProviderState {
   accountId?: string;
 }
 
-/** Legacy roles object built from new config shape for backward compatibility. */
-type LegacyRoles = { default: RoleValue; [key: string]: RoleValue | undefined };
-
 export class ModelRegistry {
   private providers: LLMConfig["providers"];
-  private roles: LegacyRoles;
+  private defaultSpec: RoleValue;
+  private tiers: Record<string, RoleValue | undefined>;
   private cache = new Map<string, LanguageModel>();
   private oauthState = new Map<string, OAuthProviderState>();
 
   constructor(llmConfig: LLMConfig) {
     this.providers = llmConfig.providers;
-    // Build legacy roles from new default + tiers config
-    // TODO(tier-models): Replace with tier-based API in Task 2
-    this.roles = {
-      default: llmConfig.default,
-      ...(llmConfig.tiers as Record<string, RoleValue | undefined>),
-    };
+    this.defaultSpec = llmConfig.default;
+    this.tiers = llmConfig.tiers as Record<string, RoleValue | undefined>;
   }
 
   /** Set Codex OAuth credentials, base URL, and credential path for auto-refresh. */
@@ -126,11 +118,110 @@ export class ModelRegistry {
     }
   }
 
-  /** Get model for a role. Lazy-creates on first call. */
-  get(role: ModelRole): LanguageModel {
-    const resolved = this._resolveRole(role);
+  // ── Tier-based public API ──────────────────────────────────────
+
+  /** Get the MainAgent model (from llm.default). */
+  getDefault(): LanguageModel {
+    const resolved = this._resolveDefault();
+    return this._getOrCreate(resolved, "default");
+  }
+
+  /** Get model for a tier. Falls back to default if tier not configured. */
+  getForTier(tier: ModelTier): LanguageModel {
+    const resolved = this._resolveTier(tier);
+    return this._getOrCreate(resolved, tier);
+  }
+
+  /**
+   * Resolve a model spec or tier name.
+   * Contains "/" → model spec (create directly), else → tier name.
+   */
+  resolve(modelOrTier: string): LanguageModel {
+    if (modelOrTier.includes("/")) {
+      // Direct model spec — resolve and create
+      const resolved: ResolvedRole = { model: modelOrTier };
+      return this._getOrCreate(resolved, modelOrTier);
+    }
+    // Treat as tier name — falls back to default for unknown tiers
+    const resolved = this._resolveTier(modelOrTier as ModelTier);
+    return this._getOrCreate(resolved, modelOrTier);
+  }
+
+  /** Get modelId for the default model. */
+  getDefaultModelId(): string {
+    const resolved = this._resolveDefault();
+    return this._extractModelId(resolved.model);
+  }
+
+  /** Get modelId for a tier. */
+  getModelIdForTier(tier: ModelTier): string {
+    const resolved = this._resolveTier(tier);
+    return this._extractModelId(resolved.model);
+  }
+
+  /** Get context window override for the default model. */
+  getDefaultContextWindow(): number | undefined {
+    return this._resolveDefault().contextWindow;
+  }
+
+  /** Get context window override for a tier. */
+  getContextWindowForTier(tier: ModelTier): number | undefined {
+    return this._resolveTier(tier).contextWindow;
+  }
+
+  // ── Legacy API (backward compat, will be removed in Task 4) ────
+
+  /** @deprecated Use getDefault() or getForTier() instead. */
+  get(role: string): LanguageModel {
+    if (role === "default") return this.getDefault();
+    // Map legacy role names to tiers or fall back to default
+    if (role === "fast" || role === "balanced" || role === "powerful") {
+      return this.getForTier(role as ModelTier);
+    }
+    // Legacy roles (subAgent, compact, reflection, extract) → default
+    return this.getDefault();
+  }
+
+  /** @deprecated Use getDefaultModelId() or getModelIdForTier() instead. */
+  getModelId(role?: string): string {
+    if (!role || role === "default") return this.getDefaultModelId();
+    if (role === "fast" || role === "balanced" || role === "powerful") {
+      return this.getModelIdForTier(role as ModelTier);
+    }
+    return this.getDefaultModelId();
+  }
+
+  /** @deprecated Use getDefaultContextWindow() or getContextWindowForTier() instead. */
+  getContextWindow(role?: string): number | undefined {
+    if (!role || role === "default") return this.getDefaultContextWindow();
+    if (role === "fast" || role === "balanced" || role === "powerful") {
+      return this.getContextWindowForTier(role as ModelTier);
+    }
+    return this.getDefaultContextWindow();
+  }
+
+  // ── Internal resolution ────────────────────────────────────────
+
+  /** Resolve the default spec. */
+  private _resolveDefault(): ResolvedRole {
+    return resolveRoleValue(this.defaultSpec);
+  }
+
+  /** Resolve a tier spec. Falls back to default if tier not configured. */
+  private _resolveTier(tier: string): ResolvedRole {
+    return resolveRoleValue(this.tiers[tier] ?? this.defaultSpec);
+  }
+
+  /** Extract model name from "provider/model" spec. */
+  private _extractModelId(spec: string): string {
+    const slashIdx = spec.indexOf("/");
+    return slashIdx === -1 ? spec : spec.slice(slashIdx + 1);
+  }
+
+  /** Get or create a cached model instance from a resolved spec. */
+  private _getOrCreate(resolved: ResolvedRole, label: string): LanguageModel {
     // Cache key includes apiType override to avoid sharing instances
-    // when the same model spec uses different API types across roles.
+    // when the same model spec uses different API types.
     const cacheKey = resolved.apiType
       ? `${resolved.model}@${resolved.apiType}`
       : resolved.model;
@@ -139,27 +230,8 @@ export class ModelRegistry {
 
     const model = this._create(resolved.model, resolved.apiType);
     this.cache.set(cacheKey, model);
-    logger.info({ role, spec: resolved.model, apiType: resolved.apiType }, "model_created");
+    logger.info({ label, spec: resolved.model, apiType: resolved.apiType }, "model_created");
     return model;
-  }
-
-  /** Get modelId for a role (for context window lookup). */
-  getModelId(role: ModelRole): string {
-    const resolved = this._resolveRole(role);
-    const slashIdx = resolved.model.indexOf("/");
-    return slashIdx === -1 ? resolved.model : resolved.model.slice(slashIdx + 1);
-  }
-
-  /** Get per-role contextWindow override (if configured). */
-  getContextWindow(role: ModelRole): number | undefined {
-    const resolved = this._resolveRole(role);
-    return resolved.contextWindow;
-  }
-
-  /** Resolve a role to its normalized form. */
-  private _resolveRole(role: ModelRole): ResolvedRole {
-    const value = this.roles[role] ?? this.roles.default;
-    return resolveRoleValue(value);
   }
 
   /**

@@ -5,6 +5,7 @@ export interface SubagentDefinition {
   tools: string[];        // tool name list, ["*"] means all task tools
   prompt: string;         // system prompt body (markdown)
   source: "builtin" | "user";
+  model?: string;         // tier name ("fast") or model spec ("openai/gpt-4o")
 }
 
 /** Raw parsed frontmatter from SUBAGENT.md. */
@@ -12,4 +13,5 @@ export interface SubagentFrontmatter {
   name?: string;
   description?: string;
   tools?: string;
+  model?: string;
 }
