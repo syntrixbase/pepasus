@@ -30,6 +30,7 @@ import path from "node:path";
 import { SkillRegistry, loadAllSkills } from "../skills/index.ts";
 import { SubagentRegistry, loadAllSubagents } from "../subagents/index.ts";
 import { loginDeviceCode, getValidCredentials, verifyToken } from "../infra/codex-oauth.ts";
+import { loginCopilot, getValidCopilotCredentials } from "../infra/copilot-oauth.ts";
 import { ProjectManager } from "../projects/manager.ts";
 import { ProjectAdapter } from "../projects/project-adapter.ts";
 
@@ -77,6 +78,7 @@ export class MainAgent {
   private projectAdapter: ProjectAdapter;
   private systemPrompt: string = "";
   private _codexCredPath: string;
+  private _copilotCredPath: string;
   private _mcpAuthDir: string;
 
   constructor(deps: MainAgentDeps) {
@@ -90,6 +92,7 @@ export class MainAgent {
     // Load Codex credentials synchronously BEFORE models.get()
     // (device code login happens later in start() if needed)
     this._codexCredPath = path.join(this.settings.authDir, "codex.json");
+    this._copilotCredPath = path.join(this.settings.authDir, "github-copilot.json");
     this._mcpAuthDir = path.join(this.settings.authDir, "mcp");
 
     // Main Agent's curated tool set
@@ -126,6 +129,9 @@ export class MainAgent {
 
     // Authenticate Codex provider if configured
     await this._initCodexAuth();
+
+    // Authenticate Copilot provider if configured
+    await this._initCopilotAuth();
 
     // Task execution engine — created AFTER codex auth so models.get() can resolve codex models
     try {
@@ -810,6 +816,40 @@ export class MainAgent {
         "codex_auth_failed",
       );
       // Continue without Codex — other providers still work
+    }
+  }
+
+  /**
+   * Async Copilot auth — runs GitHub device code login if no stored credentials.
+   * Called from start() so it can do async operations (token exchange, interactive login).
+   */
+  private async _initCopilotAuth(): Promise<void> {
+    const copilotConfig = this.settings.llm?.copilot;
+    if (!copilotConfig?.enabled) return;
+
+    try {
+      // Try loading/refreshing stored credentials
+      let creds = await getValidCopilotCredentials(this._copilotCredPath);
+
+      if (!creds) {
+        // No valid credentials → interactive device code login
+        logger.info("copilot_device_code_login_required");
+        creds = await loginCopilot(this._copilotCredPath);
+      }
+
+      // Set credentials on ModelRegistry so Copilot models can be created
+      this.models.setCopilotCredentials(
+        creds.copilotToken,
+        creds.baseURL,
+        this._copilotCredPath,
+      );
+      logger.info("copilot_auth_ready");
+    } catch (err) {
+      logger.error(
+        { error: err instanceof Error ? err.message : String(err) },
+        "copilot_auth_failed",
+      );
+      // Continue without Copilot — other providers still work
     }
   }
 

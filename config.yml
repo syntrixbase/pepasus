@@ -30,6 +30,12 @@ llm:
   codex:
     enabled: ${CODEX_ENABLED:-false}
 
+  # GitHub Copilot integration (OpenAI-compatible API + GitHub OAuth)
+  # When enabled, Pegasus runs GitHub device code login at startup to obtain Copilot credentials.
+  # Use "copilot/<model>" in role mapping, e.g. roles.default: copilot/gpt-4o
+  copilot:
+    enabled: ${COPILOT_ENABLED:-false}
+
   # Provider configurations — each key becomes a provider name
   # Used in roles as "providerName/modelName"
   providers:
