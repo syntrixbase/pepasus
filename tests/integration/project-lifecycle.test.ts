@@ -31,6 +31,7 @@ function createMockModelRegistry(): ModelRegistry {
     providers: { test: { type: "openai", apiKey: "dummy", baseURL: undefined } },
     roles: { default: "test/test-model", subAgent: "test/test-model", compact: undefined, reflection: undefined },
     codex: { enabled: false, baseURL: "https://example.com", model: "test" },
+    copilot: { enabled: false },
     maxConcurrentCalls: 3,
     timeout: 120,
     contextWindow: undefined,

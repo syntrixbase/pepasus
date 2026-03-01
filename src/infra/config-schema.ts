@@ -25,10 +25,15 @@ export const CodexConfigSchema = z.object({
   model: z.string().default("gpt-5.3-codex"),
 });
 
+export const CopilotConfigSchema = z.object({
+  enabled: z.coerce.boolean().default(false),
+});
+
 export const LLMConfigSchema = z.object({
   providers: z.record(z.string(), ProviderConfigSchema).default({}),
   roles: RolesConfigSchema.default({ default: "openai/gpt-4o-mini" }),
   codex: CodexConfigSchema.default({}),
+  copilot: CopilotConfigSchema.default({}),
 
   // System-wide settings
   maxConcurrentCalls: z.coerce.number().int().positive().default(3),
@@ -164,6 +169,7 @@ export const SettingsSchema = z.object({
 
 export type LLMConfig = z.infer<typeof LLMConfigSchema>;
 export type CodexConfig = z.infer<typeof CodexConfigSchema>;
+export type CopilotConfig = z.infer<typeof CopilotConfigSchema>;
 export type ProviderConfig = z.infer<typeof ProviderConfigSchema>;
 export type RolesConfig = z.infer<typeof RolesConfigSchema>;
 export type MemoryConfig = z.infer<typeof MemoryConfigSchema>;

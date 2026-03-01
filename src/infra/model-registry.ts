@@ -25,6 +25,7 @@ export class ModelRegistry {
   private codexCredentials: CodexCredentials | null = null;
   private codexBaseURL: string = "https://chatgpt.com/backend-api";
   private codexCredPath: string = "";
+  private copilotCredentials: { copilotToken: string; baseURL: string } | null = null;
 
   constructor(llmConfig: LLMConfig) {
     this.providers = llmConfig.providers;
@@ -39,6 +40,17 @@ export class ModelRegistry {
     // Invalidate cached codex models so they pick up new tokens
     for (const [key, model] of this.cache.entries()) {
       if (model.provider === "openai-codex") {
+        this.cache.delete(key);
+      }
+    }
+  }
+
+  /** Set Copilot credentials for model creation. credPath is unused here (refresh is external). */
+  setCopilotCredentials(token: string, baseURL: string, _credPath: string): void {
+    this.copilotCredentials = { copilotToken: token, baseURL };
+    // Invalidate cached copilot models so they pick up new tokens
+    for (const [key, model] of this.cache.entries()) {
+      if (model.provider === "copilot") {
         this.cache.delete(key);
       }
     }
@@ -95,6 +107,31 @@ export class ModelRegistry {
           return this.codexCredentials!.accessToken;
         },
       });
+    }
+
+    // Copilot models use "copilot/model-name" — OpenAI-compatible API with Copilot auth
+    if (providerName === "copilot") {
+      if (!this.copilotCredentials) {
+        throw new Error(
+          `Copilot model "${spec}" requires authentication. ` +
+          `Set llm.copilot.enabled: true in config to trigger the OAuth flow at startup.`,
+        );
+      }
+      // Create OpenAI-compatible model with current copilot token.
+      // Copilot tokens are short-lived (~30 min) but auto-refreshed:
+      // when the token expires, setCopilotCredentials() invalidates the cache
+      // and the next get() call re-creates the model with the fresh token.
+      const model = createOpenAICompatibleModel({
+        apiKey: this.copilotCredentials.copilotToken,
+        baseURL: `${this.copilotCredentials.baseURL}/v1`,
+        model: modelName,
+        headers: {
+          "Copilot-Integration-Id": "vscode-chat",
+          "Editor-Version": "Pegasus/1.0.0",
+        },
+      });
+      // Override provider tag for cache invalidation matching
+      return { ...model, provider: "copilot" };
     }
 
     // Standard providers

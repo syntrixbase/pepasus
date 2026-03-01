@@ -23,6 +23,7 @@ function baseLLMConfig(overrides?: Partial<LLMConfig>): LLMConfig {
     timeout: 120,
     contextWindow: undefined,
     codex: { enabled: false, baseURL: "https://chatgpt.com/backend-api", model: "gpt-5.3-codex" },
+    copilot: { enabled: false },
     ...overrides,
   };
 }
@@ -410,5 +411,88 @@ describe("ModelRegistry", () => {
         rmSync(testDir, { recursive: true, force: true });
       }
     }, 10000);
+  });
+
+  // ── setCopilotCredentials tests ──────────────────────
+
+  test("setCopilotCredentials enables copilot model creation", () => {
+    const registry = new ModelRegistry(baseLLMConfig({
+      roles: {
+        default: "copilot/gpt-4o",
+        subAgent: undefined,
+        compact: undefined,
+        reflection: undefined,
+      },
+    }));
+
+    // Without credentials, copilot model throws
+    expect(() => registry.get("default")).toThrow("requires authentication");
+
+    // Set credentials
+    registry.setCopilotCredentials(
+      "tid=test;exp=999",
+      "https://api.individual.githubcopilot.com",
+      "/tmp/test-copilot.json",
+    );
+
+    // Now it works
+    const model = registry.get("default");
+    expect(model.provider).toBe("copilot");
+    expect(model.modelId).toBe("gpt-4o");
+  });
+
+  test("setCopilotCredentials invalidates cached copilot models", () => {
+    const registry = new ModelRegistry(baseLLMConfig({
+      roles: {
+        default: "copilot/gpt-4o",
+        subAgent: undefined,
+        compact: undefined,
+        reflection: undefined,
+      },
+    }));
+
+    // Set initial credentials and create model
+    registry.setCopilotCredentials(
+      "tid=v1;exp=999",
+      "https://api.individual.githubcopilot.com",
+      "/tmp/test-copilot.json",
+    );
+    const model1 = registry.get("default");
+
+    // Update credentials — should invalidate cache
+    registry.setCopilotCredentials(
+      "tid=v2;exp=999",
+      "https://api.individual.githubcopilot.com",
+      "/tmp/test-copilot.json",
+    );
+    const model2 = registry.get("default");
+
+    // Should be a different instance (re-created with new token)
+    expect(model1).not.toBe(model2);
+  });
+
+  test("setCopilotCredentials does not invalidate non-copilot cached models", () => {
+    const registry = new ModelRegistry(baseLLMConfig({
+      roles: {
+        default: "openai/gpt-4o",
+        compact: "copilot/gpt-4o",
+        subAgent: undefined,
+        reflection: undefined,
+      },
+    }));
+
+    // Create and cache the openai model
+    const openaiModel1 = registry.get("default");
+
+    // Set copilot credentials
+    registry.setCopilotCredentials(
+      "tid=tok;exp=999",
+      "https://api.individual.githubcopilot.com",
+      "/tmp/test-copilot.json",
+    );
+
+    // OpenAI model should still be the same cached instance
+    const openaiModel2 = registry.get("default");
+    expect(openaiModel1).toBe(openaiModel2);
   });
 });
