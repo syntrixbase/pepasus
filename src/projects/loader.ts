@@ -8,6 +8,7 @@ import { existsSync, readdirSync, readFileSync } from "fs";
 import path from "node:path";
 import yaml from "js-yaml";
 import { getLogger } from "../infra/logger.ts";
+import { errorToString } from "../infra/errors.ts";
 import type { ProjectDefinition, ProjectFrontmatter, ProjectStatus } from "./types.ts";
 
 const logger = getLogger("project_loader");
@@ -69,7 +70,7 @@ export function parseProjectFile(
       projectDir,
     };
   } catch (err) {
-    logger.warn({ filePath, error: err }, "project_parse_error");
+    logger.warn({ filePath, error: errorToString(err) }, "project_parse_error");
     return null;
   }
 }
@@ -93,7 +94,7 @@ export function scanProjectDir(dir: string): ProjectDefinition[] {
       }
     }
   } catch (err) {
-    logger.warn({ dir, error: err }, "project_dir_scan_error");
+    logger.warn({ dir, error: errorToString(err) }, "project_dir_scan_error");
   }
   return defs;
 }

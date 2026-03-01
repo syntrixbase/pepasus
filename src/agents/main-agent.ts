@@ -15,6 +15,7 @@ import type { Settings } from "../infra/config.ts";
 import { sanitizeForPrompt } from "../infra/sanitize.ts";
 import { formatTimestamp, formatToolTimestamp } from "../infra/time.ts";
 import { getSettings } from "../infra/config.ts";
+import { errorToString } from "../infra/errors.ts";
 import { getLogger } from "../infra/logger.ts";
 import { ToolRegistry } from "../tools/registry.ts";
 import { ToolExecutor } from "../tools/executor.ts";
@@ -186,7 +187,7 @@ export class MainAgent {
           }
         } catch (err) {
           logger.warn(
-            { server: config.name, error: err instanceof Error ? err.message : String(err) },
+            { server: config.name, error: errorToString(err) },
             "main_agent_mcp_tools_register_failed",
           );
         }
@@ -242,7 +243,7 @@ export class MainAgent {
         this.projectAdapter.startProject(project.name, project.projectDir);
         logger.info({ project: project.name }, "project_resumed");
       } catch (err) {
-        logger.warn({ project: project.name, error: err }, "project_resume_failed");
+        logger.warn({ project: project.name, error: errorToString(err) }, "project_resume_failed");
       }
     }
 
@@ -290,7 +291,7 @@ export class MainAgent {
       if (target) {
         target.deliver(msg).catch((err) =>
           logger.error(
-            { channel: msg.channel.type, error: err instanceof Error ? err.message : String(err) },
+            { channel: msg.channel.type, error: errorToString(err) },
             "deliver_failed",
           ),
         );
@@ -328,7 +329,7 @@ export class MainAgent {
           await this._think(item.channel);
         }
       } catch (err) {
-        logger.error({ error: err }, "main_agent_process_error");
+        logger.error({ error: errorToString(err) }, "main_agent_process_error");
         if (item.kind === "message" && this.replyCallback) {
           const errorMessage = this._classifyError(err);
           this.replyCallback({
@@ -832,7 +833,7 @@ export class MainAgent {
       logger.info("codex_auth_ready");
     } catch (err) {
       logger.error(
-        { error: err instanceof Error ? err.message : String(err) },
+        { error: errorToString(err) },
         "codex_auth_failed",
       );
       // Continue without Codex — other providers still work
@@ -897,7 +898,7 @@ export class MainAgent {
       logger.info("copilot_auth_ready");
     } catch (err) {
       logger.error(
-        { error: err instanceof Error ? err.message : String(err) },
+        { error: errorToString(err) },
         "copilot_auth_failed",
       );
       // Continue without Copilot — other providers still work

@@ -20,6 +20,7 @@ import {
   TaskNotFoundError,
   MemoryError,
   ToolError,
+  errorToString,
 } from "@pegasus/infra/errors.ts";
 import { getLogger, rootLogger, resolveTransport, initLogger, isLoggerInitialized } from "@pegasus/infra/logger.ts";
 import type { Message, GenerateTextResult } from "@pegasus/infra/llm-types.ts";
@@ -242,6 +243,27 @@ describe("Error hierarchy", () => {
     expect(err).toBeInstanceOf(PegasusError);
     expect(err.name).toBe("ToolError");
     expect(err.message).toBe("tool failed");
+  });
+
+  test("errorToString extracts message from Error", () => {
+    const err = new Error("something broke");
+    expect(errorToString(err)).toBe("something broke");
+  });
+
+  test("errorToString extracts message from PegasusError subclass", () => {
+    const err = new LLMError("llm failed");
+    expect(errorToString(err)).toBe("llm failed");
+  });
+
+  test("errorToString converts string to string", () => {
+    expect(errorToString("plain string")).toBe("plain string");
+  });
+
+  test("errorToString converts non-Error objects to string", () => {
+    expect(errorToString({ code: 42 })).toBe("[object Object]");
+    expect(errorToString(404)).toBe("404");
+    expect(errorToString(null)).toBe("null");
+    expect(errorToString(undefined)).toBe("undefined");
   });
 });
 

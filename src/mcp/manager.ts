@@ -12,6 +12,7 @@ import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Tool as McpTool, CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { getLogger } from "../infra/logger.ts";
+import { errorToString } from "../infra/errors.ts";
 import type { MCPAuthConfig } from "./auth/types.ts";
 import { TokenStore } from "./auth/token-store.ts";
 import { resolveTransportAuth } from "./auth/provider-factory.ts";
@@ -128,7 +129,7 @@ export class MCPManager {
         await client.close();
       } catch (err) {
         logger.warn(
-          { server: name, error: err instanceof Error ? err.message : String(err) },
+          { server: name, error: errorToString(err) },
           "mcp_server_disconnect_error",
         );
       }

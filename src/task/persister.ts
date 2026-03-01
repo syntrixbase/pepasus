@@ -10,6 +10,7 @@
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { getLogger } from "../infra/logger.ts";
+import { errorToString } from "../infra/errors.ts";
 import { EventType } from "../events/types.ts";
 import { createTaskContext } from "./context.ts";
 import type { TaskContext, Plan } from "./context.ts";
@@ -310,7 +311,7 @@ export class TaskPersister {
         await this._appendIndex(event.taskId, date);
         await this._updatePending("add", event.taskId, task.createdAt);
       } catch (err) {
-        logger.warn({ taskId: event.taskId, error: err }, "persist_created_failed");
+        logger.warn({ taskId: event.taskId, error: errorToString(err) }, "persist_created_failed");
       }
     });
 
@@ -330,7 +331,7 @@ export class TaskPersister {
         });
         await this._updatePending("add", event.taskId, task.createdAt);
       } catch (err) {
-        logger.warn({ taskId: event.taskId, error: err }, "persist_resumed_failed");
+        logger.warn({ taskId: event.taskId, error: errorToString(err) }, "persist_resumed_failed");
       }
     });
 
@@ -349,7 +350,7 @@ export class TaskPersister {
           newMessages,
         });
       } catch (err) {
-        logger.warn({ taskId: event.taskId, error: err }, "persist_reason_failed");
+        logger.warn({ taskId: event.taskId, error: errorToString(err) }, "persist_reason_failed");
       }
     });
 
@@ -367,7 +368,7 @@ export class TaskPersister {
             newMessages,
           });
         } catch (err) {
-          logger.warn({ taskId: event.taskId, error: err }, "persist_tool_failed");
+          logger.warn({ taskId: event.taskId, error: errorToString(err) }, "persist_tool_failed");
         }
       });
     }
@@ -382,7 +383,7 @@ export class TaskPersister {
           reasoning: task.context.reasoning,
         });
       } catch (err) {
-        logger.warn({ taskId: event.taskId, error: err }, "persist_needinfo_failed");
+        logger.warn({ taskId: event.taskId, error: errorToString(err) }, "persist_needinfo_failed");
       }
     });
 
@@ -396,7 +397,7 @@ export class TaskPersister {
           message: event.payload["message"],
         });
       } catch (err) {
-        logger.warn({ taskId: event.taskId, error: err }, "persist_notify_failed");
+        logger.warn({ taskId: event.taskId, error: errorToString(err) }, "persist_notify_failed");
       }
     });
 
@@ -417,7 +418,7 @@ export class TaskPersister {
           newMessages,
         });
       } catch (err) {
-        logger.warn({ taskId: event.taskId, error: err }, "persist_suspended_failed");
+        logger.warn({ taskId: event.taskId, error: errorToString(err) }, "persist_suspended_failed");
       }
     });
 
@@ -432,7 +433,7 @@ export class TaskPersister {
           assessment: event.payload["assessment"],
         });
       } catch (err) {
-        logger.warn({ taskId: event.taskId, error: err }, "persist_reflection_failed");
+        logger.warn({ taskId: event.taskId, error: errorToString(err) }, "persist_reflection_failed");
       }
     });
 
@@ -453,7 +454,7 @@ export class TaskPersister {
         await this._updatePending("remove", event.taskId);
         this.messageIndex.delete(event.taskId);
       } catch (err) {
-        logger.warn({ taskId: event.taskId, error: err }, "persist_completed_failed");
+        logger.warn({ taskId: event.taskId, error: errorToString(err) }, "persist_completed_failed");
       }
     });
 
@@ -469,7 +470,7 @@ export class TaskPersister {
         await this._updatePending("remove", event.taskId);
         this.messageIndex.delete(event.taskId);
       } catch (err) {
-        logger.warn({ taskId: event.taskId, error: err }, "persist_failed_failed");
+        logger.warn({ taskId: event.taskId, error: errorToString(err) }, "persist_failed_failed");
       }
     });
   }
