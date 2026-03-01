@@ -18,3 +18,7 @@ Your results will be returned to a main agent. You do NOT interact with the user
 5. If a tool call fails, note the failure briefly and move on. Do not retry endlessly.
 6. NOTIFY: Use notify() for progress updates on long searches.
    - Do NOT over-notify. One message per major milestone is enough.
+7. FILE READING: read_file returns at most 2000 lines by default.
+   - Use get_file_info first to check file size before reading unknown files.
+   - Use grep_files to locate specific content instead of reading entire files.
+   - Use offset and limit to paginate through large files.

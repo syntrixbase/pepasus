@@ -51,15 +51,27 @@ export type TaskNotification =
   | { type: "failed"; taskId: string; error: string }
   | { type: "notify"; taskId: string; message: string };
 
+/** Max characters for a single tool result before truncation. ~12k tokens. */
+const MAX_TOOL_RESULT_CHARS = 50_000;
+
 /** Push a tool result message into context.messages. */
 export function context_pushToolResult(
   context: TaskContext,
   toolCallId: string,
   toolResult: ToolResult,
 ): void {
-  const rawContent = toolResult.success
+  let rawContent = toolResult.success
     ? JSON.stringify(toolResult.result)
     : `Error: ${toolResult.error}`;
+
+  // Safety net: truncate oversized tool results to protect context window
+  if (rawContent.length > MAX_TOOL_RESULT_CHARS) {
+    rawContent = rawContent.slice(0, MAX_TOOL_RESULT_CHARS)
+      + "\n\n[RESULT TRUNCATED — output exceeded "
+      + MAX_TOOL_RESULT_CHARS.toLocaleString()
+      + " chars. Use more specific queries or smaller ranges.]";
+  }
+
   const tsPrefix = formatToolTimestamp(
     toolResult.completedAt ?? Date.now(),
     toolResult.durationMs,
