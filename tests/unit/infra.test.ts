@@ -335,3 +335,53 @@ describe("LLM Types - Tool support", () => {
 });
 
 // Message conversion tests moved to pi-ai-adapter.test.ts
+
+describe("boolean config parsing", () => {
+  test("codex.enabled: string 'false' → false", () => {
+    const result = LLMConfigSchema.parse({
+      codex: { enabled: "false" },
+    });
+    expect(result.codex.enabled).toBe(false);
+  });
+
+  test("codex.enabled: string 'true' → true", () => {
+    const result = LLMConfigSchema.parse({
+      codex: { enabled: "true" },
+    });
+    expect(result.codex.enabled).toBe(true);
+  });
+
+  test("codex.enabled: boolean false → false", () => {
+    const result = LLMConfigSchema.parse({
+      codex: { enabled: false },
+    });
+    expect(result.codex.enabled).toBe(false);
+  });
+
+  test("codex.enabled: string '0' → false", () => {
+    const result = LLMConfigSchema.parse({
+      codex: { enabled: "0" },
+    });
+    expect(result.codex.enabled).toBe(false);
+  });
+
+  test("codex.enabled: string '1' → true", () => {
+    const result = LLMConfigSchema.parse({
+      codex: { enabled: "1" },
+    });
+    expect(result.codex.enabled).toBe(true);
+  });
+
+  test("copilot.enabled: string 'false' → false", () => {
+    const result = LLMConfigSchema.parse({
+      copilot: { enabled: "false" },
+    });
+    expect(result.copilot.enabled).toBe(false);
+  });
+
+  test("copilot.enabled: default → false", () => {
+    const result = LLMConfigSchema.parse({});
+    expect(result.copilot.enabled).toBe(false);
+    expect(result.codex.enabled).toBe(false);
+  });
+});
