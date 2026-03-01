@@ -6,6 +6,7 @@
  */
 import { readFileSync } from "fs";
 import { getLogger } from "../infra/logger.ts";
+import { errorToString } from "../infra/errors.ts";
 import type { SkillDefinition } from "./types.ts";
 import { splitFrontmatter } from "./loader.ts";
 
@@ -91,7 +92,7 @@ export class SkillRegistry {
 
       return result;
     } catch (err) {
-      logger.warn({ name, error: err }, "skill_body_load_error");
+      logger.warn({ name, error: errorToString(err) }, "skill_body_load_error");
       return null;
     }
   }

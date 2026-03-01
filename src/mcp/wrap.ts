@@ -14,6 +14,7 @@ import type { Tool as McpTool, CallToolResult } from "@modelcontextprotocol/sdk/
 import type { Tool, ToolResult } from "../tools/types.ts";
 import { ToolCategory } from "../tools/types.ts";
 import type { MCPManager } from "./manager.ts";
+import { errorToString } from "../infra/errors.ts";
 
 /**
  * Convert CallToolResult content to string.
@@ -94,7 +95,7 @@ function wrapSingle(
       } catch (err) {
         return {
           success: false,
-          error: err instanceof Error ? err.message : String(err),
+          error: errorToString(err),
           startedAt,
           completedAt: Date.now(),
           durationMs: Date.now() - startedAt,

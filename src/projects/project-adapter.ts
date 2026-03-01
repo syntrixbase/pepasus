@@ -7,6 +7,7 @@
  * ModelRegistry.
  */
 import { getLogger } from "../infra/logger.ts";
+import { errorToString } from "../infra/errors.ts";
 import type { ModelRegistry } from "../infra/model-registry.ts";
 import type {
   ChannelAdapter,
@@ -226,7 +227,7 @@ export class ProjectAdapter implements ChannelAdapter {
       const errorMsg: WorkerInbound = {
         type: "llm_error",
         requestId: request.requestId,
-        error: err instanceof Error ? err.message : String(err),
+        error: errorToString(err),
       };
       worker.postMessage(errorMsg);
     }

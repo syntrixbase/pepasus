@@ -11,6 +11,7 @@ import { existsSync, readdirSync, readFileSync } from "fs";
 import path from "node:path";
 import yaml from "js-yaml";
 import { getLogger } from "../infra/logger.ts";
+import { errorToString } from "../infra/errors.ts";
 import type { SkillDefinition, SkillFrontmatter } from "./types.ts";
 
 const logger = getLogger("skill_loader");
@@ -74,7 +75,7 @@ export function parseSkillFile(
       source,
     };
   } catch (err) {
-    logger.warn({ filePath, error: err }, "skill_parse_error");
+    logger.warn({ filePath, error: errorToString(err) }, "skill_parse_error");
     return null;
   }
 }
@@ -101,7 +102,7 @@ export function scanSkillDir(
       }
     }
   } catch (err) {
-    logger.warn({ dir, error: err }, "skill_dir_scan_error");
+    logger.warn({ dir, error: errorToString(err) }, "skill_dir_scan_error");
   }
   return skills;
 }

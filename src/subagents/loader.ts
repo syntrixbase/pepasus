@@ -11,6 +11,7 @@ import { existsSync, readdirSync, readFileSync } from "fs";
 import path from "node:path";
 import yaml from "js-yaml";
 import { getLogger } from "../infra/logger.ts";
+import { errorToString } from "../infra/errors.ts";
 import type { SubagentDefinition, SubagentFrontmatter } from "./types.ts";
 
 const logger = getLogger("subagent_loader");
@@ -70,7 +71,7 @@ export function parseSubagentFile(
       model,
     };
   } catch (err) {
-    logger.warn({ filePath, error: err }, "subagent_parse_error");
+    logger.warn({ filePath, error: errorToString(err) }, "subagent_parse_error");
     return null;
   }
 }
@@ -97,7 +98,7 @@ export function scanSubagentDir(
       }
     }
   } catch (err) {
-    logger.warn({ dir, error: err }, "subagent_dir_scan_error");
+    logger.warn({ dir, error: errorToString(err) }, "subagent_dir_scan_error");
   }
   return defs;
 }

@@ -15,7 +15,7 @@ import { Planner } from "../cognitive/plan.ts";
 import { Actor } from "../cognitive/act.ts";
 import { PostTaskReflector, shouldReflect } from "../cognitive/reflect.ts";
 import { getLogger } from "../infra/logger.ts";
-import { InvalidStateTransition, TaskNotFoundError } from "../infra/errors.ts";
+import { InvalidStateTransition, TaskNotFoundError, errorToString } from "../infra/errors.ts";
 import { getSettings } from "../infra/config.ts";
 import type { Settings } from "../infra/config.ts";
 import type { Persona } from "../identity/persona.ts";
@@ -698,7 +698,7 @@ export class Agent {
         "post_reflection_complete",
       );
     } catch (err) {
-      logger.warn({ taskId: task.taskId, error: err }, "post_reflection_failed");
+      logger.warn({ taskId: task.taskId, error: errorToString(err) }, "post_reflection_failed");
     }
   }
 
@@ -722,13 +722,13 @@ export class Agent {
 
   private _spawn(promise: Promise<void>, taskId?: string): void {
     const tracked = promise.catch(async (err) => {
-      logger.error({ error: err, taskId }, "spawned_task_error");
+      logger.error({ error: errorToString(err), taskId }, "spawned_task_error");
 
       // If this was a task-related spawn and the task is not yet terminal, fail it
       if (taskId) {
         const task = this.taskRegistry.getOrNull(taskId);
         if (task && !task.isTerminal) {
-          const errorMsg = err instanceof Error ? err.message : String(err);
+          const errorMsg = errorToString(err);
           task.context.error = errorMsg;
           // Directly transition + dispatch (TASK_FAILED is not subscribed via EventBus)
           const failEvent = createEvent(EventType.TASK_FAILED, {
@@ -783,7 +783,7 @@ export class Agent {
         logger.info({ server: config.name, tools: mcpTools.length }, "mcp_tools_registered");
       } catch (err) {
         logger.warn(
-          { server: config.name, error: err instanceof Error ? err.message : String(err) },
+          { server: config.name, error: errorToString(err) },
           "mcp_tools_register_failed",
         );
       }

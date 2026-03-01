@@ -14,7 +14,7 @@
 import { existsSync, readFileSync } from "fs";
 import os from "os";
 import yaml from "js-yaml";
-import { ConfigError } from "./errors.ts";
+import { ConfigError, errorToString } from "./errors.ts";
 import { getLogger } from "./logger.ts";
 import { SettingsSchema, type Settings } from "./config-schema.ts";
 
@@ -282,7 +282,7 @@ export function loadSettings(): Settings {
     if (err instanceof ConfigError) {
       throw err;
     }
-    logger.warn({ error: err }, "config_file_load_failed_using_defaults");
+    logger.warn({ error: errorToString(err) }, "config_file_load_failed_using_defaults");
   }
 
   // 3. Map to Settings and validate

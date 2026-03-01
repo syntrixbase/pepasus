@@ -88,3 +88,21 @@ export class ToolError extends PegasusError {
     this.name = "ToolError";
   }
 }
+
+// ── Utilities ───────────────────────────────────
+
+/**
+ * Extract a loggable string from an unknown caught value.
+ *
+ * Error objects have non-enumerable `message` and `stack` properties,
+ * so `JSON.stringify(err)` returns `"{}"`. pino serializes log fields
+ * via JSON before sending them to the transport worker thread, which
+ * means `logger.warn({ error: err })` loses all error information.
+ *
+ * Use this helper everywhere an error is passed to logger fields:
+ *   `logger.warn({ error: errorToString(err) }, "something_failed")`
+ */
+export function errorToString(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  return String(err);
+}
