@@ -101,7 +101,7 @@ describe("memory tools", () => {
       expect(data).toEqual([]);
     });
 
-    it("should list facts files with summary from > Summary: line", async () => {
+    it("should list facts files with empty summary (facts skip summary extraction)", async () => {
       await Bun.write(
         `${testDir}/facts/user.md`,
         "# User Facts\n\n> Summary: user name, language\n\n- Name: Test\n",
@@ -114,7 +114,7 @@ describe("memory tools", () => {
       const data = result.result as Array<{ path: string; summary: string; size: number }>;
       expect(data).toHaveLength(1);
       expect(data[0]!.path).toBe("facts/user.md");
-      expect(data[0]!.summary).toBe("user name, language");
+      expect(data[0]!.summary).toBe("");
       expect(data[0]!.size).toBeGreaterThan(0);
     });
 
@@ -132,6 +132,29 @@ describe("memory tools", () => {
       expect(data).toHaveLength(1);
       expect(data[0]!.path).toBe("episodes/2026-02.md");
       expect(data[0]!.summary).toBe("logger fix, short ID");
+    });
+
+    it("should return empty summary for facts but summary for episodes", async () => {
+      await Bun.write(
+        `${testDir}/facts/user.md`,
+        "# User\n\n> Summary: user info\n\n- Name: Test\n",
+      );
+      await Bun.write(
+        `${testDir}/episodes/2026-02.md`,
+        "# Feb\n\n> Summary: episode stuff\n\n## Entry\n",
+      );
+
+      const context = { taskId: "t1", memoryDir: testDir };
+      const result = await memory_list.execute({}, context);
+
+      expect(result.success).toBe(true);
+      const data = result.result as Array<{ path: string; summary: string; size: number }>;
+      expect(data).toHaveLength(2);
+
+      const facts = data.find(e => e.path.startsWith("facts/"));
+      const episodes = data.find(e => e.path.startsWith("episodes/"));
+      expect(facts!.summary).toBe("");
+      expect(episodes!.summary).toBe("episode stuff");
     });
 
     it("should return empty summary when > Summary: line is missing", async () => {
