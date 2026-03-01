@@ -5,6 +5,19 @@
 import { z } from "zod";
 import { MCPAuthConfigSchema } from "../mcp/auth/types.ts";
 
+/**
+ * Boolean schema that correctly handles string "false"/"true" from YAML + env vars.
+ * z.coerce.boolean() converts any non-empty string (including "false") to true,
+ * because Boolean("false") === true. This schema handles it correctly.
+ */
+const booleanFromString = z
+  .union([z.boolean(), z.string()])
+  .transform((val) => {
+    if (typeof val === "boolean") return val;
+    const lower = val.toLowerCase().trim();
+    return lower === "true" || lower === "1" || lower === "yes";
+  });
+
 // Provider-specific configuration
 export const ProviderConfigSchema = z.object({
   type: z.enum(["openai", "anthropic"]).optional(),
@@ -30,13 +43,13 @@ export const RolesConfigSchema = z.object({
 });
 
 export const CodexConfigSchema = z.object({
-  enabled: z.coerce.boolean().default(false),
+  enabled: booleanFromString.default(false),
   baseURL: z.string().default("https://chatgpt.com/backend-api"),
   model: z.string().default("gpt-5.3-codex"),
 });
 
 export const CopilotConfigSchema = z.object({
-  enabled: z.coerce.boolean().default(false),
+  enabled: booleanFromString.default(false),
 });
 
 export const LLMConfigSchema = z.object({
