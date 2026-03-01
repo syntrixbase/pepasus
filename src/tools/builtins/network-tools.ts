@@ -182,25 +182,130 @@ export const http_request: Tool = {
 
 // ── web_search ─────────────────────────────────
 
+// ── web_search ─────────────────────────────────
+
+/** Max characters per search result content snippet. */
+const MAX_RESULT_CONTENT_LENGTH = 1000;
+
 export const web_search: Tool = {
   name: "web_search",
-  description: "Search the web (requires API key configuration)",
+  description: "Search the web using Tavily. Returns structured results with title, URL, and content snippet. "
+    + "Requires WEB_SEARCH_API_KEY in config.",
   category: "network" as ToolCategory,
   parameters: z.object({
-    query: z.string().describe("Search query"),
-    limit: z.number().positive().optional().default(10).describe("Maximum number of results"),
+    query: z.string().min(1).describe("Search query"),
+    max_results: z.coerce.number().int().min(1).max(20).optional().describe("Maximum number of results (default: from config, max: 20)"),
+    topic: z.enum(["general", "news", "finance"]).optional().describe("Search topic category"),
+    time_range: z.enum(["day", "week", "month", "year"]).optional().describe("Limit results to time range"),
+    include_domains: z.array(z.string()).optional().describe("Only include results from these domains"),
+    exclude_domains: z.array(z.string()).optional().describe("Exclude results from these domains"),
   }),
-  async execute(_params: unknown, _context: ToolContext): Promise<ToolResult> {
+  async execute(params: unknown, _context: ToolContext): Promise<ToolResult> {
     const startedAt = Date.now();
-
-    // Web search is not yet implemented — return a clear error
-    return {
-      success: false,
-      error: "Web search is not configured. Set WEB_SEARCH_API_KEY and WEB_SEARCH_PROVIDER environment variables, or configure in tools.webSearch section of config.yml",
-      startedAt,
-      completedAt: Date.now(),
-      durationMs: Date.now() - startedAt,
+    const { query, max_results, topic, time_range, include_domains, exclude_domains } = params as {
+      query: string;
+      max_results?: number;
+      topic?: string;
+      time_range?: string;
+      include_domains?: string[];
+      exclude_domains?: string[];
     };
+
+    try {
+      // Load search config from settings
+      let searchConfig: { provider?: string; apiKey?: string; baseURL?: string; maxResults?: number } | undefined;
+      try {
+        const { getSettings } = await import("../../infra/config.ts");
+        searchConfig = getSettings().tools?.webSearch;
+      } catch {
+        // Settings not initialized (e.g. in tests)
+      }
+
+      if (!searchConfig?.apiKey) {
+        return {
+          success: false,
+          error: "Web search not configured. Set WEB_SEARCH_API_KEY environment variable or tools.webSearch.apiKey in config.yml.",
+          startedAt,
+          completedAt: Date.now(),
+          durationMs: Date.now() - startedAt,
+        };
+      }
+
+      const effectiveMaxResults = max_results ?? searchConfig.maxResults ?? 5;
+
+      // Build Tavily API request
+      const body: Record<string, unknown> = {
+        query,
+        max_results: effectiveMaxResults,
+        search_depth: "basic",
+        include_answer: false,
+      };
+      if (topic) body.topic = topic;
+      if (time_range) body.time_range = time_range;
+      if (include_domains?.length) body.include_domains = include_domains;
+      if (exclude_domains?.length) body.exclude_domains = exclude_domains;
+
+      const apiUrl = searchConfig.baseURL ?? "https://api.tavily.com/search";
+      const response = await fetch(apiUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${searchConfig.apiKey}`,
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(30_000),
+      });
+
+      if (!response.ok) {
+        const errorBody = await response.text().catch(() => "");
+        return {
+          success: false,
+          error: `Tavily API error: ${response.status} ${response.statusText}${errorBody ? " — " + errorBody.slice(0, 200) : ""}`,
+          startedAt,
+          completedAt: Date.now(),
+          durationMs: Date.now() - startedAt,
+        };
+      }
+
+      const data = await response.json() as {
+        query: string;
+        results: Array<{ title: string; url: string; content: string; score: number }>;
+        response_time: number;
+      };
+
+      // Truncate each result's content to keep token usage reasonable
+      const results = (data.results ?? []).map((r) => ({
+        title: r.title,
+        url: r.url,
+        content: r.content.length > MAX_RESULT_CONTENT_LENGTH
+          ? r.content.slice(0, MAX_RESULT_CONTENT_LENGTH) + "…"
+          : r.content,
+        score: r.score,
+      }));
+
+      return {
+        success: true,
+        result: {
+          query: data.query,
+          results,
+          totalResults: results.length,
+        },
+        startedAt,
+        completedAt: Date.now(),
+        durationMs: Date.now() - startedAt,
+      };
+    } catch (err) {
+      const error = (err instanceof DOMException && err.name === "TimeoutError")
+        ? "Web search timed out after 30s"
+        : err instanceof Error ? err.message : String(err);
+      return {
+        success: false,
+        error,
+        startedAt,
+        completedAt: Date.now(),
+        durationMs: Date.now() - startedAt,
+      };
+    }
   },
 };
 
