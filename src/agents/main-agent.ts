@@ -29,8 +29,15 @@ import type { ModelRegistry } from "../infra/model-registry.ts";
 import path from "node:path";
 import { SkillRegistry, loadAllSkills } from "../skills/index.ts";
 import { SubagentRegistry, loadAllSubagents } from "../subagents/index.ts";
-import { loginDeviceCode, getValidCredentials, verifyToken } from "../infra/codex-oauth.ts";
-import { loginCopilot, getValidCopilotCredentials } from "../infra/copilot-oauth.ts";
+import {
+  loginOpenAICodex,
+  refreshOpenAICodexToken,
+  loginGitHubCopilot,
+  refreshGitHubCopilotToken,
+  getGitHubCopilotBaseUrl,
+  type OAuthCredentials,
+} from "@mariozechner/pi-ai";
+import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { ProjectManager } from "../projects/manager.ts";
 import { ProjectAdapter } from "../projects/project-adapter.ts";
 
@@ -779,24 +786,25 @@ export class MainAgent {
   /**
    * Async Codex auth — runs device code login if sync load didn't find credentials.
    * Called from start() so it can do async operations (token refresh, interactive login).
+   * Uses pi-ai's loginOpenAICodex and refreshOpenAICodexToken.
    */
   private async _initCodexAuth(): Promise<void> {
     const codexConfig = this.settings.llm?.codex;
     if (!codexConfig?.enabled) return;
 
     try {
-      // Try loading/refreshing stored credentials
-      let creds = await getValidCredentials(this._codexCredPath);
+      // Try loading stored credentials
+      let creds = this._loadOAuthCredentials(this._codexCredPath);
 
-      // Verify token actually works against the API
-      if (creds) {
-        const valid = await verifyToken(
-          creds.accessToken,
-          creds.accountId,
-          codexConfig.baseURL,
-        );
-        if (!valid) {
-          logger.warn("codex_token_rejected: API rejected stored token, re-authenticating");
+      // If stored credentials exist, try refreshing if expired
+      if (creds && Date.now() >= creds.expires) {
+        try {
+          logger.info("codex_token_refreshing");
+          creds = await refreshOpenAICodexToken(creds.refresh);
+          this._saveOAuthCredentials(this._codexCredPath, creds);
+          logger.info("codex_token_refreshed");
+        } catch {
+          logger.warn("codex_token_refresh_failed, re-authenticating");
           creds = null;
         }
       }
@@ -804,12 +812,37 @@ export class MainAgent {
       if (!creds) {
         // No valid credentials → interactive device code login
         logger.info("codex_device_code_login_required");
-        creds = await loginDeviceCode(this._codexCredPath);
+        creds = await loginOpenAICodex({
+          onAuth: (info) => {
+            console.log(`\nOpen ${info.url}`);
+            if (info.instructions) console.log(info.instructions);
+            console.log("(expires in 15 minutes)\n");
+          },
+          onPrompt: async (prompt) => {
+            console.log(prompt.message);
+            // In non-interactive mode, this will block. In CLI mode the user
+            // is expected to complete the browser flow.
+            return "";
+          },
+          onProgress: (message) => {
+            logger.info({ message }, "codex_login_progress");
+          },
+        });
+        this._saveOAuthCredentials(this._codexCredPath, creds);
       }
 
       // Set credentials on ModelRegistry so Codex models can be created
-      this.models.setCodexCredentials(creds, codexConfig.baseURL, this._codexCredPath);
-      logger.info({ accountId: creds.accountId }, "codex_auth_ready");
+      this.models.setCodexCredentials(
+        {
+          accessToken: creds.access,
+          refreshToken: creds.refresh,
+          expiresAt: creds.expires,
+          accountId: (creds as Record<string, unknown>).accountId as string ?? "",
+        },
+        codexConfig.baseURL,
+        this._codexCredPath,
+      );
+      logger.info("codex_auth_ready");
     } catch (err) {
       logger.error(
         { error: err instanceof Error ? err.message : String(err) },
@@ -822,25 +855,56 @@ export class MainAgent {
   /**
    * Async Copilot auth — runs GitHub device code login if no stored credentials.
    * Called from start() so it can do async operations (token exchange, interactive login).
+   * Uses pi-ai's loginGitHubCopilot and refreshGitHubCopilotToken.
    */
   private async _initCopilotAuth(): Promise<void> {
     const copilotConfig = this.settings.llm?.copilot;
     if (!copilotConfig?.enabled) return;
 
     try {
-      // Try loading/refreshing stored credentials
-      let creds = await getValidCopilotCredentials(this._copilotCredPath);
+      // Try loading stored credentials
+      let creds = this._loadOAuthCredentials(this._copilotCredPath);
+
+      // If stored credentials exist, try refreshing if expired
+      if (creds && Date.now() >= creds.expires) {
+        try {
+          logger.info("copilot_token_refreshing");
+          creds = await refreshGitHubCopilotToken(creds.refresh);
+          this._saveOAuthCredentials(this._copilotCredPath, creds);
+          logger.info("copilot_token_refreshed");
+        } catch {
+          logger.warn("copilot_token_refresh_failed, re-authenticating");
+          creds = null;
+        }
+      }
 
       if (!creds) {
         // No valid credentials → interactive device code login
         logger.info("copilot_device_code_login_required");
-        creds = await loginCopilot(this._copilotCredPath);
+        creds = await loginGitHubCopilot({
+          onAuth: (url, instructions) => {
+            console.log(`\nVisit ${url}`);
+            if (instructions) console.log(instructions);
+            console.log("(expires in 15 minutes)\n");
+          },
+          onPrompt: async (prompt) => {
+            console.log(prompt.message);
+            return "";
+          },
+          onProgress: (message) => {
+            logger.info({ message }, "copilot_login_progress");
+          },
+        });
+        this._saveOAuthCredentials(this._copilotCredPath, creds);
       }
+
+      // Derive base URL from token
+      const baseURL = getGitHubCopilotBaseUrl(creds.access);
 
       // Set credentials on ModelRegistry so Copilot models can be created
       this.models.setCopilotCredentials(
-        creds.copilotToken,
-        creds.baseURL,
+        creds.access,
+        baseURL,
         this._copilotCredPath,
       );
       logger.info("copilot_auth_ready");
@@ -851,6 +915,26 @@ export class MainAgent {
       );
       // Continue without Copilot — other providers still work
     }
+  }
+
+  // ── OAuth credential file helpers ──
+
+  /** Load OAuth credentials from a JSON file. Returns null if not found or invalid. */
+  private _loadOAuthCredentials(credPath: string): OAuthCredentials | null {
+    if (!existsSync(credPath)) return null;
+    try {
+      const content = readFileSync(credPath, "utf-8");
+      const creds = JSON.parse(content) as OAuthCredentials;
+      if (!creds.access || !creds.refresh) return null;
+      return creds;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Save OAuth credentials to a JSON file. */
+  private _saveOAuthCredentials(credPath: string, creds: OAuthCredentials): void {
+    writeFileSync(credPath, JSON.stringify(creds, null, 2), "utf-8");
   }
 
   // ── Memory index injection ──
