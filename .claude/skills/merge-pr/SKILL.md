@@ -20,9 +20,11 @@ If no PR number, use the current branch's PR.
 
 3. **Watch CI**: `gh pr checks <number> --watch`. If checks fail, inspect logs (`gh run view <id> --log-failed`), fix the issue, push, and re-watch.
 
-4. **Merge**: Consolidate commit messages (PR title as main message, unique changes as bullet points), then squash-merge with `--delete-branch`.
+4. **Ensure branch is up-to-date**: `git fetch origin main && git log --oneline HEAD..origin/main`. If behind, rebase: `git rebase origin/main && git push --force-with-lease`, then re-watch CI (go back to step 3). Merge will fail with "required status check expected" if the branch is stale.
 
-5. **Cleanup**:
+5. **Merge**: Consolidate commit messages (PR title as main message, unique changes as bullet points), then squash-merge with `--delete-branch`.
+
+6. **Cleanup**:
    - **In a worktree**: `cd` back to main repo, `git worktree remove <path>`, `git fetch origin main`.
    - **Switched branch**: Restore original branch and `git stash pop`.
    - **On the PR branch**: `git fetch origin main && git checkout origin/main` (detached HEAD to avoid main branch conflicts with other worktrees).
