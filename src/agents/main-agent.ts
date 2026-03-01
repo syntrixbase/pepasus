@@ -118,8 +118,11 @@ export class MainAgent {
     // Load session history from disk
     this.sessionMessages = await this.sessionStore.load();
 
-    // Inject memory index so LLM knows what memory files are available
-    await this._injectMemoryIndex();
+    // Inject memory index only for fresh sessions (empty = new, or compact summary only)
+    // On restart with existing messages, the memory index is already persisted in JSONL
+    if (this.sessionMessages.length === 0) {
+      await this._injectMemoryIndex();
+    }
 
     // Authenticate Codex provider if configured
     await this._initCodexAuth();
@@ -819,22 +822,43 @@ export class MainAgent {
   private async _injectMemoryIndex(): Promise<void> {
     try {
       const memoryDir = path.join(this.settings.dataDir, "memory");
-      const result = await this.toolExecutor.execute(
+      const listResult = await this.toolExecutor.execute(
         "memory_list",
         {},
         { taskId: "main-agent", memoryDir },
       );
-      if (!result.success || !Array.isArray(result.result) || result.result.length === 0) return;
+      if (!listResult.success || !Array.isArray(listResult.result) || listResult.result.length === 0) return;
 
-      const entries = result.result as Array<{ path: string; summary: string; size: number }>;
-      const content = [
-        "[Available memory]",
-        ...entries.map((e) => `- ${e.path} (${formatSize(e.size)}): ${e.summary}`),
-        "",
-        "Use memory_read to load relevant files before responding.",
-      ].join("\n");
+      const entries = listResult.result as Array<{ path: string; summary: string; size: number }>;
+      const lines: string[] = ["[Available memory]", ""];
 
-      const msg: Message = { role: "system", content };
+      // Facts: load full content
+      for (const e of entries.filter(e => e.path.startsWith("facts/"))) {
+        try {
+          const readResult = await this.toolExecutor.execute(
+            "memory_read",
+            { path: e.path },
+            { taskId: "main-agent", memoryDir },
+          );
+          if (readResult.success && typeof readResult.result === "string") {
+            lines.push(`### ${e.path} (${formatSize(e.size)})`, "", readResult.result as string, "");
+          }
+        } catch {
+          lines.push(`- ${e.path} (${formatSize(e.size)}): [failed to load]`);
+        }
+      }
+
+      // Episodes: summary only
+      const episodes = entries.filter(e => e.path.startsWith("episodes/"));
+      if (episodes.length > 0) {
+        lines.push("### Episodes (use memory_read to load details)", "");
+        for (const e of episodes) {
+          lines.push(`- ${e.path} (${formatSize(e.size)}): ${e.summary}`);
+        }
+        lines.push("");
+      }
+
+      const msg: Message = { role: "user", content: lines.join("\n") };
       this.sessionMessages.push(msg);
       await this.sessionStore.append(msg);
       logger.debug({ count: entries.length }, "memory_index_injected");

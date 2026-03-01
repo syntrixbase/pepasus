@@ -1369,11 +1369,16 @@ describe("MainAgent", () => {
 
   // ── Memory index injection tests ──
 
-  it("should inject memory index on start when memory files exist", async () => {
+  it("should inject memory index with full facts content on start", async () => {
     // 1. Create memory files before starting
-    const memoryDir = `${testDataDir}/memory/facts`;
-    await mkdir(memoryDir, { recursive: true });
-    writeFileSync(`${memoryDir}/user.md`, "# User Info\nName: Test User");
+    const memoryDir = `${testDataDir}/memory`;
+    await mkdir(`${memoryDir}/facts`, { recursive: true });
+    await mkdir(`${memoryDir}/episodes`, { recursive: true });
+    writeFileSync(`${memoryDir}/facts/user.md`, "# User Info\n- Name: Test User\n- Lang: EN");
+    writeFileSync(
+      `${memoryDir}/episodes/2026-02.md`,
+      "# Feb 2026\n\n> Summary: logger fix, config\n\n## Entry\n- done\n",
+    );
 
     // 2. Start agent
     const model = createReplyModel("Hello!");
@@ -1394,7 +1399,16 @@ describe("MainAgent", () => {
     // 3. Check session messages contain memory index
     const content = await Bun.file(`${testDataDir}/main/current.jsonl`).text();
     expect(content).toContain("[Available memory]");
+
+    // Facts should be loaded in full (content included)
     expect(content).toContain("facts/user.md");
+    expect(content).toContain("Name: Test User");
+    expect(content).toContain("Lang: EN");
+
+    // Episodes should show summary only (not full content)
+    expect(content).toContain("episodes/2026-02.md");
+    expect(content).toContain("logger fix, config");
+    expect(content).toContain("Episodes (use memory_read to load details)");
 
     await agent.stop();
   }, 10_000);
@@ -1422,6 +1436,42 @@ describe("MainAgent", () => {
       const content = await sessionFile.text();
       expect(content).not.toContain("[Available memory]");
     }
+
+    await agent.stop();
+  }, 10_000);
+
+  it("should not re-inject memory index on restart when session has messages", async () => {
+    const memoryDir = `${testDataDir}/memory`;
+    await mkdir(`${memoryDir}/facts`, { recursive: true });
+    writeFileSync(`${memoryDir}/facts/user.md`, "# User Info\n- Name: Test User");
+
+    // Create an existing session file to simulate restart
+    await mkdir(`${testDataDir}/main`, { recursive: true });
+    writeFileSync(
+      `${testDataDir}/main/current.jsonl`,
+      JSON.stringify({ role: "user", content: "hello from previous session" }) + "\n",
+    );
+
+    const model = createReplyModel("Hello!");
+    const agent = new MainAgent({
+      models: createMockModelRegistry(model),
+      persona: testPersona,
+      settings: SettingsSchema.parse({
+        dataDir: testDataDir,
+        authDir: "/tmp/pegasus-test-auth",
+        logLevel: "warn",
+        llm: { maxConcurrentCalls: 3 },
+        agent: { maxActiveTasks: 10 },
+      }),
+    });
+
+    await agent.start();
+
+    // Session should contain the old message but NOT a new memory index injection
+    const content = await Bun.file(`${testDataDir}/main/current.jsonl`).text();
+    expect(content).toContain("hello from previous session");
+    // Memory index should NOT be re-injected since session already has messages
+    expect(content).not.toContain("[Available memory]");
 
     await agent.stop();
   }, 10_000);

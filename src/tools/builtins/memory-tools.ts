@@ -91,7 +91,7 @@ export const memory_list: Tool = {
 
           entries.push({
             path: `${subdir.name}/${file.name}`,
-            summary: extractSummary(content),
+            summary: subdir.name === "facts" ? "" : extractSummary(content),
             size: stat,
           });
         }
