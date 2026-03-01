@@ -1,131 +1,52 @@
-# Pegasus — Event-Driven Autonomous Agent System
+# Pegasus — Autonomous Agent System
 
-**Pegasus** is an event-driven, state-machine-based autonomous agent system. Rather than a traditional request-response service, it is a continuously running autonomous worker that can handle multiple tasks concurrently, call tools, make decisions, and learn from experience.
+Pegasus is a continuously running autonomous agent that handles multiple tasks concurrently, calls tools, makes decisions, and learns from experience. Unlike traditional chatbots, it maintains persistent memory, manages long-running projects, and operates across multiple communication channels.
 
-## ✨ Core Features
+## What It Does
 
-- 🧠 **Inner monologue** — Main Agent's LLM output is private thinking; only `reply` tool calls reach the user
-- 🔄 **Event-driven architecture** — everything is an event, dispatched via EventBus, non-blocking concurrency
-- 🤖 **State machine task management** — TaskFSM controls task lifecycle precisely, with suspend/resume
-- 🧩 **2-stage cognitive pipeline** — Reason → Act, with async post-task reflection for memory learning
-- 📡 **Multi-channel adapter** — Channel Adapter pattern (CLI + Telegram implemented, Slack / SMS / Web planned)
-- 🎭 **Identity system** — configurable persona, consistent personality and behavior
-- 🔧 **Built-in tool system** — file, network, system, data, memory tools + LLM function calling
-- 💾 **Memory system** — long-term memory (facts + episodes), markdown file based
-- 📝 **Task persistence** — incremental JSONL event logs with replay
-- 🔁 **Startup recovery** — session repair + pending task auto-recovery
-- 🧠 **Multi-model support** — per-role model configuration (default, subAgent, compact, reflection)
-- 📦 **Session compaction** — automatic context window management with summarization
-- 🧩 **Skill system** — extensible SKILL.md files with LLM auto-trigger and `/` commands
-- 📂 **Project system** — long-lived task spaces with independent Worker threads, session, memory, and skills per project
+**Think, then act.** Pegasus uses an inner monologue architecture — the LLM's output is private reasoning, and only deliberate `reply` tool calls reach the user. This separation means the agent can think through complex problems, plan multi-step actions, and self-correct before responding.
 
-## 🚀 Quick Start
+**Remember everything.** Long-term memory stores facts and episodic experiences as markdown files. The agent learns user preferences, project context, and domain knowledge over time. Memory persists across restarts and is searchable by the agent.
 
-### Prerequisites
+**Run projects autonomously.** Long-lived task spaces (Projects) run in isolated Worker threads with their own session, memory, and skill set. Each project maintains independent context while the Main Agent coordinates across all of them.
 
-- [Bun](https://bun.sh/) v1.0+
-- **Choose one**:
-  - **OpenAI API Key** (recommended) — [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
-  - **Anthropic API Key** — [console.anthropic.com/settings/keys](https://console.anthropic.com/settings/keys)
-  - **Local model** (no API key needed) — [Ollama](https://ollama.com/) or [LM Studio](https://lmstudio.ai/)
+**Work across channels.** CLI, Telegram — and more planned. The same agent, same memory, same personality, accessible from anywhere.
 
-### Install
+## Key Capabilities
+
+### Cognitive Architecture
+- **Inner monologue** — private LLM reasoning separated from user-facing output
+- **2-stage pipeline** — Reason → Act, with async post-task reflection for memory extraction
+- **Task state machine** — precise lifecycle control with suspend/resume
+- **Concurrent execution** — multiple tasks run in parallel with semaphore-based throttling
+
+### Model Flexibility
+- **Multi-provider** — OpenAI, Anthropic, Codex, GitHub Copilot, Ollama, LM Studio, or any OpenAI-compatible endpoint
+- **Per-role models** — different models for reasoning, task execution, summarization, and reflection
+- **Per-role tuning** — override context window size and API type per role
+- **150+ models** — auto-detected context window sizes for all major models
+
+### Autonomy
+- **Skill system** — extensible SKILL.md files that the agent auto-discovers and invokes
+- **Subagent specialization** — task types (explore, plan, general) with tailored tool sets and prompts
+- **Project system** — isolated long-running workspaces with Worker threads
+- **Startup recovery** — session repair and pending task auto-recovery after restart
+
+### Safety
+- **Anti-power-seeking guardrails** — the agent prioritizes safety over task completion
+- **Input sanitization** — Unicode control character stripping for prompt injection defense
+- **Tool restrictions** — two-layer validation (LLM visibility + execution gating) per task type
+
+## Getting Started
 
 ```bash
 bun install
-```
-
-### Configure
-
-Pegasus uses layered config: `config.yml` (base) → `config.local.yml` (override) → env vars → Zod validation.
-
-Quickest: set env vars in `.env`:
-
-```bash
-cp .env.example .env
-# Edit .env — set your API key and default model:
-#   OPENAI_API_KEY=sk-proj-...
-#   LLM_DEFAULT_MODEL=openai/gpt-4o
-```
-
-Or create `config.local.yml` for more control:
-
-```yaml
-llm:
-  roles:
-    default: openai/gpt-4o          # provider/model format
-    subAgent: openai/gpt-4o-mini    # optional: cheaper model for tasks
-  providers:
-    openai:
-      apiKey: sk-proj-your-key
-
-# Or Anthropic
-# llm:
-#   roles:
-#     default: anthropic/claude-sonnet-4-20250514
-#   providers:
-#     anthropic:
-#       apiKey: sk-ant-your-key
-
-# Or local Ollama (no API key needed)
-# llm:
-#   roles:
-#     default: ollama/llama3.2:latest
-```
-
-### Run
-
-```bash
+cp .env.example .env   # set your API key
 bun run dev
 ```
 
-## 🏗️ Architecture
+See [docs/](./docs/) for technical documentation, configuration reference, and architecture details.
 
-```
-┌─────────────────────────────────────┐
-│  Channel Adapters (CLI / Slack ...) │
-├─────────────────────────────────────┤
-│  Main Agent (inner monologue +      │
-│              reply tool)            │
-├─────────────────────────────────────┤
-│  EventBus → Agent → TaskFSM        │
-│  Reason → Act (+ async Reflection) │
-├─────────────────────────────────────┤
-│  Tools │ Memory │ Identity │ LLM   │
-└─────────────────────────────────────┘
-```
-
-## 📚 Documentation
-
-- [Architecture](./docs/architecture.md) — layered design, core abstractions, data flow
-- [Main Agent](./docs/main-agent.md) — inner monologue, Channel Adapter, Session, System Prompt
-- [Cognitive Processors](./docs/cognitive.md) — Reason → Act (2-stage) + async PostTaskReflector
-- [Task FSM](./docs/task-fsm.md) — states, transitions, suspend/resume
-- [Event System](./docs/events.md) — EventType, EventBus, priority queue
-- [Agent Core](./docs/agent.md) — event processing, cognitive dispatch, concurrency
-- [Tool System](./docs/tools.md) — registration, execution, timeout, LLM function calling
-- [Memory System](./docs/memory-system.md) — long-term memory (facts + episodes)
-- [Task Persistence](./docs/task-persistence.md) — JSONL event logs, replay
-- [Multi-Model](./docs/multi-model.md) — per-role model config with ModelRegistry
-- [Session Compact](./docs/session-compact.md) — auto-compact with context window awareness
-- [Configuration](./docs/configuration.md) — YAML config + env var interpolation
-- [Logging](./docs/logging.md) — log format, output, rotation
-- [Running Guide](./docs/running.md) — detailed setup and usage
-- [Progress](./docs/progress.md) — milestones, test coverage, tech stack
-- [TODOs](./docs/todos.md) — planned features and ideas
-- [Skill System](./docs/skill-system.md) — SKILL.md format, loader, registry, triggering
-- [Task Types](./docs/task-types.md) — subagent specialization (SUBAGENT.md), loader, registry
-- [Project System](./docs/project-system.md) — long-lived task spaces, Worker threads, ProjectAdapter
-- [Codex API](./docs/codex-api.md) — Codex API integration, Responses API, OAuth
-
-## 🛠️ Development
-
-```bash
-make check     # typecheck + tests
-make coverage  # tests + coverage report
-bun test       # run tests
-```
-
-## 📄 License
+## License
 
 MIT
