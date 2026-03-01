@@ -70,6 +70,7 @@ function testAgentDeps(): AgentDeps {
       agent: { maxActiveTasks: 10 },
       logLevel: "warn",
       dataDir: testDataDir,
+      authDir: "/tmp/pegasus-test-auth",
     }),
   };
 }
@@ -542,6 +543,7 @@ describe("Task Resume — E2E", () => {
         agent: { maxActiveTasks: 10 },
         logLevel: "warn",
         dataDir: e2eDataDir + "/history",
+        authDir: "/tmp/pegasus-test-auth",
       }),
     });
 
@@ -663,6 +665,7 @@ describe("Task Resume — E2E", () => {
         agent: { maxActiveTasks: 10 },
         logLevel: "warn",
         dataDir: e2eDataDir + "/tool-resume",
+        authDir: "/tmp/pegasus-test-auth",
       }),
     });
 
@@ -748,6 +751,7 @@ describe("Task Resume — E2E", () => {
         agent: { maxActiveTasks: 10 },
         logLevel: "warn",
         dataDir,
+        authDir: "/tmp/pegasus-test-auth",
       }),
     });
 
@@ -824,6 +828,7 @@ describe("Task Resume — E2E", () => {
         agent: { maxActiveTasks: 10 },
         logLevel: "warn",
         dataDir: e2eDataDir + "/notify",
+        authDir: "/tmp/pegasus-test-auth",
       }),
     });
 
@@ -890,6 +895,7 @@ describe("Task Resume — E2E", () => {
         agent: { maxActiveTasks: 10 },
         logLevel: "warn",
         dataDir: e2eDataDir + "/multi-resume",
+        authDir: "/tmp/pegasus-test-auth",
       }),
     });
 
@@ -954,6 +960,7 @@ describe("Task Resume — E2E", () => {
         agent: { maxActiveTasks: 10 },
         logLevel: "warn",
         dataDir,
+        authDir: "/tmp/pegasus-test-auth",
       }),
     });
 

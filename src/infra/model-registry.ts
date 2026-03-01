@@ -11,6 +11,7 @@ import { createOpenAICompatibleModel } from "./openai-client.ts";
 import { createAnthropicCompatibleModel } from "./anthropic-client.ts";
 import { createCodexModel } from "./codex-client.ts";
 import type { CodexCredentials } from "./codex-oauth.ts";
+import { getValidCredentials } from "./codex-oauth.ts";
 import { getLogger } from "./logger.ts";
 
 const logger = getLogger("model_registry");
@@ -23,16 +24,18 @@ export class ModelRegistry {
   private cache = new Map<string, LanguageModel>();
   private codexCredentials: CodexCredentials | null = null;
   private codexBaseURL: string = "https://chatgpt.com/backend-api";
+  private codexCredPath: string = "";
 
   constructor(llmConfig: LLMConfig) {
     this.providers = llmConfig.providers;
     this.roles = llmConfig.roles;
   }
 
-  /** Set Codex OAuth credentials and base URL (called after OAuth flow completes). */
-  setCodexCredentials(creds: CodexCredentials, baseURL?: string): void {
+  /** Set Codex OAuth credentials, base URL, and credential path for auto-refresh. */
+  setCodexCredentials(creds: CodexCredentials, baseURL?: string, credPath?: string): void {
     this.codexCredentials = creds;
     if (baseURL) this.codexBaseURL = baseURL;
+    if (credPath) this.codexCredPath = credPath;
     // Invalidate cached codex models so they pick up new tokens
     for (const [key, model] of this.cache.entries()) {
       if (model.provider === "openai-codex") {
@@ -80,8 +83,17 @@ export class ModelRegistry {
       return createCodexModel({
         baseURL: this.codexBaseURL,
         model: modelName,
-        accessToken: this.codexCredentials.accessToken,
         accountId: this.codexCredentials.accountId,
+        getAccessToken: async () => {
+          // Refresh token if expired, update stored credentials
+          const fresh = await getValidCredentials(this.codexCredPath);
+          if (fresh) {
+            this.codexCredentials = fresh;
+            return fresh.accessToken;
+          }
+          // Fallback to current (possibly expired) token
+          return this.codexCredentials!.accessToken;
+        },
       });
     }
 

@@ -24,6 +24,12 @@
 #   ${VAR:+alternate}- Use alternate if VAR is set
 
 llm:
+  # OpenAI Codex integration (Responses API + OAuth)
+  # When enabled, Pegasus runs OAuth login at startup to obtain Codex credentials.
+  # Use "codex/<model>" in role mapping, e.g. roles.subAgent: codex/gpt-5.3-codex
+  codex:
+    enabled: ${CODEX_ENABLED:-false}
+
   # Provider configurations — each key becomes a provider name
   # Used in roles as "providerName/modelName"
   providers:
@@ -67,12 +73,6 @@ llm:
   # Context window size (tokens). Auto-detected from model if not set.
   # Override when using providers with different context limits (e.g. OpenRouter).
   contextWindow: ${LLM_CONTEXT_WINDOW:-}
-
-  # OpenAI Codex integration (Responses API + OAuth)
-  # When enabled, Pegasus runs OAuth login at startup to obtain Codex credentials.
-  # Use "codex/<model>" in role mapping, e.g. roles.subAgent: codex/gpt-5.3-codex
-  codex:
-    enabled: ${CODEX_ENABLED:-false}
 
 identity:
   personaPath: ${IDENTITY_PERSONA_PATH:-data/personas/default.json}
@@ -132,6 +132,7 @@ channels:
 system:
   logLevel: ${PEGASUS_LOG_LEVEL:-info}  # debug | info | warn | error
   dataDir: ${PEGASUS_DATA_DIR:-data}
+  authDir: ${PEGASUS_AUTH_DIR:-~/.pegasus/auth}
 
   # Log output format (file only, no console output)
   # json — structured JSON lines, machine-parseable (default)

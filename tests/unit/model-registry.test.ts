@@ -1,9 +1,11 @@
 /**
  * Tests for ModelRegistry — per-role model resolution with caching.
  */
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { ModelRegistry } from "@pegasus/infra/model-registry.ts";
 import type { LLMConfig } from "@pegasus/infra/config-schema.ts";
+import { writeFileSync, mkdirSync, rmSync } from "node:fs";
+import { join } from "node:path";
 
 function baseLLMConfig(overrides?: Partial<LLMConfig>): LLMConfig {
   return {
@@ -286,5 +288,127 @@ describe("ModelRegistry", () => {
     expect(registry.get("reflection").modelId).toBe("claude-haiku-3.5");
     // subAgent and compact share same spec → same instance
     expect(registry.get("subAgent")).toBe(registry.get("compact"));
+  });
+
+  // ── codex getAccessToken callback tests ──────────
+
+  describe("codex getAccessToken callback", () => {
+    let mockServer: ReturnType<typeof Bun.serve>;
+    let mockPort: number;
+
+    beforeAll(() => {
+      mockPort = 18940;
+      mockServer = Bun.serve({
+        port: mockPort,
+        fetch() {
+          // Return a valid SSE response for codex
+          const resp = {
+            id: "resp-test",
+            status: "completed",
+            output: [
+              {
+                type: "message",
+                role: "assistant",
+                content: [{ type: "output_text", text: "hello" }],
+              },
+            ],
+            usage: { input_tokens: 5, output_tokens: 3, total_tokens: 8 },
+          };
+          const lines = [
+            `event: response.output_item.done`,
+            `data: ${JSON.stringify({ item: resp.output[0] })}`,
+            "",
+            `event: response.completed`,
+            `data: ${JSON.stringify({ response: resp })}`,
+            "",
+            "",
+          ];
+          return new Response(lines.join("\n"), {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          });
+        },
+      });
+    });
+
+    afterAll(() => {
+      mockServer.stop(true);
+    });
+
+    test("getAccessToken falls back to current credentials when credPath has no file", async () => {
+      const registry = new ModelRegistry(baseLLMConfig({
+        roles: {
+          default: "codex/gpt-5.3-codex",
+          subAgent: undefined,
+          compact: undefined,
+          reflection: undefined,
+        },
+      }));
+
+      registry.setCodexCredentials(
+        {
+          accessToken: "fallback-token",
+          refreshToken: "ref",
+          expiresAt: Date.now() + 3600000,
+          accountId: "acct-test",
+        },
+        `http://localhost:${mockPort}`,
+        "/tmp/nonexistent-codex-cred-path.json",
+      );
+
+      const model = registry.get("default");
+      // Calling generate() triggers getAccessToken callback (lines 87-94)
+      // getValidCredentials("/tmp/nonexistent-...") returns null → fallback path
+      const result = await model.generate({
+        messages: [{ role: "user", content: "hi" }],
+      });
+      expect(result.text).toBe("hello");
+    }, 10000);
+
+    test("getAccessToken uses refreshed credentials when credPath has valid file", async () => {
+      const testDir = "/tmp/pegasus-test-registry-codex";
+      const testFile = join(testDir, "codex.json");
+
+      // Write valid, non-expired credentials to the file
+      mkdirSync(testDir, { recursive: true });
+      const fileCreds = {
+        accessToken: "file-token",
+        refreshToken: "file-ref",
+        expiresAt: Date.now() + 3600000,
+        accountId: "acct-file",
+      };
+      writeFileSync(testFile, JSON.stringify(fileCreds));
+
+      try {
+        const registry = new ModelRegistry(baseLLMConfig({
+          roles: {
+            default: "codex/gpt-5.3-codex",
+            subAgent: undefined,
+            compact: undefined,
+            reflection: undefined,
+          },
+        }));
+
+        registry.setCodexCredentials(
+          {
+            accessToken: "initial-token",
+            refreshToken: "ref",
+            expiresAt: Date.now() + 3600000,
+            accountId: "acct-init",
+          },
+          `http://localhost:${mockPort}`,
+          testFile,
+        );
+
+        const model = registry.get("default");
+        // getValidCredentials(testFile) returns fresh creds from file → lines 90-92
+        const result = await model.generate({
+          messages: [{ role: "user", content: "hi" }],
+        });
+        expect(result.text).toBe("hello");
+      } finally {
+        rmSync(testDir, { recursive: true, force: true });
+      }
+    }, 10000);
   });
 });

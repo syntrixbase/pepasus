@@ -20,8 +20,11 @@ const logger = getLogger("llm.codex");
 export interface CodexClientConfig {
   baseURL: string;          // e.g. "https://chatgpt.com/backend-api"
   model: string;            // e.g. "gpt-5.3-codex"
-  accessToken: string;      // OAuth access token
   accountId: string;        // ChatGPT account ID
+  /** Called before each request to get the current (possibly refreshed) access token. */
+  getAccessToken: () => Promise<string>;
+  /** Called when API returns 401. Should re-authenticate and return new token, or null to give up. */
+  onAuthExpired?: () => Promise<string | null>;
 }
 
 // ── Input item types for Responses API ──
@@ -183,7 +186,9 @@ function parseCodexResponse(resp: CodexResponse): GenerateTextResult {
 /**
  * Create a LanguageModel that uses the Codex Responses API.
  *
- * Uses non-streaming mode (stream: false) matching Pegasus's current pattern.
+ * Uses streaming mode (stream: true, required by Codex API) but
+ * collects the full response before returning — "buffered streaming".
+ * Parses SSE events to reconstruct the complete CodexResponse.
  */
 export function createCodexModel(config: CodexClientConfig): LanguageModel {
   return {
@@ -198,7 +203,7 @@ export function createCodexModel(config: CodexClientConfig): LanguageModel {
       const body: Record<string, unknown> = {
         model: config.model,
         input,
-        stream: false,
+        stream: true,
         store: false,
       };
 
@@ -223,9 +228,10 @@ export function createCodexModel(config: CodexClientConfig): LanguageModel {
         body.max_output_tokens = options.maxTokens;
       }
 
-      // Build headers
+      // Build headers — get fresh token for each request
+      const accessToken = await config.getAccessToken();
       const headers: Record<string, string> = {
-        "Authorization": `Bearer ${config.accessToken}`,
+        "Authorization": `Bearer ${accessToken}`,
         "Content-Type": "application/json",
         "chatgpt-account-id": config.accountId,
       };
@@ -278,8 +284,9 @@ export function createCodexModel(config: CodexClientConfig): LanguageModel {
         throw new Error(`Codex API error: ${response.status} ${errorText}`);
       }
 
+      // Parse SSE stream to reconstruct full response
+      const codexResp = await consumeSSEStream(response);
       const durationMs = Date.now() - startTime;
-      const codexResp = await response.json() as CodexResponse;
 
       if (codexResp.status === "failed") {
         throw new Error(`Codex response failed: ${codexResp.error?.message ?? "unknown error"}`);
@@ -300,5 +307,122 @@ export function createCodexModel(config: CodexClientConfig): LanguageModel {
 
       return result;
     },
+  };
+}
+
+/**
+ * Consume an SSE (Server-Sent Events) stream from the Codex Responses API
+ * and reconstruct a complete CodexResponse.
+ *
+ * Key SSE events:
+ * - response.output_item.done → completed output item (message or function_call)
+ * - response.completed → final response with usage stats
+ * - response.failed → error
+ */
+async function consumeSSEStream(response: Response): Promise<CodexResponse> {
+  const output: ResponseOutputItem[] = [];
+  let usage: CodexResponse["usage"] | undefined;
+  let status: CodexResponse["status"] = "completed";
+  let responseId = "";
+  let errorMessage: string | undefined;
+
+  const body = response.body;
+  if (!body) {
+    throw new Error("Codex API returned empty response body");
+  }
+
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+
+      // Process complete SSE events (separated by double newline)
+      const events = buffer.split("\n\n");
+      buffer = events.pop() ?? ""; // Last element may be incomplete
+
+      for (const eventBlock of events) {
+        if (!eventBlock.trim()) continue;
+
+        let eventType = "";
+        let eventData = "";
+
+        for (const line of eventBlock.split("\n")) {
+          if (line.startsWith("event: ")) {
+            eventType = line.slice(7).trim();
+          } else if (line.startsWith("data: ")) {
+            eventData += line.slice(6);
+          }
+        }
+
+        if (!eventType || !eventData) continue;
+
+        try {
+          const parsed = JSON.parse(eventData);
+
+          switch (eventType) {
+            case "response.output_item.done": {
+              const item = parsed.item;
+              if (item) {
+                output.push(item as ResponseOutputItem);
+              }
+              break;
+            }
+
+            case "response.completed": {
+              const resp = parsed.response;
+              if (resp) {
+                responseId = resp.id ?? responseId;
+                usage = resp.usage;
+                status = resp.status ?? "completed";
+                // NOTE: Do NOT use resp.output here — the completed event may have
+                // empty text in message items. The authoritative output comes from
+                // response.output_item.done events which carry the full content.
+              }
+              break;
+            }
+
+            case "response.done": {
+              // Alternative completion event
+              responseId = parsed.id ?? responseId;
+              usage = parsed.usage ?? usage;
+              break;
+            }
+
+            case "response.failed": {
+              status = "failed";
+              const resp = parsed.response;
+              if (resp?.error?.message) {
+                errorMessage = resp.error.message;
+              } else if (resp?.status_details?.error?.message) {
+                errorMessage = resp.status_details.error.message;
+              }
+              break;
+            }
+
+            // Ignore delta/progress events — we only need final items
+            default:
+              break;
+          }
+        } catch {
+          // Skip unparseable SSE data lines
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  return {
+    id: responseId,
+    status,
+    output,
+    usage,
+    error: errorMessage ? { message: errorMessage } : undefined,
   };
 }

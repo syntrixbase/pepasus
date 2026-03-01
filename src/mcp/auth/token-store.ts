@@ -1,7 +1,7 @@
 /**
  * TokenStore — filesystem-backed storage for MCP OAuth tokens.
  *
- * Each MCP server gets a separate JSON file under `~/.pegasus/auth/mcp/`.
+ * Each MCP server gets a separate JSON file under the configured auth directory.
  * Files are stored with restrictive permissions (0600) since they contain
  * bearer tokens and refresh tokens.
  *
@@ -14,7 +14,6 @@ import * as fs from "fs";
 import * as path from "path";
 import { StoredTokenSchema, type StoredToken } from "./types.ts";
 import { getLogger } from "../../infra/logger.ts";
-import { getAuthSubdir } from "../../infra/auth-dir.ts";
 
 const log = getLogger("mcp.auth.token-store");
 
@@ -25,17 +24,12 @@ export class TokenStore {
 
   /**
    * Creates token store.
-   * Default: `~/.pegasus/auth/mcp/`.
-   * Pass `dirOverride` for testing.
+   * The directory MUST be provided by the caller (from config authDir).
    */
-  constructor(dirOverride?: string) {
-    if (dirOverride) {
-      this.dir = dirOverride;
-      fs.mkdirSync(this.dir, { recursive: true, mode: 0o700 });
-      try { fs.chmodSync(this.dir, 0o700); } catch { /* ignore */ }
-    } else {
-      this.dir = getAuthSubdir("mcp");
-    }
+  constructor(dir: string) {
+    this.dir = dir;
+    fs.mkdirSync(this.dir, { recursive: true, mode: 0o700 });
+    try { fs.chmodSync(this.dir, 0o700); } catch { /* ignore */ }
   }
 
   // ── Persistence ──

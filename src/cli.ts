@@ -7,7 +7,8 @@
  */
 import { MainAgent } from "./agents/main-agent.ts";
 import { loadPersona } from "./identity/persona.ts";
-import { getSettings } from "./infra/config.ts";
+import { setSettings } from "./infra/config.ts";
+import { loadSettings } from "./infra/config-loader.ts";
 import { getLogger, initLogger } from "./infra/logger.ts";
 import { ModelRegistry } from "./infra/model-registry.ts";
 import { CLIAdapter } from "./channels/cli-adapter.ts";
@@ -28,7 +29,9 @@ function printBanner(personaName: string, personaRole: string) {
 
 /** Main CLI REPL loop. */
 export async function startCLI(): Promise<void> {
-  const settings = getSettings();
+  // Load config from config.yml — this is the ONLY place that reads config files
+  const settings = loadSettings();
+  setSettings(settings);
 
   // Initialize logger — this is the application entry point, the only place that should create log files
   const path = await import("node:path");
